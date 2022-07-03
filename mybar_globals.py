@@ -92,20 +92,20 @@ class StrfSecondsTemplate(Template):
     delimiter = '%'
 
 
-def format_seconds(n: int, fmt: str):
+def static_format_seconds(s: int, fmt: str):
     '''Converts seconds to a formatted time string.'''
     templ = StrfSecondsTemplate(fmt)
-    mins, secs = divmod(n, 60)
+    mins, secs = divmod(s, 60)
     hours, mins = divmod(mins, 60)
     days, hours = divmod(hours, 24)
     d = dict(S=secs, M=mins, H=hours, D=days)
     return templ.substitute(d)
  
 
-def secs_to_dynamic_dhm(n: int, /, *_):
+def dynamic_secs_to_dhm(s: int, /, *_):
     '''Converts seconds to a dhm-formatted time string,
     skipping fields with values == 0.'''
-    mins, secs = divmod(n, 60)
+    mins, secs = divmod(s, 60)
     hours, mins = divmod(mins, 60)
     days, hours = divmod(hours, 24)
     if days:
@@ -114,15 +114,14 @@ def secs_to_dynamic_dhm(n: int, /, *_):
         return "%dh:%dm" % (hours, mins)
     elif mins:
         return "%dm" % mins
-    else:
-        return ""
+    return ""
 
 
 def get_uptime(formatter=None, fmt: str = None):
     # def get_value(self, *args, **kwargs):
         """Returns formatted system uptime in time since boot."""
         if formatter is None:
-            formatter = secs_to_dynamic_dhm
+            formatter = dynamic_secs_to_dhm
         assert callable(formatter)
         if fmt is None:
             fmt = "%Dd:%Hh:%Mm"
@@ -151,11 +150,7 @@ def get_cpu_usage(interval: float, fmt: str = None):
 ##    INTERVAL = 2
 ##    ICON = (" ", "Temp:")
 
-def get_cpu_temp(
-    *,
-    fmt: str = None,
-    in_fahrenheit=False
-):
+def get_cpu_temp(*, fmt: str = None, in_fahrenheit=False):
     # def get_value(self, in_fahrenheit=False, fmt: str = "02.0f", *args, **kwargs):
     """Returns current CPU temperature in Celcius or Fahrenheit."""
     symbol = ('C', 'F')[in_fahrenheit]
@@ -164,9 +159,9 @@ def get_cpu_temp(
 
     coretemp = psutil.sensors_temperatures(in_fahrenheit)['coretemp']
     cpu_temp = next((temp.current for temp in coretemp if
-            temp.label == "Package id 0"), "??")
-    temp = fmt.format(cpu_temp, symbol)
     # "Package id 0" is for the temp of the entire CPU
+        temp.label == "Package id 0"), "??")
+    temp = fmt.format(cpu_temp, symbol)
     return temp
     # return self.ICON[self.ISATTY] + cpu_temp
 
@@ -278,16 +273,16 @@ def get_disk_usage(
     # 
 
 
-def get_battery_info(prec: int = None, fmt: str = None, ):
+def get_battery_info(prec: int = 0, fmt: str = None, ):
     """Returns battery capacity as a percent and whether it is
     being charged or is discharging."""
-    if prec is None:
-        prec = 0
+    # if prec is None:
+        # prec = 0
     if fmt is None:
         fmt = "{:02.{}f}"
     battery = psutil.sensors_battery()
-    # if not battery:
-        # return None
+    if not battery:
+        return (None, None)
     info = fmt.format(battery.percent, prec)
         # return self.ICON[self.ISATTY] + str(
             # round(battery.percent, prec)).zfill(2)
@@ -301,46 +296,44 @@ def get_battery_info(prec: int = None, fmt: str = None, ):
 ##    INTERVAL = 4
 ##    ICON = (" ", "W:")
 
-def get_net_stats(self, stats=False, nm=True):
+
+def get_net_stats(stats=False, nm=True):
     """Returns active network name (and later, stats) from either
     NetworkManager or iwconfig.
-                                                            Note: add IO stats!
-                                                            Using nmcli device show [ifname]:
-                                                            Allow required device/interface argument, then:
-                                                            Allow options for type, state, addresses, 
+    NOTE: add IO stats!
+    Using nmcli device show [ifname]:
+    Allow required device/interface argument, then:
+    Allow options for type, state, addresses, 
+    """
 
-                                                            """
-    def nm_ssid(stats):
+    if nm:
         try:
-            conns = subprocess.run(["nmcli", "con", "show", "--active"],
-                                   timeout=1, capture_output=True,
-                                   encoding="UTF-8").stdout.splitlines()
+            keys, *out = subprocess.run(
+                "nmcli con show --active".split(),
+                timeout=1,
+                capture_output=True,
+                encoding='UTF-8'
+            ).stdout.splitlines()
         except subprocess.TimeoutExpired as exc:
             # print("Command timed out:", exc.args[0])
-            return ""
-        for i in range(1, len(conns)):
-            con = {k: v for k, v in zip(conns[0].split(), conns[i].split())}
-            if con.get("TYPE") == "wifi":
-                con_name = str(con.get("NAME"))
-            # elif con.get("TYPE") == "ether":
-                # con_name = "Ethernet"
+            return None
 
-                return self.ICON[self.ISATTY] + con_name
-        return ""
+        conns = (reversed(c.split()) for c in out)  # NOTE: This compresses whitespace
+        active_conns = (
+            ' '.join(name) for device, typ, uuid, *name in conns if typ == 'wifi'
+        )
+        return next(active_conns, None)
 
-    def iw_ssid(stats):
+    else:
         try:
             if_list = subprocess.run(["iwconfig"], timeout=1,
                 capture_output=True, encoding="ascii").stdout.splitlines()
         except subprocess.TimeoutExpired as exc:
             # print("Command timed out:", exc.args[0])
-            return ""
-        ssid = next(line.split(':"')[1].strip('" ') for line in if_list if line.find("SSID"))
-        return self.ICON[self.ISATTY] + ssid
+            return None
 
-    if nm:
-        return nm_ssid(stats)
-    else: return iw_ssid(stats)
+        ssid = next(line.split(':"')[1].strip('" ') for line in if_list if line.find("SSID"))
+        return ssid
 
 
 ##class AudioVolume(StatusThread):
