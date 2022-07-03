@@ -10,6 +10,7 @@ import signal
 import pathlib
 import subprocess
 from sys import stdout
+from string import Template
 from threading import Thread
 from datetime import datetime as dt
 from typing import Sequence, List, Tuple
@@ -19,20 +20,6 @@ FIELDS = {}
 PIDFILEDIR = os.path.join("/var/run/user", str(os.getuid()), "mybar")
 PID = os.getpid()
 PIDFILE = os.path.join(PIDFILEDIR, str(PID))
-
-def secs_to_dhm(n):
-    """Converts seconds to a formatted time string."""
-    mins, secs = divmod(n, 60)
-    hours, mins = divmod(mins, 60)
-    days, hours = divmod(hours, 24)
-    if days:
-        return "%dd:%dh:%dm" % (days, hours, mins)
-    elif hours:
-        return "%dh:%dm" % (hours, mins)
-    elif mins:
-        return "%dm" % mins
-    else:
-        return ""
 
 class Field:
     def __init__(
@@ -91,7 +78,8 @@ class StatusThread(Thread):
 def get_hostname(interval: float, icon: list[str]):
     """Returns the system hostname."""
     hostname = os.uname().nodename  # This should work for UNIX and Windows
-    return self.ICON[self.ISATTY] + hostname
+    return hostname
+    # return self.ICON[self.ISATTY] + hostname
 
 
 ##class Uptime(StatusThread):
@@ -99,11 +87,48 @@ def get_hostname(interval: float, icon: list[str]):
 ##    INTERVAL = 30
 ##    ICON = (" ", "Up:")
 
-def get_uptime(interval: float, icon: list[str], fmt: str = None):
+
+class StrfSecondsTemplate(Template):
+    delimiter = '%'
+
+
+def format_seconds(n: int, fmt: str):
+    '''Converts seconds to a formatted time string.'''
+    templ = StrfSecondsTemplate(fmt)
+    mins, secs = divmod(n, 60)
+    hours, mins = divmod(mins, 60)
+    days, hours = divmod(hours, 24)
+    d = dict(S=secs, M=mins, H=hours, D=days)
+    return templ.substitute(d)
+ 
+
+def secs_to_dynamic_dhm(n: int, /, *_):
+    '''Converts seconds to a dhm-formatted time string,
+    skipping fields with values == 0.'''
+    mins, secs = divmod(n, 60)
+    hours, mins = divmod(mins, 60)
+    days, hours = divmod(hours, 24)
+    if days:
+        return "%dd:%dh:%dm" % (days, hours, mins)
+    elif hours:
+        return "%dh:%dm" % (hours, mins)
+    elif mins:
+        return "%dm" % mins
+    else:
+        return ""
+
+
+def get_uptime(formatter=None, fmt: str = None):
     # def get_value(self, *args, **kwargs):
         """Returns formatted system uptime in time since boot."""
-        uptime = time.clock_gettime(time.CLOCK_BOOTTIME)
-        return secs_to_dhm(uptime) or None
+        if formatter is None:
+            formatter = secs_to_dynamic_dhm
+        assert callable(formatter)
+        if fmt is None:
+            fmt = "%Dd:%Hh:%Mm"
+        uptime = int(time.clock_gettime(time.CLOCK_BOOTTIME))
+        # return uptime
+        return formatter(uptime, fmt)
 
 
 ##class CPUUsage(StatusThread):
@@ -111,7 +136,7 @@ def get_uptime(interval: float, icon: list[str], fmt: str = None):
 ##    INTERVAL = 2
 ##    ICON = (" ", "CPU:")
 
-def get_cpu_usage(interval: float, icon: list[str], fmt: str = None):
+def get_cpu_usage(interval: float, fmt: str = None):
     # def get_value(self, interval=INTERVAL, fmt: str = "02.0f", *args, **kwargs):
         """Returns system CPU usage in percent over a specified interval."""
         if fmt is None:
@@ -330,41 +355,22 @@ def get_audio_volume():
     notify the thread of volume changes from button presses."""
     try:
         command = subprocess.run(
-            ["amixer", "sget", "Master"],
+            ['amixer', 'sget', 'Master'],
             timeout=1,
             capture_output=True,
-            encoding="UTF-8"
+            encoding='UTF-8'
         )
     except subprocess.TimeoutExpired as exc:
         print("Command timed out:", exc.args[0])
         # return 'timed out'
 
-    output = tuple(l.strip() for l in command.stdout.splitlines())
+    output = (l.strip() for l in reversed(command.stdout.splitlines()))
 
-    prefix = 'Playback channels: '
-    playback = tuple(
-        l.removeprefix(prefix) for l in output if l.startswith(prefix)
-    )
-
-    if playback:
-        channels = playback[-1].split(' - ')
-    else:
-        return None
-        # return 'no playback'
-
-    spkr, *_ = (l for l in output if l.startswith(channels[0]))
-    *_, percent, state = (
-        prop.strip('][% ') for prop in spkr.split('[')
-    )
-
-    # is_off = (percent == '0' or state == 'off')
-    return state, percent
-##    alsa_info = [
-##        line for line in output if line.startswith("Left:")][0].split(" ")
-##    if alsa_info[6] == "[0%]" or alsa_info[7] == "[off]":
-##        return self.ICON_muted[self.ISATTY]
-##    else:
-##        return self.ICON[self.ISATTY] + alsa_info[6].strip("][%").zfill(2)
+    pat = re.compile(r'.*\[(\d+)%\] \[(\w+)\]')
+    pcts, states = zip(*(m.groups() for l in output if (m := pat.match(l))))
+    avg_pct = sum(int(p) for p in pcts) // len(pcts)
+    is_on = any(s == 'on' for s in states)
+    return is_on, avg_pct
 
 
 ##class MusicInfo(StatusThread):
