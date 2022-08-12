@@ -1,571 +1,523 @@
 #!/usr/bin/python
 
-"""Module docstring."""
-
 import os
-import re
+import sys
 import time
 import psutil
 import signal
-import pathlib
-import subprocess
-from sys import stdout
-from string import Template
-from threading import Thread
-from datetime import datetime as dt
-from typing import Sequence, List, Tuple
+import asyncio
+import inspect
+import datetime
+import threading
+from typing import Callable
+from string import Formatter
+from functools import partial
+from concurrent.futures import ThreadPoolExecutor
 
-FIELDS = {}
+from field_funcs import *
 
-PIDFILEDIR = os.path.join("/var/run/user", str(os.getuid()), "mybar")
-PID = os.getpid()
-PIDFILE = os.path.join(PIDFILEDIR, str(PID))
-
-# Each Bar has many Fields.
-# Each Field has a Thread.
-# Each thread runs a while loop.
-# The loop runs a pre-selected function with a specific interval.
-# The function returns a string.
-# The string...needs to get into the bar somehow.
+COUNT = [0]
+#if os.name == 'posix':
+CSI = '\033['
+CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
+HIDE_CURSOR = '?25l'
+UNHIDE_CURSOR = '?25h'
 
 
-class Field(Thread):
-    def __init__(
-        self,
-        interval: float
-        icon: str
-        func: Callable
-        # thread: Thread = None
-        args: tuple
-        kwargs: dict
+class InvalidField(Exception):
+    pass
+class MalformedString(Exception):
+    pass
+
+
+class Field:
+    def __init__(self,
+        /,
+        name: str = None,
+        func=None,
+        icon: str = '',
+        fmt: str = None,
+        interval: float = 1.0,
+        align_to_seconds=False,
+        override_refresh_rate=False,
+        threaded=False,
+        constant_output: str = None,
+        args = [],
+        kwargs = {}
     ):
-        super().__init__(target=func, args=args, kwargs=kwargs)
-        self.running: bool
+        if func is None and value is None:
+            raise ValueError(
+                f"Either a function that returns a string or "
+                f"a constant value string is required."
+            )
 
-    # run by a thread:
-    # def run(self, interval, func, args):
-    def run(self):
-        while running:
-            try:
-                self.start()
-                'asyncio.' sleep(interval)
-            except KeyboardInterrupt:
-                self.finish_or_whatever()
+        # self.name = name
+
+        if not callable(func):
+            raise TypeError(
+                f"Type of 'func' must be callable, "
+                f"not {type(self._callback)}"
+            )
+        self._func = func
+
+        if inspect.iscoroutinefunction(self._func): 
+            self._callback = self._func
+            # self.asyncfunc = self._func
+        else:
+            # self._callback = self._asyncify
+            self._callback = self._func
+            # self.asyncfunc = self._asyncify
+
+        if name is None:
+            name = self._func.__name__
+        self.name = name
+
+        self.icon = icon
+
+        if fmt is None:
+            fmt = self.icon + '{}'
+        self.fmt = fmt
+
+        self.constant_output = constant_output
+        self.interval = interval
+        self.align_to_seconds = align_to_seconds
+        self.args = args
+        self.kwargs = kwargs
+        self.bar = None
+        self.buffer = None
+        self.overrides_refresh = override_refresh_rate
+        self.is_threaded = threaded
+        self.thread = None
+        self._stop_event = threading.Event()
+        # self.is_running = False
+
+##    def _is_running(self):
+##        return not self._stop_event.is_set()
+
+    async def _asyncify(self, *args, **kwargs):
+        '''Wrap a synchronous function in a coroutine for simplicity.'''
+        return self._callback(*args, **kwargs)
+
+    async def _send_updates(self, field_name, updates: str):
+        '''Send new data to the bar buffers'''
+        # bar = self.bar
+        # if updates is not None:
+        if self.fmt is None:
+            self.bar._buffers[field_name] = updates
+            # self.bar._buffers.update(updates)
+        else:
+            self.bar._buffers[field_name] = self.fmt.format(updates, )
+
+ 
+
+    async def run(self):
+    #async def run(self, func, interval, args, kwargs):
+        '''Asynchronously run a non-threaded field's callback
+        and send updates to the bar.'''
+        # self.is_running = True
+        func = self._callback
+        field_name = self.name
+        fmt = self.fmt
+        # icon = self.icon
+        buffer = self.buffer
+        interval = self.interval
+        bar = self.bar
+        args = self.args
+        kwargs = self.kwargs
+
+        is_async = inspect.iscoroutinefunction(self._callback)
+        func = self._callback if is_async else self._asyncify
+
+        if self.overrides_refresh:
+            if bar.fmt is None:
+                on_update = bar._print_line_from_list
+            else:
+                on_update = bar._print_line_from_fmt
+        else:
+            if self.fmt is None:
+                on_update = bar._take_updates
+            else:
+                on_update = self._send_updates
+        # print(f"{field_name}: {on_update.__name__}")
+
+        # start = time.monotonic_ns()
+        while not self._stop_event.is_set():
+            res = await func(*args, **kwargs)
+
+            out = fmt.format(res)
+            if out != buffer:
+##                updates = {field_name: out}
+                # updates = out
+##                # print(repr(out))
+                await on_update(field_name, updates=out)
+            # if self.align_to_seconds:
+                # Syncing the sleep timer to the system clock prevents drifting
+                # delay = (self.refresh_rate - (time.monotonic_ns() - start) % self.refresh_rate)
+                # await asyncio.sleep(timeout)
+            await asyncio.sleep(interval)
+
+        # Syncing the sleep timer to the system clock prevents drifting
+        # time.sleep(refresh_rate - (time.time() - start) % refresh_rate)
+
+    # def run_blocking(self, timeout: float = 1/30):
+    def run_blocking(self, timeout: float = 1/8):
+    #def run_blocking(self, func, interval, args, kwargs):
+        # self.is_running = True
+
+        func = self._callback
+        field_name = self.name
+        fmt = self.fmt
+        # icon = self.icon
+        interval = self.interval
+        bar = self.bar
+        args = self.args
+        kwargs = self.kwargs
+
+        loop = asyncio.new_event_loop()
+
+        is_async = inspect.iscoroutinefunction(func)
+
+        if self.overrides_refresh:
+            if bar.fmt is not None:
+                on_update = bar._print_line_from_fmt
+            else:
+                on_update = bar._print_line_from_list
+        else:
+            on_update = bar._take_updates
+        # print(f"{field_name}: {on_update.__name__}")
+
+        count = 0
+        while not self._stop_event.is_set():
+            if count != interval / timeout:
+                count += 1
+                time.sleep(timeout)
+                continue
+
+            if is_async:
+                res = loop.run_until_complete(func(*args, **kwargs))
+            else:
+                res = func(*args, **kwargs)
+
+            out = fmt.format(res)
+            if out != self.buffer:
+                # print(ret)
+                # updates = {field_name: icon + res}
+                # updates = {field_name: out}
+                # updates = out
+                loop.run_until_complete(on_update(field_name, updates=out))
+                # asyncio.run(bar._print_line(updates))
+                # bar._loop.run_until_complete(send_updates)
+
+            count = 0
+
+    async def send_to_thread(self, ): #loop):
+        self.thread = threading.Thread(
+            target=self.run_blocking,
+            name=self.name,
+            args=self.args,
+            kwargs=self.kwargs, 
+        )
+        # print(f"\nSending {self.name} to a thread...")
+        self.thread.start()
+        # print(f"Sent {self.name} to a thread.")
 
 
 class Bar:
-    '''The main class for bars'''
-
     _field_funcs = {
         'hostname': get_hostname,
+        'uptime': get_uptime,
+        'cpu_usage': get_cpu_usage,
+        'cpu_temp': get_cpu_temp,
+        'mem_usage': get_mem_usage,
+        'disk_usage': get_disk_usage,
+        'battery': get_battery_info,
+        'net_stats': get_net_stats,
+        'datetime': get_datetime,
     }
 
-    def __init__(self,
-        # fmt: st = None,
-        # field_names: list,
-        refresh_rate: float = 0.2,
-        # List of Field objs only for custom parameters:
-        fields: list[Field|str] = None
-        **kwargs
+    _default_fields = {
+        'hostname': Field(name='hostname', func=get_hostname, interval=10),
+        'uptime': Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-dd:%-Hh:%-Mm'}),
+        'cpu_usage': Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True),
+        'cpu_temp': Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True),
+        'mem_usage': Field(name='mem_usage', func=get_mem_usage, interval=2),
+        'disk_usage': Field(name='disk_usage', func=get_disk_usage, interval=10),
+        'battery': Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False),
+        'net_stats': Field(name='net_stats', func=get_net_stats, interval=10),
+        'datetime': Field(name='datetime', func=get_datetime, interval=1/16, override_refresh_rate=True),
+    # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False),
+    }
+
+    def __init__(
+        self,
+        *,
+        fmt: str = None,
+        fields=None,
+        sep: str = ' | ',
+        refresh: float = 1/16,
+        field_params: dict = None
     ):
-        if field_names:
-            fields = {name: func for name}
-        self._fields = fields
-        # self.field_names = fields
-        # self.STOPTHREADS = False
 
+        '''
+        $ mybar fields=1,2,3... sep='|' 
+        $ mybar fmt="{foo} - {bar}"
+        '''
 
-class StatusThread(Thread):
-    """Base class for status commands."""
-    KEY = "?"  # Key for the global FIELDS dict; overwritten by subclasses
-    INTERVAL = 1  # Interval at which threads are looped; subclasses override
-    ISATTY = os.isatty(0)  # Indicates whether bar was run in a terminal or GUI
-    ICON = ""  # Icons are unique to each subclass; subclasses override
-    ICON_muted = ""  # Icon for when volume is muted; AudioVolume overrides
-    ICON_dschrg = ""  # Icon for discharging battery; BatteryInfo overrides
+        # if fields is None and fmt is None:
+        if fmt is None:
+            if fields is None:
+                raise ValueError(
+                    f"Either a list of Fields 'fields' "
+                    f"or a format string 'fmt' is required.")
 
-    def __init__(self):
-        FIELDS[self.KEY] = ""  # Update FIELDS dict using subclass' KEY
-        super().__init__()  # Set up as threading.Thread object
+            #no fmt, has fields
+            if not hasattr(fields, '__iter__'):
+                raise ValueError("The fields argument must be iterable.")
 
-    def get_value(self):
-        """Returns a field value to be saved to the FIELDS dict.
-        Ran by threads; optionally called by get_bar."""
-        # raise NotImplemented("Needs to be overwritten by a subclass.")
-        return
+            if sep is None:
+                raise ValueError("'sep' is required when fmt is None.")
 
-    def run(self):
-        """Runs command threads much like StatusBar.run(),
-        using unique INTERVAL instead of refresh_rate."""
-        start = time.time()
-        while not STOPTHREADS:
-            FIELDS[self.KEY] = self.get_value()
-            time.sleep(self.INTERVAL)
-            # time.sleep(1 - (time.time() - start) % 1)
-            # time.sleep(self.INTERVAL - (time.time() - start) % self.INTERVAL)
-         
+            field_names = [
+                getattr(f, 'name')
+                    if isinstance(f, Field)
+                    else f
+                for f in fields
+            ]
 
+            # Make a default format string pre-populated with the separator.
+            # This leaves the possibility of empty fields.
+            fmt = '{' + ('}'+sep+'{').join(field_names) + '}'
 
-## class Hostname(StatusThread):
-##     KEY = "hostname"
-##     INTERVAL = 60
-##     ICON = ("", "")  # Use a tuple to index GUI/terminal icons with ISATTY
+        #no fields, has fmt
+        elif not isinstance(fmt, str):
+            raise TypeError(f"Format string 'fmt' must be a string, not {type(fmt)}")
 
-def get_hostname(interval: float, icon: list[str]):
-    """Returns the system hostname."""
-    hostname = os.uname().nodename  # This should work for UNIX and Windows
-    return hostname
-    # return self.ICON[self.ISATTY] + hostname
+        #has fmt and is str; no fields
+        else:
+            try:
+                # Used when printing lines by joining field buffers with the separator:
+                field_names = [
+                    name
+                    for m in Formatter().parse(fmt)
+                    if (name := m[1]) is not None
+                ]
+            except ValueError as e:
+                raise MalformedString("Your bar's format string sucks.") from None
+               # e.args =  
 
+            if '' in field_names:
+                raise ValueError("Format string contains positional fields: '{}'")
+            # fields = [self._field_funcs.get(fname) for fname in field_names]
+            fields = list(field_names)
 
-##class Uptime(StatusThread):
-##    KEY = "uptime"
-##    INTERVAL = 30
-##    ICON = (" ", "Up:")
+        self.fmt = fmt
+        self.separator = sep
+        self.field_names = field_names
+        self.refresh_rate = refresh
+        self._stop_event = threading.Event()
+        self._loop = asyncio.new_event_loop()
+        # self._loop = asyncio.get_event_loop()
+        # self._loop = NotImplementedError()
+        self.last_line = ''
 
+        default_field_params = dict(args=[], kwargs={})
+        if field_params is None:
+            field_params = {}
 
-class StrfSecondsTemplate(Template):
-    delimiter = '%'
+        self._fields = {}
+        self._buffers = {}
 
+        for field in fields:
+            if isinstance(field, str):
+                self._buffers[field] = ''
 
-def static_format_seconds(s: int, fmt: str):
-    '''Converts seconds to a formatted time string.'''
-    templ = StrfSecondsTemplate(fmt)
-    mins, secs = divmod(s, 60)
-    hours, mins = divmod(mins, 60)
-    days, hours = divmod(hours, 24)
-    d = dict(S=secs, M=mins, H=hours, D=days)
-    return templ.substitute(d)
+                field_func = self._field_funcs.get(field)
+                if field_func is None:
+                    raise InvalidField(f"Unrecognized field name: {field!r}")
+
+                params = field_params.get(field, default_field_params)
+
+                field = Field(
+                    name=field,
+                    func=field_func,
+                    **params
+                )
+
+            elif not isinstance(field, Field):
+                raise InvalidField(f"Invalid field: {field}")
+
+            field.bar = self
+            self._fields[field.name] = field
+            self._buffers[field.name] = ''
+
+    async def _continuous_line_printer(self, stream=sys.stdout, end: str = '\r'):
+        use_format_str = (self.fmt is not None)
+
+        while not self._stop_event.is_set():
+            if use_format_str:
+                # print(f"{self._buffers = }")
+                # printer = self._print_line_from_fmt
+                # print(repr(self.fmt))
+                line = self.fmt.format_map(self._buffers)
+                # print(f"{line = }")
+            else:
+                # printer = self._print_line_from_list
+                # line = self.sep.join(self._fields_list)
+                # line = self.sep.join(self._fields.values())
+                line = self.separator.join(
+                    self._buffers[field]
+                    for field in self.field_names
+                )
+
+            stream.write(CLEAR_LINE + line + end)
+            # await printer()
+            await asyncio.sleep(self.refresh_rate)
+
+    async def _startup(self, ): #stream=sys.stdout):
+        '''Schedule field coroutines, threads and the line printer to be run
+        in parallel.'''
+        field_coros = []
+        for field in self._fields.values():
+            if field.constant_output is not None:
+                # Do not run fields which have a constant output;
+                # only set the bar buffer.
+                self._buffers[field.name] = field.constant_output
+                continue
+            if not field.is_threaded:
+                field_coros.append((field.run()))
+
+        await asyncio.gather(
+            *field_coros,
+            self._schedule_threads(),
+            self._continuous_line_printer()
+        )
+
+    async def _schedule_threads(self): #loop):
+        '''Send fields to threads if they are meant to be threaded.'''
+        for field in self._fields.values():
+            if field.is_threaded and field.constant_output is None:
+                await field.send_to_thread()
+
+    def run(self, stream=sys.stdout):
+        '''Run the bar and block until an exception is raised.
+        Exit smoothly.'''
+        try:
+            stream.write(CSI + HIDE_CURSOR)
+            self._loop.run_until_complete(self._startup())
+            # self._loop.run_until_complete(self._startup(stream))
+        except KeyboardInterrupt:
+            # print("\n")
+            # print("KeyboardInterrupt caught in Bar.run()")
+            # print("Shutting down...")
+            pass
+
+        finally:
+            stream.write('\n')
+            stream.write(CSI + UNHIDE_CURSOR)
+            self._shutdown()
+            # exit(0)
+
+    def _shutdown(self):
+        '''
+        '''
+        # Indicate that the bar has stopped, for the sake of completeness.
+        self._stop_event.set()
+        # Cancel all threads and coroutines at the next iteration.
+        for field in self._fields.values():
+            field._stop_event.set()
+            if field.is_threaded and field.thread is not None:
+##                print("\nSet _stop_event for", field.name)
+##                if self._kill_threads:
+##                    signal.pthread_kill(field.thread.ident, signal.SIGINT)
+##                    print(f"Sent {self._kill_signal} to {field.name}")
+                field.thread.join()
+                # print(f"{field.thread.name}: {field.thread.is_alive() = }")
+        # print("Joined threads.")
+
+    # async def _take_updates(self, updates: dict):
+    async def _take_updates(self, field_name, updates: str):
+        '''Unless its override_refresh_rate is True,
+        each field uses this to update the buffer when it has new data.'''
+        if updates is not None:
+            self._buffers[field_name] = updates
+
  
-
-def dynamic_secs_to_dhm(s: int, /, *_):
-    '''Converts seconds to a dhm-formatted time string,
-    skipping fields with values == 0.'''
-    mins, secs = divmod(s, 60)
-    hours, mins = divmod(mins, 60)
-    days, hours = divmod(hours, 24)
-    if days:
-        return "%dd:%dh:%dm" % (days, hours, mins)
-    elif hours:
-        return "%dh:%dm" % (hours, mins)
-    elif mins:
-        return "%dm" % mins
-    return ""
-
-
-def get_uptime(formatter=None, fmt: str = None):
-    # def get_value(self, *args, **kwargs):
-        """Returns formatted system uptime in time since boot."""
-        if formatter is None:
-            formatter = dynamic_secs_to_dhm
-        assert callable(formatter)
-        if fmt is None:
-            fmt = "%Dd:%Hh:%Mm"
-        uptime = int(time.clock_gettime(time.CLOCK_BOOTTIME))
-        # return uptime
-        return formatter(uptime, fmt)
-
-
-##class CPUUsage(StatusThread):
-##    KEY = "cpu_usage"
-##    INTERVAL = 2
-##    ICON = (" ", "CPU:")
-
-def get_cpu_usage(interval: float, fmt: str = None):
-    # def get_value(self, interval=INTERVAL, fmt: str = "02.0f", *args, **kwargs):
-        """Returns system CPU usage in percent over a specified interval."""
-        if fmt is None:
-            fmt = "{02.0f}%"
-        cpu_usage = fmt.format(psutil.cpu_percent(interval))
-        return cpu_usage
-        # return self.ICON[self.ISATTY] + cpu_usage
-
-
-##class CPUTemp(StatusThread):
-##    KEY = "cpu_temp"
-##    INTERVAL = 2
-##    ICON = (" ", "Temp:")
-
-def get_cpu_temp(*, fmt: str = None, in_fahrenheit=False):
-    # def get_value(self, in_fahrenheit=False, fmt: str = "02.0f", *args, **kwargs):
-    """Returns current CPU temperature in Celcius or Fahrenheit."""
-    symbol = ('C', 'F')[in_fahrenheit]
-    if fmt is None:
-        fmt = "{:02.0f}{}"
-
-    coretemp = psutil.sensors_temperatures(in_fahrenheit)['coretemp']
-    cpu_temp = next((temp.current for temp in coretemp if
-    # "Package id 0" is for the temp of the entire CPU
-        temp.label == "Package id 0"), "??")
-    temp = fmt.format(cpu_temp, symbol)
-    return temp
-    # return self.ICON[self.ISATTY] + cpu_temp
-
-
-##class MemUsage(StatusThread):
-##    KEY = "mem_used"
-##    INTERVAL = 2
-##    ICON = (" ", "Mem:")
-
-def get_mem_usage(
-    prec: int = 1,
-    measure: str = "used",
-    unit: str = "G",
-    fmt: str = None,
-):
-    # """Returns total RAM used including buffers and cache in GiB."""
-    if fmt is None:
-        fmt = "{:.{}f}{}"
-
-    switch_units = {
-        "G": 3,
-        "M": 2,
-        "K": 1
-    }
-
-    if unit not in switch_units:
-        err = (
-            f"Invalid unit: {unit!r}.\n"
-            f"unit must be one of {', '.join(repr(m) for m in switch_units)}"
-        )
-        raise KeyError(err)
-
-    memory = psutil.virtual_memory()
-    statistic = getattr(memory, measure, None)
-
-    if statistic is None:
-        err = (
-            f"Invalid measure on this operating system: {measure=!r}.\n"
-            f"measure must be one of {', '.join(repr(m) for m in memory._fields)}"
-        )
-        raise KeyError(err)
-    # return self.ICON[self.ISATTY] + used
-    converted = statistic / 1024**switch_units[unit]
-    mem = fmt.format(converted, prec, unit)
-    return mem
-
-
-##class DiskUsage(StatusThread):
-##    KEY = "disk_usage"
-##    INTERVAL = 10
-##    ICON = (" ", "/:")
-
-def get_disk_usage(
-    path="/",
-    measure="free",
-    unit="G",
-    fmt: str = None,
-    prec: int = None,
-):
-    """Returns disk usage for a given path.
-    Measure can be "total", "used", "free", or "percent".
-    Units can be "G", "M", or "K"."""
-    if prec is None:
-        prec = 1
-    if fmt is None:
-        fmt = "{:.{}f}{}"
-
-    switch_units = {
-        "G": 3,
-        "M": 2,
-        "K": 1
-    }
-
-    if unit not in switch_units:
-        err = (
-            f"Invalid unit: {unit!r}.\n"
-            f"unit must be one of {', '.join(repr(m) for m in switch_units)}"
-        )
-        raise KeyError(err)
-
-    disk = psutil.disk_usage(path)
-    statistic = getattr(disk, measure, None)
-
-    if statistic is None:
-        err = (
-            f"Invalid measure on this operating system: {measure=!r}.\n"
-            f"measure must be one of {', '.join(repr(m) for m in memory._fields)}"
-        )
-        raise KeyError(err)
-
-    converted = statistic / 1024**switch_units[unit]
-    usage = fmt.format(converted, prec, unit)
-    return usage
-    # return self.ICON[self.ISATTY] + disk_usage
-
-
-##class BatteryInfo(StatusThread):
-##    KEY = "battery_info"
-##    INTERVAL = 1
-##    ICON = (" ", "Chrg:")
-##    ICON_dschrg = (" ", "Bat:")
-                                                            # Progressive/dynamic battery icons!
-
-
-    # 
-    # 
-    # 
-    # 
-    # 
-
-
-def get_battery_info(prec: int = 0, fmt: str = None, ):
-    """Returns battery capacity as a percent and whether it is
-    being charged or is discharging."""
-    # if prec is None:
-        # prec = 0
-    if fmt is None:
-        fmt = "{:02.{}f}"
-    battery = psutil.sensors_battery()
-    if not battery:
-        return (None, None)
-    info = fmt.format(battery.percent, prec)
-        # return self.ICON[self.ISATTY] + str(
-            # round(battery.percent, prec)).zfill(2)
-        # return self.ICON_dschrg[self.ISATTY] + str(
-            # round(battery.percent, prec)).zfill(2)
-    return battery.power_plugged, info
-
-
-##class NetStats(StatusThread):
-##    KEY = "net_stats"
-##    INTERVAL = 4
-##    ICON = (" ", "W:")
-
-
-def get_net_stats(device=None, stats=False, nm=True):
-    """Returns active network name (and later, stats) from either
-    NetworkManager or iwconfig.
-    NOTE: add IO stats!
-    Using nmcli device show [ifname]:
-    Allow required device/interface argument, then:
-    Allow options for type, state, addresses, 
-    """
-
-    if nm:
-        try:
-            keys, *out = subprocess.run(
-                "nmcli con show --active".split(),
-                timeout=1,
-                capture_output=True,
-                encoding='UTF-8'
-            ).stdout.splitlines()
-        except subprocess.TimeoutExpired as exc:
-            # print("Command timed out:", exc.args[0])
-            return None
-
-        conns = (reversed(c.split()) for c in out)  # NOTE: This compresses whitespace
-        active_conns = (
-            ' '.join(name) for device, typ, uuid, *name in conns if typ == 'wifi'
-        )
-        return next(active_conns, None)
-
-    else:
-        try:
-            if_list = subprocess.run(["iwconfig"], timeout=1,
-                capture_output=True, encoding="ascii").stdout.splitlines()
-        except subprocess.TimeoutExpired as exc:
-            # print("Command timed out:", exc.args[0])
-            return None
-
-        ssid = next(line.split(':"')[1].strip('" ') for line in if_list if line.find("SSID"))
-        return ssid
-
-
-##class AudioVolume(StatusThread):
-##    KEY = "audio_volume"
-##    # INTERVAL = 0.2
-##    INTERVAL = 3
-##    ICON = (" ", "Vol:")
-##    ICON_muted = ("", "Vol:0%")
-
-def get_audio_volume():
-    """Returns system audio volume from ALSA amixer. SIGUSR1 is used to
-    notify the thread of volume changes from button presses."""
-    try:
-        command = subprocess.run(
-            ['amixer', 'sget', 'Master'],
-            timeout=1,
-            capture_output=True,
-            encoding='UTF-8'
-        )
-    except subprocess.TimeoutExpired as exc:
-        print("Command timed out:", exc.args[0])
-        # return 'timed out'
-
-    output = (l.strip() for l in reversed(command.stdout.splitlines()))
-
-    pat = re.compile(r'.*\[(\d+)%\] \[(\w+)\]')
-    pcts, states = zip(*(m.groups() for l in output if (m := pat.match(l))))
-    avg_pct = sum(int(p) for p in pcts) // len(pcts)
-    is_on = any(s == 'on' for s in states)
-    return is_on, avg_pct
-
-
-##class MusicInfo(StatusThread):
-##    KEY = "music_info"
-##    INTERVAL = 0.5
-##    ICON = (" ", "")
-
-def get_moc_status(fmt: str = None):
-    """Returns formatted music info from MOC using mocp -Q command."""
-    try:
-        command = subprocess.run(
-            ["mocp", "-Q", "%state\n%file\n%tl"],
-            timeout=1,
-            capture_output=True,
-            encoding="UTF-8")
-    except subprocess.TimeoutExpired as exc:
-        print("Command timed out:", exc.args[0])
-        # return ""
-
-    output = command.stdout.splitlines()
-    print(f"{output = }")
-
-    if not output:
-        return (None,) * 3
-    # elif output[0] == "STOP":
-    state, file, timeleft = output
-        # return None
-        # return ""
-    # return state, file, timeleft
-
-    filepath = pathlib.Path(file)
-    filename = filepath.stem
-
-    state_icon = '>' if state == 'PLAY' else '#'
-    status = f'''[-{timeleft}]{state_icon} {filename}'''
-    return status
-
-##def moc_status_format(fmt: str = None,):
-##    md = {k: v for k, v in zip(["state", "file", "timeleft"], output)}
-##    filepath = r"^/.+/"
-##    mocp_status = f"""[-{md["timeleft"]}]{">" if md["state"] == "PLAY"
-##        else "#"} {re.sub(filepath, "", md["file"])}"""
-##    return self.ICON[self.ISATTY] + mocp_status
-
-
-##class Datetime(StatusThread):
-##    KEY = "datetime"
-##    INTERVAL = 1
-##    ICON = ("", "")
-
-##    def get_value(self, fmt: str = "%Y-%m-%d %H:%M:%S"):
-##        return self.ICON[self.ISATTY] + dt.now().strftime(fmt)
-
-def get_datetime(fmt: str = None):
-    if fmt is None:
-        fmt = "%Y-%m-%d %H:%M:%S"
-    return time.strftime(fmt)
-
-
-# Instantiate the threads through their classes
-Threads = []
-##        MusicInfo(), Hostname(), Uptime(), CPUUsage(),
-##           CPUTemp(), MemUsage(), DiskUsage(), BatteryInfo(),
-##           NetStats(), AudioVolume(), Datetime()]
-
-
-def get_bar(fields, sep):
-    if isinstance(sep, str):
-        pass
-    elif hasattr(sep, "__iter__"):
-        sep = sep[os.isatty(0)]
-    else:
-        raise TypeError(
-            "Separator must be of type str or list|tuple[str, str]")
-
-    bar_list = [thread.get_value() for thread in Threads
-                if thread.KEY in fields and thread.get_value()]
-    return sep.join(bar_list)
-
-
-def run_bar(
-    fields,
-    refresh_rate: float,
-    sep: str,
-    *args, **kwargs):
-    """Runs the bar continuously and syncs it with the system clock."""
-    if isinstance(sep, str):
-        sep = sep
-    elif hasattr(sep, "__iter__"):
-        sep = sep[os.isatty(0)]
-    else:
-        raise TypeError(
-            "Separator must be of type str or list|tuple[str, str]")
-
-    try:
-        for thread in Threads:
-            if thread.KEY in fields:
-                thread.start()
-
-        start = time.time()
-
-        while not STOPTHREADS:
-            bar = sep.join([FIELDS[field] for field in fields if FIELDS[field] != ""])
-            stdout.flush()  # Flush Python buffer to stdout
-            stdout.write(bar + "\r")
-            # Syncing the sleep timer to the system clock prevents drifting
-            time.sleep(refresh_rate - (time.time() - start) % refresh_rate)
-        for thread in Threads:
-            thread.join()
-    except KeyboardInterrupt:
-        STOPTHREADS = True
-        stdout.write("\n")
-        exit(0)
-
-
-
+    async def _print_line_from_list(self,
+        field_name: str,
+        updates: dict = None,
+        stream=sys.stdout,
+        end: str = '\r',
+    ):
+        '''When the bar has no format string, fields whose override_refresh_rate
+        is True use this to update the buffer and print a new line when there
+        is new data.'''
+        if updates is not None:
+            self._buffers[field_name] = updates
+        line = self.separator.join(self._buffers[field] for field in self.field_names)
+        stream.write(CLEAR_LINE + line + end)
+
+    async def _print_line_from_fmt(self,
+        field_name: str = None,
+        updates: str = None,
+        # fmt: str = None,
+        stream=sys.stdout,
+        end: str = '\r',
+    ):
+        '''When the bar has a format string, fields whose override_refresh_rate
+        is True use this to update the buffer and print a new line when there
+        is new data.'''
+        if updates is not None:
+            self._buffers[field_name] = updates
+        line = self.fmt.format_map(self._buffers)
+        stream.write(CLEAR_LINE + line + end)
 
 def main():
+    fcount = Field(name='count', func=counter, interval=0.333, args=(COUNT,), override_refresh_rate=False)
+    fhostname = Field(name='hostname', func=get_hostname, interval=10)
+    fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'})
+    fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, ) #kwargs={'interval': 2}, threaded=True)
+    fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True)
+    fmem = Field(name='mem_usage', func=get_mem_usage, interval=2)
+    fdisk = Field(name='disk_usage', func=get_disk_usage, interval=10)
+    fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False)
+    fnet = Field(name='net_stats', func=get_net_stats, interval=10)
 
-    # Create a dedicated /run/users/ and PID file directory for the current
-    # process to which the volume update notifier can send a SIGUSR1
-    if not os.isatty(0):
-        try:
-            # Remove any old PID files and create a new directory if necessary
-            for file in os.listdir(PIDFILEDIR):
-                os.remove(os.path.join(PIDFILEDIR, file))
-        except (FileNotFoundError, NotADirectoryError):
-           os.makedirs(PIDFILEDIR)
 
-    # Write or overwrite PID file, only if in a GUI
-        with open(PIDFILE, "w") as f:
-            f.write(str(PID))
+    fdate = Field(fmt="<3 {}!", name='datetime', func=get_datetime, interval=1/16, override_refresh_rate=True)
+    # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False)
 
-    # Using an external tool such as a shell script, have the volume buttons
-    # send a SIGUSR1 signal to notify audio thread of the change
-    # Handle the signal:
-    def receive_update_sig(signum, frame):
-        # Update audio display value when volume changes and signal is received
-        FIELDS[AudioVolume.KEY] = AudioVolume().get_value()
-    # Register the signal handler
-    signal.signal(signal.SIGUSR1, receive_update_sig)
+    # fdate = Field(func=get_datetime, interval=1)
 
+
+    # mocpline = Field(name='mocpline', func=
 
     fields = (
-        "music_info",
-        "uptime",
-        "cpu_usage",
-        "cpu_temp",
-        "mem_used",
-        "disk_usage",
-        "battery_info",
-        "net_stats",
-        "audio_volume",
-        "datetime"
-        )
+        # fcount,
+        fhostname,
+        fuptime,
+        fcpupct,
+        fcputemp,
+        fmem,
+        fdisk,
+        fbatt,
+        fnet,
+        fdate,
+    )
 
+    global bar
+    bar = Bar(fields=fields, refresh=1)
+    # fields = 
+    # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}{..." #{count}"
+    # fmt = None
+    # bar = Bar(fmt=fmt, fields=fields, refresh=1)
+    # bar = Bar(fmt=fmt)
 
-    # run_bar(fields=fields, refresh_rate=0.2, sep=("|", " "))
-    # print(get_bar(fields=("cpu_usage"), sep=" | "))
+    # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
+    # bar = Bar(fields='datetime hostname counter hostname uptime hostname'.split(), field_params={'counter': dict(args=(COUNT,), interval=0.333)})
 
+    bar.run()
 
-if __name__ == "__main__":
-    pass
-    try:
-        main()
-    except KeyboardInterrupt:
-        STOPTHREADS = True
-        stdout.write("\n")
-        exit(0)
+if __name__ == '__main__':
+    main()
+    # pass
+
