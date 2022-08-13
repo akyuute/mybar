@@ -20,6 +20,7 @@ HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 
 
+#TODO: Finish Mocp line!
 #TODO: Re-implement actual buffer joins!
 #TODO: Implement killing threads!
 #TODO: Implement align_to_clock!

@@ -1,2 +1,2 @@
 # mybar
-  A flexible status bar program for terminal and GUI environments.
+  An extensible, highly customizable asynchronous status bar API for terminal and GUI environments.
