@@ -13,12 +13,17 @@ from string import Formatter
 
 from field_funcs import *
 
-COUNT = [0]
-#if os.name == 'posix':
-CSI = '\033['
+
+CSI = '\033['  # Unix terminal escape code (control sequence introducer)
 CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
+
+
+#TODO: Re-implement actual buffer joins!
+#TODO: Implement killing threads!
+#TODO: Implement align_to_clock!
+#TODO: Implement dynamic icons!
 
 
 class InvalidField(Exception):
@@ -61,9 +66,10 @@ class Field:
         self.args = args
         self.kwargs = kwargs
 
-        if inspect.iscoroutinefunction(self._func): 
+        if inspect.iscoroutinefunction(self._func) or threaded:
             self._callback = self._func
         else:
+            # Wrap a synchronous function call
             self._callback = self._asyncify
 
         if name is None:
@@ -94,18 +100,11 @@ class Field:
 
     async def _asyncify(self, *args, **kwargs):
         '''Wrap a synchronous function in a coroutine for simplicity.'''
-        # return self._callback(*args, **kwargs)
         return self._func(*args, **kwargs)
 
-    async def _send_updates(self, field_name, updates: str):
-        '''Send new data to the bar buffers'''
-        # bar = self.bar
-        # if updates is not None:
-        if self.fmt is None:
-            self.bar._buffers[field_name] = updates
-            # self.bar._buffers.update(updates)
-        else:
-            self.bar._buffers[field_name] = self.fmt.format(updates, )
+    async def _send_formatted(self, field_name, updates: str):
+        '''Format updated data before sending it to the bar buffers.'''
+        self.bar._buffers[field_name] = self.fmt.format(updates)
 
     async def run(self):
     #async def run(self, func, interval, args, kwargs):
@@ -117,6 +116,7 @@ class Field:
         icon = self.term_icon if bar.stream.isatty() else self.gui_icon
 
         # self.is_running = True
+
         func = self._callback
         field_name = self.name
         fmt = icon + self.fmt
@@ -134,7 +134,7 @@ class Field:
             if self.fmt is None:
                 on_update = bar._take_updates
             else:
-                on_update = self._send_updates
+                on_update = self._send_formatted
         # print(f"{field_name}: {on_update.__name__}")
 
         # start = time.monotonic_ns()
@@ -143,10 +143,8 @@ class Field:
 
             out = fmt.format(res)
             if out != buffer:
-##                updates = {field_name: out}
-                # updates = out
-##                # print(repr(out))
                 await on_update(field_name, updates=out)
+
             # if self.align_to_clock:
                 # Syncing the sleep timer to the system clock prevents drifting
                 # delay = (self.refresh_rate - (time.monotonic_ns() - start) % self.refresh_rate)
@@ -156,9 +154,11 @@ class Field:
         # Syncing the sleep timer to the system clock prevents drifting
         # time.sleep(refresh_rate - (time.time() - start) % refresh_rate)
 
-    # def run_blocking(self, timeout: float = 1/30):
-    def run_blocking(self, timeout: float = 1/8):
-    #def run_blocking(self, func, interval, args, kwargs):
+    # def run_threaded(self, timeout: float = 1/30):
+    def run_threaded(self, timeout: float = 1/8):
+    #def run_threaded(self, func, interval, args, kwargs):
+        '''Run a blocking function and send
+        '''
         if self.bar is None:
             raise ValueError("Fields cannot be run until they are part of a Bar.")
         bar = self.bar
@@ -173,9 +173,10 @@ class Field:
         args = self.args
         kwargs = self.kwargs
 
-        loop = asyncio.new_event_loop()
-
+        # If the field's callback is asynchronous,
+        # make an event loop in which to run it.
         is_async = inspect.iscoroutinefunction(func)
+        loop = asyncio.new_event_loop()
 
         if self.overrides_refresh:
             if bar.fmt is not None:
@@ -188,7 +189,7 @@ class Field:
 
         count = 0
         while not self._stop_event.is_set():
-            if count != interval / timeout:
+            if count != int(interval / timeout):
                 count += 1
                 time.sleep(timeout)
                 continue
@@ -200,26 +201,21 @@ class Field:
 
             out = fmt.format(res)
             if out != self.buffer:
-                # print(ret)
-                # updates = {field_name: icon + res}
-                # updates = {field_name: out}
-                # updates = out
+                # The bar's printer and updater functions are always asynchronous,
+                # so they need to be run by the new thread's event loop.
                 loop.run_until_complete(on_update(field_name, updates=out))
-                # asyncio.run(bar._print_line(updates))
-                # bar._loop.run_until_complete(send_updates)
 
             count = 0
+        # loop.stop()
+        # loop.close()
 
     async def send_to_thread(self):
+        '''Make and start a thread in which to run the field's callback.'''
         self.thread = threading.Thread(
-            target=self.run_blocking,
+            target=self.run_threaded,
             name=self.name,
-            args=self.args,
-            kwargs=self.kwargs,
         )
-        # print(f"\nSending {self.name} to a thread...")
         self.thread.start()
-        # print(f"Sent {self.name} to a thread.")
 
 
 class Bar:
@@ -250,7 +246,7 @@ class Bar:
 
     def __init__(
         self,
-        *,
+        /,
         fmt: str = None,
         fields=None,
         # sep: str = ' | ',
@@ -261,14 +257,12 @@ class Bar:
         stream=None
     ):
 
-        # if fields is None and fmt is None:
         if fmt is None:
             if fields is None:
                 raise ValueError(
                     f"Either a list of Fields 'fields' "
                     f"or a format string 'fmt' is required.")
 
-            #no fmt, has fields
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The fields argument must be iterable.")
 
@@ -287,40 +281,37 @@ class Bar:
             ]
 
             # Make a default format string pre-populated with the separator.
-            # #NOTE This leaves the possibility of empty fields!
+            #NOTE: This leaves the possibility of empty fields!
             fmt = '{' + ('}'+sep+'{').join(field_names) + '}'
 
-        #no fields, has fmt
         elif not isinstance(fmt, str):
-            raise TypeError(f"Format string 'fmt' must be a string, not {type(fmt)}")
+            raise TypeError(
+                f"Format string 'fmt' must be a string, not {type(fmt)}")
 
-        #has fmt and is str; no fields
         else:
             try:
-                # Used when printing lines by joining field buffers with the separator:
+                # When only fmt is set, parse the field names found within it.
+                # They are used later to print lines by joining field buffers.
                 field_names = [
                     name
                     for m in Formatter().parse(fmt)
                     if (name := m[1]) is not None
                 ]
-            except ValueError as e:
+            except ValueError:
                 raise BadFormatString("Your bar's format string sucks.") from None
-               # e.args =  
 
             if '' in field_names:
-                raise BadFormatString("Format string contains positional fields: '{}'")
-            # fields = [self._field_funcs.get(fname) for fname in field_names]
+                raise BadFormatString(
+                    "The bar's format string contains positional fields: '{}'")
+            # fields = [self._default_fields.get(fname) for fname in field_names]
             fields = list(field_names)
 
-        self.fmt = fmt
         self.field_names = field_names
+        self.fmt = fmt
         self.refresh_rate = refresh
         self.separator = sep
         self._stop_event = threading.Event()
         self._loop = asyncio.new_event_loop()
-        # self._loop = asyncio.get_event_loop()
-        # self._loop = NotImplementedError()
-        self.last_line = ''
 
         default_field_params = dict(args=[], kwargs={})
         if field_params is None:
@@ -328,11 +319,12 @@ class Bar:
 
         self._fields = {}
         self._buffers = {}
-
         for field in fields:
             if isinstance(field, str):
                 self._buffers[field] = ''
 
+                # Try getting the field func from the default function dict.
+                #TODO: Also try getting the entire field from _default_fields!
                 field_func = self._field_funcs.get(field)
                 if field_func is None:
                     raise InvalidField(f"Unrecognized field name: {field!r}")
@@ -353,6 +345,9 @@ class Bar:
             self._buffers[field.name] = ''
 
     async def _continuous_line_printer(self, end: str = '\r'):
+        '''The bar's primary line-printing mechanism.
+        Fields are responsible for sending updates to the bar's buffers.
+        This only writes using the current buffer contents.'''
         use_format_str = (self.fmt is not None)
 
         while not self._stop_event.is_set():
@@ -411,50 +406,41 @@ class Bar:
             self._loop.run_until_complete(self._startup())
 
         except KeyboardInterrupt:
-            # print("\n")
-            # print("KeyboardInterrupt caught in Bar.run()")
-            # print("Shutting down...")
             pass
 
         finally:
             stream.write('\n')
             stream.write(CSI + UNHIDE_CURSOR)
             self._shutdown()
-            # exit(0)
 
     def _shutdown(self):
-        '''
-        '''
-        # Indicate that the bar has stopped, for the sake of completeness.
+        '''Set stop events for the bar and fields and join threads.'''
+        # Indicate that the bar has stopped, for the sake of being thorough.
         self._stop_event.set()
         # Cancel all threads and coroutines at the next iteration.
         for field in self._fields.values():
             field._stop_event.set()
             if field.is_threaded and field.thread is not None:
-##                print("\nSet _stop_event for", field.name)
+##                # Optionally kill threads that are still blocking program exit.
 ##                if self._kill_threads:
-##                    signal.pthread_kill(field.thread.ident, signal.SIGINT)
+##                    signal.pthread_kill(field.thread.ident, self._kill_signal)
 ##                    print(f"Sent {self._kill_signal} to {field.name}")
                 field.thread.join()
                 # print(f"{field.thread.name}: {field.thread.is_alive() = }")
-        # print("Joined threads.")
 
-    # async def _take_updates(self, updates: dict):
-    async def _take_updates(self, field_name, updates: str):
-        '''Unless its override_refresh_rate is True,
-        each field uses this to update the buffer when it has new data.'''
+    async def _take_updates(self, field_name: str, updates: str):
+        '''Unless its override_refresh_rate is True or it has a fmt,
+        a field uses this to update the buffer when it has new data.'''
         if updates is not None:
             self._buffers[field_name] = updates
-
  
     async def _print_line_from_list(self,
         field_name: str,
-        updates: dict = None,
+        updates: str = None,
         end: str = '\r',
     ):
-        '''When the bar has no format string, fields whose override_refresh_rate
-        is True use this to update the buffer and print a new line when there
-        is new data.'''
+        '''Print a new line made by joining field buffers with the separator
+        when a field has new data and its override_refresh_rate is True.'''
         if updates is not None:
             self._buffers[field_name] = updates
         line = self.separator.join(self._buffers[field] for field in self.field_names)
@@ -463,39 +449,33 @@ class Bar:
     async def _print_line_from_fmt(self,
         field_name: str = None,
         updates: str = None,
-        # fmt: str = None,
         end: str = '\r',
     ):
-        '''When the bar has a format string, fields whose override_refresh_rate
-        is True use this to update the buffer and print a new line when there
-        is new data.'''
+        '''Print a new line using the bar's format string when a field has new
+        data and its override_refresh_rate is True.'''
         if updates is not None:
             self._buffers[field_name] = updates
         line = self.fmt.format_map(self._buffers)
         self.stream.write(CLEAR_LINE + line + end)
 
+
 def main():
-    fcount = Field(name='count', func=counter, interval=0.333, args=(COUNT,), override_refresh_rate=False)
     fhostname = Field(name='hostname', func=get_hostname, interval=10, term_icon='')
-    fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up ')
-    fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, term_icon='CPU% ')
-    fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='CPU ')
-    fmem = Field(name='mem_usage', func=get_mem_usage, interval=2, term_icon='Mem ')
-    fdisk = Field(name='disk_usage', func=get_disk_usage, interval=10, term_icon='/')
-    fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False, term_icon='Bat ')
-    fnet = Field(name='net_stats', func=get_net_stats, interval=10, term_icon='Net ')
+    fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up:')
+    fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, term_icon='CPU:')
+    fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='')
+    fmem = Field(name='mem_usage', func=get_mem_usage, interval=2, term_icon='Mem:')
+    fdisk = Field(name='disk_usage', func=get_disk_usage, interval=10, term_icon='/:')
+    fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False, term_icon='Bat:')
+    fnet = Field(name='net_stats', func=get_net_stats, interval=10, term_icon='')
 
 
     fdate = Field(fmt="<3 {}!", name='datetime', func=get_datetime, interval=1/16, override_refresh_rate=True, term_icon='')
     # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False)
-
     # fdate = Field(func=get_datetime, interval=1)
-
-
     # mocpline = Field(name='mocpline', func=
 
     fields = (
-        # fcount,
         fhostname,
         fuptime,
         fcpupct,

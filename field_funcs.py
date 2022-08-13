@@ -96,6 +96,7 @@ async def get_uptime(fmt: str = '%-jd:%-Hh:%-Mm', *_, dynam_fmt = None, **__):
 
         # return secs_to_dhm(uptime)
 
+# def get_cpu_usage(
 async def get_cpu_usage(
     interval: float = None,
     # fmt: str = None,
@@ -108,6 +109,7 @@ async def get_cpu_usage(
         cpu_usage = fmt.format(psutil.cpu_percent(interval))
         return cpu_usage
 
+# def get_cpu_temp(
 async def get_cpu_temp(
     *,
     # fmt: str = None,
