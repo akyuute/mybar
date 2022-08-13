@@ -7,12 +7,9 @@ import psutil
 import signal
 import asyncio
 import inspect
-import datetime
 import threading
 from typing import Callable
 from string import Formatter
-from functools import partial
-from concurrent.futures import ThreadPoolExecutor
 
 from field_funcs import *
 
@@ -26,7 +23,9 @@ UNHIDE_CURSOR = '?25h'
 
 class InvalidField(Exception):
     pass
-class MalformedString(Exception):
+class BadFormatString(Exception):
+    pass
+class MissingBar(Exception):
     pass
 
 
@@ -34,24 +33,24 @@ class Field:
     def __init__(self,
         /,
         name: str = None,
-        func=None,
-        icon: str = '',
+        func: Callable = None,
+        term_icon: str = '',
+        gui_icon: str = '',
         fmt: str = None,
         interval: float = 1.0,
-        align_to_seconds=False,
+        align_to_clock=False,
         override_refresh_rate=False,
         threaded=False,
         constant_output: str = None,
+        bar=None,
         args = [],
         kwargs = {}
     ):
-        if func is None and value is None:
+        if func is None and constant_output is None:
             raise ValueError(
                 f"Either a function that returns a string or "
-                f"a constant value string is required."
+                f"a constant output string is required."
             )
-
-        # self.name = name
 
         if not callable(func):
             raise TypeError(
@@ -59,34 +58,33 @@ class Field:
                 f"not {type(self._callback)}"
             )
         self._func = func
+        self.args = args
+        self.kwargs = kwargs
 
         if inspect.iscoroutinefunction(self._func): 
             self._callback = self._func
-            # self.asyncfunc = self._func
         else:
-            # self._callback = self._asyncify
-            self._callback = self._func
-            # self.asyncfunc = self._asyncify
+            self._callback = self._asyncify
 
         if name is None:
             name = self._func.__name__
         self.name = name
 
-        self.icon = icon
+        self.term_icon = term_icon
+        self.gui_icon = gui_icon
 
         if fmt is None:
-            fmt = self.icon + '{}'
+            fmt = '{}'
         self.fmt = fmt
 
-        self.constant_output = constant_output
-        self.interval = interval
-        self.align_to_seconds = align_to_seconds
-        self.args = args
-        self.kwargs = kwargs
-        self.bar = None
+        self.align_to_clock = align_to_clock
+        self.bar = bar
         self.buffer = None
-        self.overrides_refresh = override_refresh_rate
+        self.constant_output = constant_output
+        self.icon = None
+        self.interval = interval
         self.is_threaded = threaded
+        self.overrides_refresh = override_refresh_rate
         self.thread = None
         self._stop_event = threading.Event()
         # self.is_running = False
@@ -96,7 +94,8 @@ class Field:
 
     async def _asyncify(self, *args, **kwargs):
         '''Wrap a synchronous function in a coroutine for simplicity.'''
-        return self._callback(*args, **kwargs)
+        # return self._callback(*args, **kwargs)
+        return self._func(*args, **kwargs)
 
     async def _send_updates(self, field_name, updates: str):
         '''Send new data to the bar buffers'''
@@ -108,25 +107,23 @@ class Field:
         else:
             self.bar._buffers[field_name] = self.fmt.format(updates, )
 
- 
-
     async def run(self):
     #async def run(self, func, interval, args, kwargs):
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
+        if self.bar is None:
+            raise MissingBar("Fields cannot run until they belong to a Bar.")
+        bar = self.bar
+        icon = self.term_icon if bar.stream.isatty() else self.gui_icon
+
         # self.is_running = True
         func = self._callback
         field_name = self.name
-        fmt = self.fmt
-        # icon = self.icon
+        fmt = icon + self.fmt
         buffer = self.buffer
         interval = self.interval
-        bar = self.bar
         args = self.args
         kwargs = self.kwargs
-
-        is_async = inspect.iscoroutinefunction(self._callback)
-        func = self._callback if is_async else self._asyncify
 
         if self.overrides_refresh:
             if bar.fmt is None:
@@ -150,7 +147,7 @@ class Field:
                 # updates = out
 ##                # print(repr(out))
                 await on_update(field_name, updates=out)
-            # if self.align_to_seconds:
+            # if self.align_to_clock:
                 # Syncing the sleep timer to the system clock prevents drifting
                 # delay = (self.refresh_rate - (time.monotonic_ns() - start) % self.refresh_rate)
                 # await asyncio.sleep(timeout)
@@ -162,14 +159,17 @@ class Field:
     # def run_blocking(self, timeout: float = 1/30):
     def run_blocking(self, timeout: float = 1/8):
     #def run_blocking(self, func, interval, args, kwargs):
+        if self.bar is None:
+            raise ValueError("Fields cannot be run until they are part of a Bar.")
+        bar = self.bar
+        icon = self.term_icon if bar.stream.isatty() else self.gui_icon
+
         # self.is_running = True
 
         func = self._callback
         field_name = self.name
-        fmt = self.fmt
-        # icon = self.icon
+        fmt = icon + self.fmt
         interval = self.interval
-        bar = self.bar
         args = self.args
         kwargs = self.kwargs
 
@@ -210,12 +210,12 @@ class Field:
 
             count = 0
 
-    async def send_to_thread(self, ): #loop):
+    async def send_to_thread(self):
         self.thread = threading.Thread(
             target=self.run_blocking,
             name=self.name,
             args=self.args,
-            kwargs=self.kwargs, 
+            kwargs=self.kwargs,
         )
         # print(f"\nSending {self.name} to a thread...")
         self.thread.start()
@@ -253,15 +253,13 @@ class Bar:
         *,
         fmt: str = None,
         fields=None,
-        sep: str = ' | ',
+        # sep: str = ' | ',
+        term_sep: str = '|',
+        gui_sep: str = ' | ',
         refresh: float = 1/16,
-        field_params: dict = None
+        field_params: dict = None,
+        stream=None
     ):
-
-        '''
-        $ mybar fields=1,2,3... sep='|' 
-        $ mybar fmt="{foo} - {bar}"
-        '''
 
         # if fields is None and fmt is None:
         if fmt is None:
@@ -274,18 +272,22 @@ class Bar:
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The fields argument must be iterable.")
 
-            if sep is None:
-                raise ValueError("'sep' is required when fmt is None.")
+            if stream is None:
+                stream = sys.stdout
+            self.stream = stream
+
+            sep = term_sep if self.stream.isatty() else gui_sep
+            # if sep is None:
+                # raise ValueError("'sep' is required when fmt is None.")
 
             field_names = [
-                getattr(f, 'name')
-                    if isinstance(f, Field)
-                    else f
+                getattr(f, 'name') if isinstance(f, Field)
+                else f
                 for f in fields
             ]
 
             # Make a default format string pre-populated with the separator.
-            # This leaves the possibility of empty fields.
+            # #NOTE This leaves the possibility of empty fields!
             fmt = '{' + ('}'+sep+'{').join(field_names) + '}'
 
         #no fields, has fmt
@@ -302,18 +304,18 @@ class Bar:
                     if (name := m[1]) is not None
                 ]
             except ValueError as e:
-                raise MalformedString("Your bar's format string sucks.") from None
+                raise BadFormatString("Your bar's format string sucks.") from None
                # e.args =  
 
             if '' in field_names:
-                raise ValueError("Format string contains positional fields: '{}'")
+                raise BadFormatString("Format string contains positional fields: '{}'")
             # fields = [self._field_funcs.get(fname) for fname in field_names]
             fields = list(field_names)
 
         self.fmt = fmt
-        self.separator = sep
         self.field_names = field_names
         self.refresh_rate = refresh
+        self.separator = sep
         self._stop_event = threading.Event()
         self._loop = asyncio.new_event_loop()
         # self._loop = asyncio.get_event_loop()
@@ -350,7 +352,7 @@ class Bar:
             self._fields[field.name] = field
             self._buffers[field.name] = ''
 
-    async def _continuous_line_printer(self, stream=sys.stdout, end: str = '\r'):
+    async def _continuous_line_printer(self, end: str = '\r'):
         use_format_str = (self.fmt is not None)
 
         while not self._stop_event.is_set():
@@ -369,11 +371,11 @@ class Bar:
                     for field in self.field_names
                 )
 
-            stream.write(CLEAR_LINE + line + end)
+            self.stream.write(CLEAR_LINE + end + line + end)
             # await printer()
             await asyncio.sleep(self.refresh_rate)
 
-    async def _startup(self, ): #stream=sys.stdout):
+    async def _startup(self):
         '''Schedule field coroutines, threads and the line printer to be run
         in parallel.'''
         field_coros = []
@@ -392,19 +394,22 @@ class Bar:
             self._continuous_line_printer()
         )
 
-    async def _schedule_threads(self): #loop):
+    async def _schedule_threads(self):
         '''Send fields to threads if they are meant to be threaded.'''
         for field in self._fields.values():
             if field.is_threaded and field.constant_output is None:
                 await field.send_to_thread()
 
-    def run(self, stream=sys.stdout):
-        '''Run the bar and block until an exception is raised.
-        Exit smoothly.'''
+    def run(self, stream=None):
+        '''Run the bar.
+        Block until an exception is raised and exit smoothly.'''
+        if stream is None:
+            stream = self.stream
+
         try:
             stream.write(CSI + HIDE_CURSOR)
             self._loop.run_until_complete(self._startup())
-            # self._loop.run_until_complete(self._startup(stream))
+
         except KeyboardInterrupt:
             # print("\n")
             # print("KeyboardInterrupt caught in Bar.run()")
@@ -445,7 +450,6 @@ class Bar:
     async def _print_line_from_list(self,
         field_name: str,
         updates: dict = None,
-        stream=sys.stdout,
         end: str = '\r',
     ):
         '''When the bar has no format string, fields whose override_refresh_rate
@@ -454,13 +458,12 @@ class Bar:
         if updates is not None:
             self._buffers[field_name] = updates
         line = self.separator.join(self._buffers[field] for field in self.field_names)
-        stream.write(CLEAR_LINE + line + end)
+        self.stream.write(CLEAR_LINE + line + end)
 
     async def _print_line_from_fmt(self,
         field_name: str = None,
         updates: str = None,
         # fmt: str = None,
-        stream=sys.stdout,
         end: str = '\r',
     ):
         '''When the bar has a format string, fields whose override_refresh_rate
@@ -469,21 +472,21 @@ class Bar:
         if updates is not None:
             self._buffers[field_name] = updates
         line = self.fmt.format_map(self._buffers)
-        stream.write(CLEAR_LINE + line + end)
+        self.stream.write(CLEAR_LINE + line + end)
 
 def main():
     fcount = Field(name='count', func=counter, interval=0.333, args=(COUNT,), override_refresh_rate=False)
-    fhostname = Field(name='hostname', func=get_hostname, interval=10)
-    fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'})
-    fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, ) #kwargs={'interval': 2}, threaded=True)
-    fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True)
-    fmem = Field(name='mem_usage', func=get_mem_usage, interval=2)
-    fdisk = Field(name='disk_usage', func=get_disk_usage, interval=10)
-    fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False)
-    fnet = Field(name='net_stats', func=get_net_stats, interval=10)
+    fhostname = Field(name='hostname', func=get_hostname, interval=10, term_icon='')
+    fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up ')
+    fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, term_icon='CPU% ')
+    fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='CPU ')
+    fmem = Field(name='mem_usage', func=get_mem_usage, interval=2, term_icon='Mem ')
+    fdisk = Field(name='disk_usage', func=get_disk_usage, interval=10, term_icon='/')
+    fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False, term_icon='Bat ')
+    fnet = Field(name='net_stats', func=get_net_stats, interval=10, term_icon='Net ')
 
 
-    fdate = Field(fmt="<3 {}!", name='datetime', func=get_datetime, interval=1/16, override_refresh_rate=True)
+    fdate = Field(fmt="<3 {}!", name='datetime', func=get_datetime, interval=1/16, override_refresh_rate=True, term_icon='')
     # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False)
 
     # fdate = Field(func=get_datetime, interval=1)
@@ -504,8 +507,10 @@ def main():
         fdate,
     )
 
+    # fields = [Field(name='test', interval=1/16, func=(lambda args=None, kwargs=None: "WORKING"), override_refresh_rate=True, term_icon='&', gui_icon='@')]
+
     global bar
-    bar = Bar(fields=fields, refresh=1)
+    bar = Bar(fields=fields, refresh=1, term_sep=' ')
     # fields = 
     # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}{..." #{count}"
     # fmt = None
