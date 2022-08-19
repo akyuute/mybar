@@ -37,8 +37,9 @@ class MissingBar(Exception):
     pass
 
 
-def join_with_final(
-    it: Iterable,
+def join_options(
+    it: Iterable[str],
+    /,
     sep: str = ', ',
     final: str = ' or ',
     oxford: bool = False
@@ -274,6 +275,15 @@ class Bar:
         term_sep: str = None,
     ):
 
+        io_meths = ('write', 'flush', 'isatty')
+        if not all(hasattr(stream, a) for a in io_meths):
+            _io_meths = [repr(a) for a in io_meths]
+            raise InvalidOutputStream(
+                f"Output stream {stream!r} needs all of "
+                f"{join_options(_io_meths, final=' and ')} as methods."
+            )
+        self.stream = stream
+
         if fmt is None:
             if fields is None:
                 raise ValueError(
@@ -282,15 +292,6 @@ class Bar:
 
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The fields argument must be iterable.")
-
-            io_likes = ('write', 'flush', 'isatty')
-            if not all(hasattr(stream, a) for a in io_likes):
-                _io_likes = [repr(a) for a in io_likes]
-                raise InvalidOutputStream(
-                    f"Output stream {stream!r} needs all of "
-                    f"{join_with_final(_io_likes, final=' and ')} as methods."
-                )
-            self.stream = stream
 
             # TODO: This needs to make more sense.
             # Will term_ and gui_sep's not override sep?
