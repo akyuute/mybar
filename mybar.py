@@ -20,20 +20,24 @@ HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 
 
-#TODO: Improve separator selection logic!
+#TODO: Field icons and fmt!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
 #TODO: Implement align_to_clock!
 #TODO: Implement dynamic icons!
 
 
-class InvalidField(Exception):
-    pass
 class InvalidOutputStream(Exception):
+    pass
+class UndefinedSeparator(Exception):
     pass
 class BadFormatString(Exception):
     pass
+class InvalidField(Exception):
+    pass
 class MissingBar(Exception):
+    pass
+class UndefinedIcon(Exception):
     pass
 
 
@@ -54,8 +58,7 @@ class Field:
         /,
         name: str = None,
         func: Callable = None,
-        term_icon: str = '',
-        gui_icon: str = '',
+        icon: str = '',
         fmt: str = None,
         interval: float = 1.0,
         align_to_clock=False,
@@ -64,7 +67,9 @@ class Field:
         constant_output: str = None,
         bar=None,
         args = [],
-        kwargs = {}
+        kwargs = {},
+        gui_icon: str = None,
+        term_icon: str = None,
     ):
         if func is None and constant_output is None:
             raise ValueError(
@@ -81,6 +86,16 @@ class Field:
         self.args = args
         self.kwargs = kwargs
 
+        self.bar = bar
+
+        if fmt is None:
+            if all(s is None for s in (gui_icon, term_icon, icon)):
+                raise UndefinedIcon("An icon is required when fmt is None.")
+        self.fmt = fmt
+        self.term_icon = term_icon
+        self.gui_icon = gui_icon
+        self.icon = self.get_icon(icon)
+
         if inspect.iscoroutinefunction(self._func) or threaded:
             self._callback = self._func
         else:
@@ -91,26 +106,22 @@ class Field:
             name = self._func.__name__
         self.name = name
 
-        self.term_icon = term_icon
-        self.gui_icon = gui_icon
-
-        self.fmt = fmt
-
         self.align_to_clock = align_to_clock
-        self.bar = bar
         self.buffer = None
         self.constant_output = constant_output
-        # self.icon = None
         self.interval = interval
         self.is_threaded = threaded
         self.overrides_refresh = override_refresh_rate
         self.thread = None
         # self.is_running = False
 
-    @property
-    def icon(self):
-        which = self.term_icon if self.bar.stream.isatty() else self.gui_icon
-        return which
+    def get_icon(self, default=None):
+        if self.bar is None:
+            return default
+        icon = self.term_icon if self.bar.stream.isatty() else self.gui_icon
+        if icon is None:
+            icon = default
+        return icon
 
     async def _asyncify(self, *args, **kwargs):
         '''Wrap a synchronous function in a coroutine for simplicity.'''
@@ -180,7 +191,9 @@ class Field:
         if self.bar is None:
             raise ValueError("Fields cannot be run until they are part of a Bar.")
         bar = self.bar
-        icon = self.term_icon if bar.stream.isatty() else self.gui_icon
+        # icon = self.term_icon if bar.stream.isatty() else self.gui_icon
+        # icon = self.get_icon()
+        icon = self.icon
 
         # self.is_running = True
 
@@ -277,11 +290,10 @@ class Bar:
 
         io_meths = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_meths):
-            _io_meths = [repr(a) for a in io_meths]
+            _io_meths = [a + '()' for a in io_meths]
             raise InvalidOutputStream(
-                f"Output stream {stream!r} needs all of "
-                f"{join_options(_io_meths, final=' and ')} as methods."
-            )
+                f"Output stream {stream!r} needs "
+                f"{join_options(_io_meths, final=' and ')} methods.")
         self.stream = stream
 
         if fmt is None:
@@ -293,19 +305,9 @@ class Bar:
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The fields argument must be iterable.")
 
-            # TODO: This needs to make more sense.
-            # Will term_ and gui_sep's not override sep?
-            self.term_sep = term_sep
-            self.gui_sep = gui_sep
-            if sep is None:
-                separator = self._get_separator()
-                sep = separator
-                if sep is None:
-                    raise ValueError(
-                        "sep is required when fmt is None or "
-                        "if one of gui_sep or term_sep is None."
-                    )
-            self.sep = sep
+            if all(s is None for s in (gui_sep, term_sep, sep)):
+                raise UndefinedSeparator(
+                    "A separator is required when fmt is None.")
 
             field_names = [
                 getattr(f, 'name') if isinstance(f, Field)
@@ -327,9 +329,8 @@ class Bar:
                     if (name := m[1]) is not None
                 ]
             except ValueError:
-                raise BadFormatString(
-                    f"Invalid bar format string: {fmt}"
-                ) from None
+                e = BadFormatString(f"Invalid bar format string: {fmt}")
+                raise e from None
 
             if '' in field_names:
                 raise BadFormatString(
@@ -340,6 +341,9 @@ class Bar:
             fields = list(field_names)
         self.field_names = field_names
         self.fmt = fmt
+        self.term_sep = term_sep
+        self.gui_sep = gui_sep
+        self.separator = self.get_separator(sep)
 
         default_field_params = dict(args=[], kwargs={})
         if field_params is None:
@@ -347,6 +351,7 @@ class Bar:
 
         self._fields = {}
         self._buffers = {}
+
         for field in fields:
             if isinstance(field, str):
                 self._buffers[field] = ''
@@ -362,13 +367,16 @@ class Bar:
                 field = Field(
                     name=field,
                     func=field_func,
+                    bar=self,
                     **params
                 )
 
-            elif not isinstance(field, Field):
+            elif isinstance(field, Field):
+                field.bar = self
+
+            else:
                 raise InvalidField(f"Invalid field: {field}")
 
-            field.bar = self
             self._fields[field.name] = field
             self._buffers[field.name] = ''
 
@@ -397,12 +405,13 @@ class Bar:
         clearline = CLEAR_LINE if self.stream.isatty() else ''
         return clearline
 
-    def _get_separator(self):
+    def get_separator(self, default=None):
         if self.stream is None:
-            return None
+            return default
         sep = self.term_sep if self.stream.isatty() else self.gui_sep
         if sep is None:
-            return self.sep
+            sep = default
+        return sep
 
     async def _continuous_line_printer(self, end: str = '\r'):
         '''The bar's primary line-printing mechanism.
@@ -410,7 +419,7 @@ class Bar:
         This only writes using the current buffer contents.'''
         use_format_str = (self.fmt is not None)
         stream = self.stream
-        sep = self.sep
+        sep = self.separator
         clearline = self.clearline_char
         show_empty_fields = self.show_empty_fields
 
@@ -457,7 +466,7 @@ class Bar:
         '''Prints a line when fields with overrides_refresh send new data.'''
         use_format_str = (self.fmt is not None)
         stream = self.stream
-        sep = self.sep
+        sep = self.separator
         clearline = self.clearline_char
         show_empty_fields = self.show_empty_fields
 
@@ -526,8 +535,10 @@ class Bar:
         Block until an exception is raised and exit smoothly.'''
         if stream is not None:
             self.stream = stream
-        if self.sep is None:
-            self.sep = self._get_separator()
+        # self.separator = self.get_separator()
+        if self.fmt is None and self.separator is None:
+            raise UndefinedSeparator(
+                f"No separator is defined for stream {self.stream}")
 
         try:
             self._loop.run_until_complete(self._startup())
@@ -545,8 +556,8 @@ class Bar:
     def _shutdown(self):
         '''Set the bar's stop event and join threads.'''
         self._stopped.set()
-##        self._loop.stop()
-##        self._loop.close()
+        self._loop.stop()
+        self._loop.close()
         for field in self._fields.values():
             if field.is_threaded and field.thread is not None:
 ##                # Optionally kill threads that are still blocking program exit.
