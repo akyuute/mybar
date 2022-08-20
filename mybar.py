@@ -95,6 +95,7 @@ class Field:
         self.term_icon = term_icon
         self.gui_icon = gui_icon
         self.icon = self.get_icon(icon)
+        self.default_icon = icon
 
         if inspect.iscoroutinefunction(self._func) or threaded:
             self._callback = self._func
@@ -129,19 +130,19 @@ class Field:
 
     async def _send_contents(self, field_name, updates: str):
         '''Send new field contents to the bar.'''
-        if self.fmt is None:
-            contents = updates
-        else:
-            contents = self.fmt.format(updates)
+        ##if self.fmt is None:
+        ##    contents = updates
+        ##else:
+        ##    contents = self.fmt.format(updates)
         self.bar._buffers[field_name] = contents
 
     async def _send_and_override(self, field_name, updates: str):
         '''Send new field contents to the bar's override queue
         and print a new line between refresh cycles.'''
-        if self.fmt is None:
-            contents = updates
-        else:
-            contents = self.fmt.format(updates)
+        ##if self.fmt is None:
+        ##    contents = updates
+        ##else:
+        ##    contents = self.fmt.format(updates)
         self.bar._buffers[field_name] = contents
         try:
             self.bar._override_queue.put_nowait((field_name, contents))
@@ -151,35 +152,61 @@ class Field:
             # If not, the line will always update at the next refresh cycle.
             pass
 
+    # async def _setup(self):
+
     async def run(self):
     #async def run(self, func, interval, args, kwargs):
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
+
         if self.bar is None:
             raise MissingBar("Fields cannot run until they belong to a Bar.")
         bar = self.bar
-        icon = self.icon
 
         # self.is_running = True
 
-        func = self._callback
         field_name = self.name
         last_val = None
         interval = self.interval
+        func = self._callback
         args = self.args
         kwargs = self.kwargs
 
-        if self.overrides_refresh:
-            on_update = self._send_and_override
-        else:
-            on_update = self._send_contents
+        icon = self.get_icon(self.default_icon)
+        fmt = self.fmt
+        field_buffers = bar._buffers
+
+
+##        if self.overrides_refresh:
+##            on_update = self._send_and_override
+##        else:
+##            on_update = self._send_contents
 
         while not bar._stopped.is_set():
             res = await func(*args, **kwargs)
 
             if res != last_val:
                 last_val = res
-                await on_update(field_name, updates=res)
+
+                if fmt is None:
+                    contents = icon + res
+                else:
+                    contents = fmt.format(res)
+                # await on_update(field_name, updates=contents)
+                # buf = contents
+                field_buffers[field_name] = contents
+                # print(bar._buffers[field_name])
+                if self.overrides_refresh:
+
+                    try:
+                        bar._override_queue.put_nowait(
+                            (field_name, contents)
+                        )
+                    except asyncio.QueueFull:
+                        # Since the bar buffer was just updated, the change is effective,
+                        # and it may still appear while the queue handles another override.
+                        # If not, the line will always update at the next refresh cycle.
+                        pass
 
             await asyncio.sleep(interval)
 
@@ -188,26 +215,29 @@ class Field:
     #def run_threaded(self, func, interval, args, kwargs):
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
+
         if self.bar is None:
-            raise ValueError("Fields cannot be run until they are part of a Bar.")
+            raise MissingBar("Fields cannot run until they belong to a Bar.")
         bar = self.bar
-        # icon = self.term_icon if bar.stream.isatty() else self.gui_icon
-        # icon = self.get_icon()
-        icon = self.icon
 
         # self.is_running = True
 
-        func = self._callback
         field_name = self.name
         last_val = None
         interval = self.interval
+        func = self._callback
         args = self.args
         kwargs = self.kwargs
 
-        if self.overrides_refresh:
-            on_update = (self._send_and_override)
-        else:
-            on_update = (self._send_contents)
+        icon = self.get_icon(self.default_icon)
+        fmt = self.fmt
+        # buf = bar._buffers[field_name]
+        field_buffers = bar._buffers
+
+##        if self.overrides_refresh:
+##            on_update = (self._send_and_override)
+##        else:
+##            on_update = (self._send_contents)
 
         # An event loop is needed to run either update function.
         loop = asyncio.new_event_loop()
@@ -233,7 +263,28 @@ class Field:
 
             if res != last_val:
                 last_val = res
-                loop.run_until_complete(on_update(field_name, updates=res))
+##                loop.run_until_complete(on_update(field_name, updates=res))
+
+                if fmt is None:
+                    contents = icon + res
+                else:
+                    contents = fmt.format(res)
+                # await on_update(field_name, updates=contents)
+
+                # buf = contents
+                field_buffers[field_name] = contents
+                if self.overrides_refresh:
+
+                    try:
+                        bar._override_queue.put_nowait(
+                            (field_name, contents)
+                        )
+                    except asyncio.QueueFull:
+                        # Since the bar buffer was just updated, the change is effective,
+                        # and it may still appear while the queue handles another override.
+                        # If not, the line will always update at the next refresh cycle.
+                        pass
+
 
             count = 0
 
@@ -344,6 +395,7 @@ class Bar:
         self.term_sep = term_sep
         self.gui_sep = gui_sep
         self.separator = self.get_separator(sep)
+        self.default_sep = sep
 
         default_field_params = dict(args=[], kwargs={})
         if field_params is None:
