@@ -20,7 +20,6 @@ HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 
 
-#TODO: Field icons and fmt!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
 #TODO: Implement align_to_clock!
@@ -191,7 +190,7 @@ class Field:
                 if fmt is None:
                     contents = icon + res
                 else:
-                    contents = fmt.format(res)
+                    contents = fmt.format(res, icon=icon)
                 # await on_update(field_name, updates=contents)
                 # buf = contents
                 field_buffers[field_name] = contents
@@ -268,7 +267,7 @@ class Field:
                 if fmt is None:
                     contents = icon + res
                 else:
-                    contents = fmt.format(res)
+                    contents = fmt.format(res, icon=icon)
                 # await on_update(field_name, updates=contents)
 
                 # buf = contents
