@@ -20,6 +20,8 @@ HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 
 
+#TODO: Config files!
+#TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
 #TODO: Implement align_to_clock!
@@ -110,9 +112,12 @@ class Field:
         self.buffer = None
         self.constant_output = constant_output
         self.interval = interval
-        self.is_threaded = threaded
         self.overrides_refresh = override_refresh_rate
+
+        self.is_threaded = threaded
         self.thread = None
+        self.loop = None  # Only used by threads who need to run run()
+
         # self.is_running = False
 
     def get_icon(self, default=None):
@@ -127,39 +132,10 @@ class Field:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
 
-    async def _send_contents(self, field_name, updates: str):
-        '''Send new field contents to the bar.'''
-        ##if self.fmt is None:
-        ##    contents = updates
-        ##else:
-        ##    contents = self.fmt.format(updates)
-        self.bar._buffers[field_name] = contents
-
-    async def _send_and_override(self, field_name, updates: str):
-        '''Send new field contents to the bar's override queue
-        and print a new line between refresh cycles.'''
-        ##if self.fmt is None:
-        ##    contents = updates
-        ##else:
-        ##    contents = self.fmt.format(updates)
-        self.bar._buffers[field_name] = contents
-        try:
-            self.bar._override_queue.put_nowait((field_name, contents))
-        except asyncio.QueueFull:
-            # Since the bar buffer was just updated, the change is effective,
-            # and it may still appear while the queue handles another override.
-            # If not, the line will always update at the next refresh cycle.
-            pass
-
-    # async def _setup(self):
-
     async def run(self):
-    #async def run(self, func, interval, args, kwargs):
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
-
-        if self.bar is None:
-            raise MissingBar("Fields cannot run until they belong to a Bar.")
+        self._check_bar()
         bar = self.bar
 
         # self.is_running = True
@@ -174,74 +150,61 @@ class Field:
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
         field_buffers = bar._buffers
-
-
-##        if self.overrides_refresh:
-##            on_update = self._send_and_override
-##        else:
-##            on_update = self._send_contents
 
         while not bar._stopped.is_set():
             res = await func(*args, **kwargs)
 
-            if res != last_val:
-                last_val = res
+            if res == last_val:
+                await asyncio.sleep(interval)
+                continue
 
-                if fmt is None:
-                    contents = icon + res
-                else:
-                    contents = fmt.format(res, icon=icon)
-                # await on_update(field_name, updates=contents)
-                # buf = contents
-                field_buffers[field_name] = contents
-                # print(bar._buffers[field_name])
-                if self.overrides_refresh:
+            last_val = res
 
-                    try:
-                        bar._override_queue.put_nowait(
-                            (field_name, contents)
-                        )
-                    except asyncio.QueueFull:
-                        # Since the bar buffer was just updated, the change is effective,
-                        # and it may still appear while the queue handles another override.
-                        # If not, the line will always update at the next refresh cycle.
-                        pass
+            if fmt is None:
+                contents = icon + res
+            else:
+                contents = fmt.format(res, icon=icon)
+            field_buffers[field_name] = contents
+
+            # Send new field contents to the bar's override queue and print a
+            # new line between refresh cycles.
+            if self.overrides_refresh:
+                try:
+                    bar._override_queue.put_nowait(
+                        (field_name, contents)
+                    )
+                except asyncio.QueueFull:
+                    # Since the bar buffer was just updated, do nothing if the
+                    # queue is full. The update may still show while the queue
+                    # handles the current override.
+                    # If not, the line will update at the next refresh cycle.
+                    pass
 
             await asyncio.sleep(interval)
 
-    # def run_threaded(self, timeout: float = 1/30):
-    def run_threaded(self, timeout: float = 1/8):
-    #def run_threaded(self, func, interval, args, kwargs):
+    def run_threaded(self):
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
-
-        if self.bar is None:
-            raise MissingBar("Fields cannot run until they belong to a Bar.")
+        self._check_bar()
         bar = self.bar
 
         # self.is_running = True
 
-        field_name = self.name
-        last_val = None
-        interval = self.interval
         func = self._callback
         args = self.args
         kwargs = self.kwargs
+        interval = self.interval
+        cooldown = bar._thread_cooldown
 
+        field_name = self.name
+        field_buffers = bar._buffers
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
-        # buf = bar._buffers[field_name]
-        field_buffers = bar._buffers
+        last_val = None
 
-##        if self.overrides_refresh:
-##            on_update = (self._send_and_override)
-##        else:
-##            on_update = (self._send_contents)
-
-        # An event loop is needed to run either update function.
-        loop = asyncio.new_event_loop()
-        # If the field's callback is asynchronous, run it in the event loop.
+        # If the field's callback is asynchronous, run it in an event loop.
         is_async = inspect.iscoroutinefunction(func)
+        loop = asyncio.new_event_loop()
 
         count = 0
         while not bar._stopped.is_set():
@@ -250,9 +213,9 @@ class Field:
             # A shorter timeout means more chances to check if the bar stops.
             # A thread, then, cancels timeout seconds after its function returns
             # rather than interval seconds.
-            if count != int(interval / timeout):
+            if count != int(interval / cooldown):
                 count += 1
-                time.sleep(timeout)
+                time.sleep(cooldown)
                 continue
 
             if is_async:
@@ -260,30 +223,31 @@ class Field:
             else:
                 res = func(*args, **kwargs)
 
-            if res != last_val:
-                last_val = res
-##                loop.run_until_complete(on_update(field_name, updates=res))
+            if res == last_val:
+                count = 0
+                continue
 
-                if fmt is None:
-                    contents = icon + res
-                else:
-                    contents = fmt.format(res, icon=icon)
-                # await on_update(field_name, updates=contents)
+            last_val = res
 
-                # buf = contents
-                field_buffers[field_name] = contents
-                if self.overrides_refresh:
+            if fmt is None:
+                contents = icon + res
+            else:
+                contents = fmt.format(res, icon=icon)
+            field_buffers[field_name] = contents
 
-                    try:
-                        bar._override_queue.put_nowait(
-                            (field_name, contents)
-                        )
-                    except asyncio.QueueFull:
-                        # Since the bar buffer was just updated, the change is effective,
-                        # and it may still appear while the queue handles another override.
-                        # If not, the line will always update at the next refresh cycle.
-                        pass
-
+            # Send new field contents to the bar's override queue and print a
+            # new line between refresh cycles.
+            if self.overrides_refresh:
+                try:
+                    bar._override_queue.put_nowait(
+                        (field_name, contents)
+                    )
+                except asyncio.QueueFull:
+                    # Since the bar buffer was just updated, do nothing if the
+                    # queue is full. The update may still show while the queue
+                    # handles the current override.
+                    # If not, the line will update at the next refresh cycle.
+                    pass
 
             count = 0
 
@@ -292,12 +256,18 @@ class Field:
 
     async def send_to_thread(self):
         '''Make and start a thread in which to run the field's callback.'''
+        # An event loop is needed to run either update function.
+        # self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(
             target=self.run_threaded,
             name=self.name,
         )
         self.thread.start()
 
+    def _check_bar(self):
+        '''Raises MissingBar if self.bar is None.'''
+        if self.bar is None:
+            raise MissingBar("Fields cannot run until they belong to a Bar.")
 
 class Bar:
     _field_funcs = {
@@ -336,6 +306,8 @@ class Bar:
         field_params: dict = None,
         gui_sep: str = None,
         term_sep: str = None,
+        override_cooldown: float = 1/60,
+        thread_cooldown: float = 1/8
     ):
 
         io_meths = ('write', 'flush', 'isatty')
@@ -431,16 +403,29 @@ class Bar:
             self._fields[field.name] = field
             self._buffers[field.name] = ''
 
-        # Make a queue to which fields with overrides_refresh send updates.
-        # Only one override is processed per refresh cycle to reduce the chance
-        # of flickering in a GUI.
-        self._override_queue = asyncio.Queue(maxsize=1)
-
-        self.refresh_rate = refresh
         # Whether empty fields are joined when fmt is None:
         self.show_empty_fields = show_empty
+
+        # Set the bar's normal refresh rate, that is, how often it is printed:
+        self.refresh_rate = refresh
+
+        # Make a queue to which fields with overrides_refresh send updates.
+        # Process only one item per refresh cycle to reduce flickering in a GUI.
+        self._override_queue = asyncio.Queue(maxsize=1)
+        # How long should the queue checker sleep before processing a new item?
+        # (A longer cooldown means less flickering):
+        self._override_cooldown = override_cooldown
+
+        # Staggering a thread's refresh interval across several sleeps with the
+        # length of this cooldown prevents it from blocking for the entire
+        # interval when the bar stops.
+        # (A shorter cooldown means faster exits):
+        self._thread_cooldown = thread_cooldown
+
         # Setting this Event cancels all fields:
         self._stopped = threading.Event()
+
+        # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
     @property
@@ -513,7 +498,7 @@ class Bar:
                 )
             )
 
-    async def _check_queue(self, end: str = '\r'):
+    async def _check_queue(self, end: str = '\r', cooldown: float = 1/60):
         '''Prints a line when fields with overrides_refresh send new data.'''
         use_format_str = (self.fmt is not None)
         stream = self.stream
@@ -550,6 +535,7 @@ class Bar:
 
                 stream.write(beginning + line + end)
                 stream.flush()
+                await asyncio.sleep(cooldown)
 
         # SIGINT raises RuntimeError saying an event loop is closed.
         except RuntimeError:
@@ -560,9 +546,9 @@ class Bar:
         in parallel.'''
         field_coros = []
         for field in self._fields.values():
+            # Do not run fields which have a constant output;
+            # only set the bar buffer.
             if field.constant_output is not None:
-                # Do not run fields which have a constant output;
-                # only set the bar buffer.
                 self._buffers[field.name] = field.constant_output
                 continue
             if not field.is_threaded:
@@ -581,12 +567,16 @@ class Bar:
             if field.is_threaded and field.constant_output is None:
                 await field.send_to_thread()
 
-    def run(self, stream=None):
+    def run(self,
+        stream: IO = None,
+        override_cooldown: float = None
+    ):
         '''Run the bar.
         Block until an exception is raised and exit smoothly.'''
         if stream is not None:
             self.stream = stream
-        # self.separator = self.get_separator()
+        if override_cooldown is not None:
+            self._override_cooldown = override_cooldown
         if self.fmt is None and self.separator is None:
             raise UndefinedSeparator(
                 f"No separator is defined for stream {self.stream}")
@@ -643,8 +633,15 @@ def main():
     fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=True, term_icon='Bat:')
     fnet = Field(name='net_stats', func=get_net_stats, interval=4, term_icon='', threaded=False)
 
+    fdate = Field(
+        # fmt="<3 {icon}{}!",
+        name='datetime',
+        func=get_datetime,
+        interval=1/8,
+        override_refresh_rate=True,
+        term_icon='?'
+    )
 
-    fdate = Field(fmt="<3 {}!", name='datetime', func=get_datetime, interval=1/8, override_refresh_rate=True, term_icon='')
     # fdate = Field(name='datetime', func=get_datetime, interval=1, override_refresh_rate=False, term_icon='')
     # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False)
     # fdate = Field(func=get_datetime, interval=1)
@@ -652,8 +649,8 @@ def main():
 
     global fields
     fields = (
-        Field(name='isatty', func=(lambda args=None, kwargs=None: str(bar.in_a_tty)), interval=9)
-        ,fhostname,
+        Field(name='isatty', func=(lambda args=None, kwargs=None: str(bar.in_a_tty)), interval=9),
+        # ,fhostname,
         fuptime,
         fcpupct,
         fcputemp,
