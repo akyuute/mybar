@@ -24,7 +24,7 @@ UNHIDE_CURSOR = '?25h'
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
-#TODO: Implement align_to_clock!
+#TODO: Implement align_to_seconds!
 #TODO: Implement dynamic icons!
 
 
@@ -62,7 +62,7 @@ class Field:
         icon: str = '',
         fmt: str = None,
         interval: float = 1.0,
-        align_to_clock=False,
+        align_to_seconds=False,
         override_refresh_rate=False,
         threaded=False,
         constant_output: str = None,
@@ -108,7 +108,7 @@ class Field:
             name = self._func.__name__
         self.name = name
 
-        self.align_to_clock = align_to_clock
+        self.align_to_seconds = align_to_seconds
         self.buffer = None
         self.constant_output = constant_output
         self.interval = interval
@@ -116,8 +116,6 @@ class Field:
 
         self.is_threaded = threaded
         self.thread = None
-        self.loop = None  # Only used by threads who need to run run()
-
         # self.is_running = False
 
     def get_icon(self, default=None):
@@ -137,6 +135,8 @@ class Field:
         and send updates to the bar.'''
         self._check_bar()
         bar = self.bar
+        stopper = bar._stopped
+        override_queue = bar._override_queue
 
         # self.is_running = True
 
@@ -150,8 +150,9 @@ class Field:
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
         field_buffers = bar._buffers
+        overrides_refresh = self.overrides_refresh
 
-        while not bar._stopped.is_set():
+        while not stopper.is_set():
             res = await func(*args, **kwargs)
 
             if res == last_val:
@@ -168,9 +169,9 @@ class Field:
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
-            if self.overrides_refresh:
+            if overrides_refresh:
                 try:
-                    bar._override_queue.put_nowait(
+                    override_queue.put_nowait(
                         (field_name, contents)
                     )
                 except asyncio.QueueFull:
@@ -187,32 +188,35 @@ class Field:
         and send its updates to the bar.'''
         self._check_bar()
         bar = self.bar
-
+        stopper = bar._stopped
+        override_queue = bar._override_queue
         # self.is_running = True
 
+        field_name = self.name
+        last_val = None
+        interval = self.interval
         func = self._callback
         args = self.args
         kwargs = self.kwargs
-        interval = self.interval
-        cooldown = bar._thread_cooldown
 
-        field_name = self.name
-        field_buffers = bar._buffers
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
-        last_val = None
+        field_buffers = bar._buffers
+        overrides_refresh = self.overrides_refresh
+
+        cooldown = bar._thread_cooldown
 
         # If the field's callback is asynchronous, run it in an event loop.
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
 
         count = 0
-        while not bar._stopped.is_set():
+        while not stopper.is_set():
 
-            # Instead of blocking the entire interval, use a quicker timeout.
-            # A shorter timeout means more chances to check if the bar stops.
-            # A thread, then, cancels timeout seconds after its function returns
-            # rather than interval seconds.
+            # Instead of blocking the entire interval, use a quicker cooldown.
+            # A shorter cooldown means more chances to check if the bar stops.
+            # A thread, then, cancels cooldown seconds after its function
+            # returns rather than interval seconds.
             if count != int(interval / cooldown):
                 count += 1
                 time.sleep(cooldown)
@@ -237,9 +241,9 @@ class Field:
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
-            if self.overrides_refresh:
+            if overrides_refresh:
                 try:
-                    bar._override_queue.put_nowait(
+                    override_queue.put_nowait(
                         (field_name, contents)
                     )
                 except asyncio.QueueFull:
@@ -256,11 +260,9 @@ class Field:
 
     async def send_to_thread(self):
         '''Make and start a thread in which to run the field's callback.'''
-        # An event loop is needed to run either update function.
-        # self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(
             target=self.run_threaded,
-            name=self.name,
+            name=self.name
         )
         self.thread.start()
 
@@ -374,16 +376,20 @@ class Bar:
 
         self._fields = {}
         self._buffers = {}
+        self._ordering = []
 
         for field in fields:
             if isinstance(field, str):
-                self._buffers[field] = ''
-
                 # Try getting the field func from the default function dict.
                 #TODO: Also try getting the entire field from _default_fields!
                 field_func = self._field_funcs.get(field)
+                print(f"{field_func = }")
                 if field_func is None:
                     raise InvalidField(f"Unrecognized field name: {field!r}")
+
+                if field in self._ordering:
+                    self._ordering.append(field)
+                    continue
 
                 params = field_params.get(field, default_field_params)
 
@@ -396,14 +402,16 @@ class Bar:
 
             elif isinstance(field, Field):
                 field.bar = self
+                self._ordering.append(field.name)
 
             else:
                 raise InvalidField(f"Invalid field: {field}")
 
             self._fields[field.name] = field
             self._buffers[field.name] = ''
+            # self._ordering.append(field.name)
 
-        # Whether empty fields are joined when fmt is None:
+        # Whether empty fields are shown with the rest when fmt is None:
         self.show_empty_fields = show_empty
 
         # Set the bar's normal refresh rate, that is, how often it is printed:
@@ -449,124 +457,6 @@ class Bar:
             sep = default
         return sep
 
-    async def _continuous_line_printer(self, end: str = '\r'):
-        '''The bar's primary line-printing mechanism.
-        Fields are responsible for sending updates to the bar's buffers.
-        This only writes using the current buffer contents.'''
-        use_format_str = (self.fmt is not None)
-        stream = self.stream
-        sep = self.separator
-        clearline = self.clearline_char
-        show_empty_fields = self.show_empty_fields
-
-        if self.in_a_tty:
-            stream.write(CSI + HIDE_CURSOR)
-            beginning = clearline + end
-        else:
-            beginning = clearline
-
-##        if use_format_str:
-##            line_maker = self._make_line_from_fmt
-##        else:
-##            line_maker = self._make_line_from_list
-
-        # Flushing the buffer before writing to it fixes poor i3bar alignment.
-        stream.flush()
-        start_time = time.monotonic_ns()
-        while not self._stopped.is_set():
-
-            if use_format_str:
-                line = self.fmt.format_map(self._buffers)
-            else:
-                line = sep.join(
-                    buf
-                    for field in self.field_names
-                        if (buf := self._buffers[field])
-                        or show_empty_fields
-                )
-
-            # line = await line_maker()
-
-            stream.write(beginning + line + end)
-            stream.flush()
-
-            # Syncing the refresh rate to the system clock prevents drifting.
-            await asyncio.sleep(
-                self.refresh_rate - (
-                    (time.monotonic_ns() - start_time)
-                    % self.refresh_rate
-                )
-            )
-
-    async def _check_queue(self, end: str = '\r', cooldown: float = 1/60):
-        '''Prints a line when fields with overrides_refresh send new data.'''
-        use_format_str = (self.fmt is not None)
-        stream = self.stream
-        sep = self.separator
-        clearline = self.clearline_char
-        show_empty_fields = self.show_empty_fields
-
-        if self.in_a_tty:
-            beginning = clearline + end
-        else:
-            beginning = clearline
-
-##        if use_format_str:
-##            line_maker = self._make_line_from_fmt
-##        else:
-##            line_maker = self._make_line_from_list
-
-        try:
-            while not self._stopped.is_set():
-
-                field, contents = await self._override_queue.get()
-
-                if use_format_str:
-                    line = self.fmt.format_map(self._buffers)
-                else:
-                    line = sep.join(
-                        buf
-                        for field in self.field_names
-                            if (buf := self._buffers[field])
-                            or show_empty_fields
-                    )
-
-                # line = await line_maker()
-
-                stream.write(beginning + line + end)
-                stream.flush()
-                await asyncio.sleep(cooldown)
-
-        # SIGINT raises RuntimeError saying an event loop is closed.
-        except RuntimeError:
-            pass
-
-    async def _startup(self):
-        '''Schedule field coroutines, threads and the line printer to be run
-        in parallel.'''
-        field_coros = []
-        for field in self._fields.values():
-            # Do not run fields which have a constant output;
-            # only set the bar buffer.
-            if field.constant_output is not None:
-                self._buffers[field.name] = field.constant_output
-                continue
-            if not field.is_threaded:
-                field_coros.append((field.run()))
-
-        await asyncio.gather(
-            *field_coros,
-            self._schedule_threads(),
-            self._check_queue(),
-            self._continuous_line_printer(),
-        )
-
-    async def _schedule_threads(self):
-        '''Sends fields to threads if they are meant to be threaded.'''
-        for field in self._fields.values():
-            if field.is_threaded and field.constant_output is None:
-                await field.send_to_thread()
-
     def run(self,
         stream: IO = None,
         override_cooldown: float = None
@@ -594,8 +484,29 @@ class Bar:
                 self.stream.write(CSI + UNHIDE_CURSOR)
             self._shutdown()
 
+    async def _startup(self):
+        '''Schedule field coroutines, threads and the line printer to be run
+        in parallel.'''
+        field_coros = []
+        for field in self._fields.values():
+            # Do not run fields which have a constant output;
+            # only set the bar buffer.
+            if field.constant_output is not None:
+                self._buffers[field.name] = field.constant_output
+                continue
+            if not field.is_threaded:
+                field_coros.append((field.run()))
+
+        await asyncio.gather(
+            *field_coros,
+            self._schedule_threads(),
+            self._check_queue(),
+            self._continuous_line_printer(),
+        )
+
     def _shutdown(self):
-        '''Set the bar's stop event and join threads.'''
+        '''Notify fields that the bar has stopped,
+        close the event loop and join threads.'''
         self._stopped.set()
         self._loop.stop()
         self._loop.close()
@@ -608,19 +519,90 @@ class Bar:
                 field.thread.join()
                 # print(f"{field.thread.name}: {field.thread.is_alive() = }")
 
-    async def _make_line_from_list(self):
-        '''An async callback for making a line by joining field buffers.'''
-        line = sep.join(
-            buf
-            for field in self.field_names
-                if (buf := self._buffers[field])
-                or self.show_empty_fields
-        )
-        return line
+    async def _schedule_threads(self):
+        '''Sends fields to threads if they are meant to be threaded.'''
+        for field in self._fields.values():
+            if field.is_threaded and field.constant_output is None:
+                await field.send_to_thread()
 
-    async def _make_line_from_fmt(self):
-        '''An async callback for making a line from a format string.'''
-        return self.fmt.format_map(self._buffers)
+    async def _continuous_line_printer(self, end: str = '\r'):
+        '''The bar's primary line-printing mechanism.
+        Fields are responsible for sending updates to the bar's buffers.
+        This only writes using the current buffer contents.'''
+        use_format_str = (self.fmt is not None)
+        stream = self.stream
+        sep = self.separator
+        clearline = self.clearline_char
+        show_empty_fields = self.show_empty_fields
+
+        if self.in_a_tty:
+            stream.write(CSI + HIDE_CURSOR)
+            beginning = clearline + end
+        else:
+            beginning = clearline
+
+        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        stream.flush()
+        start_time = time.monotonic_ns()
+        while not self._stopped.is_set():
+
+            if use_format_str:
+                line = self.fmt.format_map(self._buffers)
+            else:
+                line = sep.join(
+                    buf
+                    for field in self._ordering
+                        if (buf := self._buffers[field])
+                        or show_empty_fields
+                )
+
+            stream.write(beginning + line + end)
+            stream.flush()
+
+            # Syncing the refresh rate to the system clock prevents drifting.
+            await asyncio.sleep(
+                self.refresh_rate - (
+                    (time.monotonic_ns() - start_time)
+                    % self.refresh_rate
+                )
+            )
+
+    async def _check_queue(self, end: str = '\r', cooldown: float = 1/60):
+        '''Prints a line when fields with overrides_refresh send new data.'''
+        use_format_str = (self.fmt is not None)
+        stream = self.stream
+        sep = self.separator
+        clearline = self.clearline_char
+        show_empty_fields = self.show_empty_fields
+
+        if self.in_a_tty:
+            beginning = clearline + end
+        else:
+            beginning = clearline
+
+        try:
+            while not self._stopped.is_set():
+
+                field, contents = await self._override_queue.get()
+
+                if use_format_str:
+                    line = self.fmt.format_map(self._buffers)
+                else:
+                    line = sep.join(
+                        buf
+                        # for field in self.field_names
+                        for field in self._ordering
+                            if (buf := self._buffers[field])
+                            or show_empty_fields
+                    )
+
+                stream.write(beginning + line + end)
+                stream.flush()
+                await asyncio.sleep(cooldown)
+
+        # SIGINT raises RuntimeError saying an event loop is closed.
+        except RuntimeError:
+            pass
 
 def main():
     fhostname = Field(name='hostname', func=get_hostname, interval=10, term_icon='')
@@ -666,8 +648,7 @@ def main():
     global bar
     bar = Bar(fields=fields)
 
-    # fields = 
-    # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}{..." #{count}"
+    # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}..."
     # fmt = None
     # bar = Bar(fmt=fmt, fields=fields, refresh=1)
     # bar = Bar(fmt=fmt)
