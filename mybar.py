@@ -159,8 +159,19 @@ class Field:
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
+        use_format_str = (fmt is not None)
         field_buffers = bar._buffers
         overrides_refresh = self.overrides_refresh
+
+        # An interval of 0 means the callback should run once and return.
+        if self.interval == 0:
+            res = await func(*args, **kwargs)
+            if use_format_str:
+                contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
+            field_buffers[field_name] = contents
+            return
 
         while not stopper.is_set():
             res = await func(*args, **kwargs)
@@ -171,10 +182,10 @@ class Field:
 
             last_val = res
 
-            if fmt is None:
-                contents = icon + res
-            else:
+            if use_format_str:
                 contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
             field_buffers[field_name] = contents
 
             # Send new field contents to the bar's override queue and print a
@@ -211,6 +222,7 @@ class Field:
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
+        use_format_str = (fmt is not None)
         field_buffers = bar._buffers
         overrides_refresh = self.overrides_refresh
 
@@ -219,6 +231,20 @@ class Field:
         # If the field's callback is asynchronous, run it in an event loop.
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
+
+        # An interval of 0 means the callback should run once and return.
+        if self.interval == 0:
+            if is_async:
+                res = loop.run_until_complete(func(*args, **kwargs))
+            else:
+                res = func(*args, **kwargs)
+
+            if use_format_str:
+                contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
+            field_buffers[field_name] = contents
+            return
 
         count = 0
         while not stopper.is_set():
@@ -243,10 +269,10 @@ class Field:
 
             last_val = res
 
-            if fmt is None:
-                contents = icon + res
-            else:
+            if use_format_str:
                 contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
             field_buffers[field_name] = contents
 
             # Send new field contents to the bar's override queue and print a
@@ -493,12 +519,15 @@ class Bar:
             if field.constant_output is not None:
                 self._buffers[field.name] = field.constant_output
                 continue
-            if not field.is_threaded:
+
+            if field.is_threaded:
+                await field.send_to_thread()
+            else:
                 field_coros.append((field.run()))
 
         await asyncio.gather(
             *field_coros,
-            self._schedule_threads(),
+            # self._schedule_threads(),
             self._check_queue(),
             self._continuous_line_printer(),
         )
@@ -605,7 +634,7 @@ class Bar:
             pass
 
 def main():
-    fhostname = Field(name='hostname', func=get_hostname, interval=10, term_icon='')
+    fhostname = Field(name='hostname', func=get_hostname, interval=0, term_icon='')
     fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up:')
     fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, term_icon='CPU:')
     fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='')
@@ -631,8 +660,13 @@ def main():
 
     global fields
     fields = (
-        Field(name='isatty', func=(lambda args=None, kwargs=None: str(bar.in_a_tty)), interval=9),
-        # ,fhostname,
+        Field(
+            name='isatty',
+            func=(lambda args=None, kwargs=None: str(bar.in_a_tty)),
+            icon='TTY:',
+            interval=0
+        ),
+        fhostname,
         fuptime,
         fcpupct,
         fcputemp,
