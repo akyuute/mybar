@@ -1,5 +1,13 @@
 #!/usr/bin/python
 
+#TODO: Config files!
+#TODO: Command line args!
+#TODO: Finish Mocp line!
+#TODO: Implement killing threads!
+#TODO: Implement align_to_seconds!
+#TODO: Implement dynamic icons!
+
+
 import os
 import sys
 import time
@@ -20,28 +28,6 @@ HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 
 
-#TODO: Config files!
-#TODO: Command line args!
-#TODO: Finish Mocp line!
-#TODO: Implement killing threads!
-#TODO: Implement align_to_seconds!
-#TODO: Implement dynamic icons!
-
-
-class InvalidOutputStream(Exception):
-    pass
-class UndefinedSeparator(Exception):
-    pass
-class BadFormatString(Exception):
-    pass
-class InvalidField(Exception):
-    pass
-class MissingBar(Exception):
-    pass
-class UndefinedIcon(Exception):
-    pass
-
-
 def join_options(
     it: Iterable[str],
     /,
@@ -52,6 +38,29 @@ def join_options(
     if not hasattr(it, '__iter__'):
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
     return sep.join(list(it)[:-1]) + ('', ',')[oxford] + final + it[-1]
+
+
+class InvalidOutputStream(Exception):
+    '''Raised when an IO stream lacks write(), flush() and isatty() methods.'''
+    pass
+class UndefinedSeparator(Exception):
+    '''Raised when a Bar lacks a separator when its fmt is None.'''
+    pass
+class UndefinedIcon(Exception):
+    '''Raised when a Field lacks an icon when its fmt is None.'''
+    pass
+class BadFormatString(Exception):
+    '''Raised when a format string cannot be properly parsed or contains
+    positional fields ('{}').'''
+    pass
+class InvalidField(Exception):
+    '''Raised when a field is either not an instance of Field or a string not
+    found in the default fields collection.'''
+    pass
+class MissingBar(Exception):
+    '''Raised when Field.run() is called before its instance is passed to the
+    fields parameter in Bar().'''
+    pass
 
 
 class Field:
@@ -87,12 +96,13 @@ class Field:
         self.args = args
         self.kwargs = kwargs
 
-        self.bar = bar
-
         if fmt is None:
             if all(s is None for s in (gui_icon, term_icon, icon)):
                 raise UndefinedIcon("An icon is required when fmt is None.")
         self.fmt = fmt
+
+        self.bar = bar
+
         self.term_icon = term_icon
         self.gui_icon = gui_icon
         self.icon = self.get_icon(icon)
@@ -383,7 +393,6 @@ class Bar:
                 # Try getting the field func from the default function dict.
                 #TODO: Also try getting the entire field from _default_fields!
                 field_func = self._field_funcs.get(field)
-                print(f"{field_func = }")
                 if field_func is None:
                     raise InvalidField(f"Unrecognized field name: {field!r}")
 
@@ -457,23 +466,13 @@ class Bar:
             sep = default
         return sep
 
-    def run(self,
-        stream: IO = None,
-        override_cooldown: float = None
-    ):
-        '''Run the bar.
-        Block until an exception is raised and exit smoothly.'''
+    def run(self, stream: IO = None):
+        '''Run the bar. Block until an exception is raised and exit smoothly.'''
         if stream is not None:
             self.stream = stream
-        if override_cooldown is not None:
-            self._override_cooldown = override_cooldown
-        if self.fmt is None and self.separator is None:
-            raise UndefinedSeparator(
-                f"No separator is defined for stream {self.stream}")
 
         try:
             self._loop.run_until_complete(self._startup())
-            # asyncio.run(self._startup())
 
         except KeyboardInterrupt:
             pass
@@ -567,13 +566,14 @@ class Bar:
                 )
             )
 
-    async def _check_queue(self, end: str = '\r', cooldown: float = 1/60):
+    async def _check_queue(self, end: str = '\r'):
         '''Prints a line when fields with overrides_refresh send new data.'''
         use_format_str = (self.fmt is not None)
         stream = self.stream
         sep = self.separator
         clearline = self.clearline_char
         show_empty_fields = self.show_empty_fields
+        cooldown = self._override_cooldown
 
         if self.in_a_tty:
             beginning = clearline + end
@@ -647,6 +647,7 @@ def main():
 
     global bar
     bar = Bar(fields=fields)
+    # bar = Bar(fields=fields, sep=None, fmt=None)  # Raise UndefinedSeparator
 
     # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}..."
     # fmt = None
