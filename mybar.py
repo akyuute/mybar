@@ -148,6 +148,7 @@ class Field:
         self._check_bar()
         bar = self.bar
         stopper = bar._stopped
+        run_once = self.run_once
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
         # self.is_running = True
@@ -163,15 +164,6 @@ class Field:
         fmt = self.fmt
         use_format_str = (fmt is not None)
         last_val = None
-
-        if self.run_once:
-            res = await func(*args, **kwargs)
-            if use_format_str:
-                contents = fmt.format(res, icon=icon)
-            else:
-                contents = icon + res
-            field_buffers[field_name] = contents
-            return
 
         while not stopper.is_set():
             res = await func(*args, **kwargs)
@@ -202,6 +194,9 @@ class Field:
                     # If not, the line will update at the next refresh cycle.
                     pass
 
+            if run_once:
+                break
+
             await asyncio.sleep(interval)
 
     def run_threaded(self):
@@ -210,6 +205,7 @@ class Field:
         self._check_bar()
         bar = self.bar
         stopper = bar._stopped
+        run_once = self.run_once
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
         # self.is_running = True
@@ -287,6 +283,9 @@ class Field:
                     # handles the current override.
                     # If not, the line will update at the next refresh cycle.
                     pass
+
+            if run_once:
+                break
 
             count = 0
 
