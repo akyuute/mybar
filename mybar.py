@@ -75,6 +75,7 @@ class Field:
         override_refresh_rate=False,
         threaded=False,
         constant_output: str = None,
+        run_once: bool = False,
         bar=None,
         args = [],
         kwargs = {},
@@ -121,6 +122,7 @@ class Field:
         self.align_to_seconds = align_to_seconds
         self.buffer = None
         self.constant_output = constant_output
+        self.run_once = run_once
         self.interval = interval
         self.overrides_refresh = override_refresh_rate
 
@@ -147,11 +149,11 @@ class Field:
         bar = self.bar
         stopper = bar._stopped
         override_queue = bar._override_queue
-
+        overrides_refresh = self.overrides_refresh
         # self.is_running = True
 
         field_name = self.name
-        last_val = None
+        field_buffers = bar._buffers
         interval = self.interval
         func = self._callback
         args = self.args
@@ -160,11 +162,9 @@ class Field:
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
         use_format_str = (fmt is not None)
-        field_buffers = bar._buffers
-        overrides_refresh = self.overrides_refresh
+        last_val = None
 
-        # An interval of 0 means the callback should run once and return.
-        if self.interval == 0:
+        if self.run_once:
             res = await func(*args, **kwargs)
             if use_format_str:
                 contents = fmt.format(res, icon=icon)
@@ -211,10 +211,11 @@ class Field:
         bar = self.bar
         stopper = bar._stopped
         override_queue = bar._override_queue
+        overrides_refresh = self.overrides_refresh
         # self.is_running = True
 
         field_name = self.name
-        last_val = None
+        field_buffers = bar._buffers
         interval = self.interval
         func = self._callback
         args = self.args
@@ -223,8 +224,7 @@ class Field:
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
         use_format_str = (fmt is not None)
-        field_buffers = bar._buffers
-        overrides_refresh = self.overrides_refresh
+        last_val = None
 
         cooldown = bar._thread_cooldown
 
@@ -232,8 +232,7 @@ class Field:
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
 
-        # An interval of 0 means the callback should run once and return.
-        if self.interval == 0:
+        if self.run_once:
             if is_async:
                 res = loop.run_until_complete(func(*args, **kwargs))
             else:
@@ -634,7 +633,7 @@ class Bar:
             pass
 
 def main():
-    fhostname = Field(name='hostname', func=get_hostname, interval=0, term_icon='')
+    fhostname = Field(name='hostname', func=get_hostname, run_once=True, term_icon='')
     fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up:')
     fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, term_icon='CPU:')
     fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='')
@@ -663,8 +662,9 @@ def main():
         Field(
             name='isatty',
             func=(lambda args=None, kwargs=None: str(bar.in_a_tty)),
-            icon='TTY:',
-            interval=0
+            # icon='TTY:',
+            run_once=True,
+            # interval=0
         ),
         fhostname,
         fuptime,
