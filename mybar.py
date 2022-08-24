@@ -16,7 +16,9 @@ import signal
 import asyncio
 import inspect
 import threading
+import strictyaml
 from string import Formatter
+from argparse import ArgumentParser
 from typing import Iterable, Callable, IO
 
 from field_funcs import *
@@ -26,6 +28,7 @@ CSI = '\033['  # Unix terminal escape code (control sequence introducer)
 CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
+COUNT = [0]
 
 
 def join_options(
@@ -39,7 +42,24 @@ def join_options(
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
     return sep.join(list(it)[:-1]) + ('', ',')[oxford] + final + it[-1]
 
+def str_to_bool(value: str, /):
+    '''Returns `True` or `False` bools for truthy or falsy strings.'''
+    truthy = "true t yes y on 1".split()
+    falsy = "false f no n off 0".split()
+    pattern = value.lower()
+    if pattern not in truthy + falsy:
+        raise ValueError(f"Invalid argument: {value!r}")
+    return (pattern in truthy or not pattern in falsy)
 
+def add_if_exists(dct: dict, key, val):
+    if not isinstance(dct, dict):
+        raise ValueError("dct must be a mutable mapping such as a dict.")
+    if val is not None:
+        dct[key] = val
+
+class DefaultNotFound(Exception):
+    '''Raised for references to an undefined default Field or function.'''
+    pass
 class InvalidOutputStream(Exception):
     '''Raised when an IO stream lacks write(), flush() and isatty() methods.'''
     pass
@@ -63,7 +83,83 @@ class MissingBar(Exception):
     pass
 
 
+##FIELD_SCHEMA = y.MapPattern(y.Str(), y.Map({
+##    y.Optional('icon'): y.Str(),
+##    y.Optional('gui_icon'): y.Str(),
+##    y.Optional('term_icon'): y.Str(),
+##    y.Optional('fmt'): y.Str(),
+##    y.Optional('constant_output'): y.Str(),
+##    y.Optional('threaded'): y.Bool(),
+##    y.Optional('override_refresh_rate'): y.Bool(),
+##    y.Optional('run_once'): y.Bool(),
+##    y.Optional('args'): y.Seq(y.Any()),
+##    y.Optional('kwargs'): y.MapPattern(y.Str(), y.Any()),
+##}))
+##
+##SCHEMA = y.Seq(y.OrValidator(y.Str(), FIELD_SCHEMA))
+
 class Field:
+    _default_fields = {
+        'hostname': dict( #Field(
+            name='hostname',
+            func=get_hostname,
+            interval=10
+        # },
+        ),
+        'uptime': dict( #Field(
+            name='uptime',
+            func=get_uptime,
+            kwargs={'fmt': '%-dd:%-Hh:%-Mm'}
+        # },
+        ),
+        'cpu_usage': dict( #Field(
+            name='cpu_usage',
+            func=get_cpu_usage,
+            interval=2,
+            threaded=True
+        # },
+        ),
+        'cpu_temp': dict( #Field(
+            name='cpu_temp',
+            func=get_cpu_temp,
+            interval=2,
+            threaded=True
+        # },
+        ),
+        'mem_usage': dict( #Field(
+            name='mem_usage',
+            func=get_mem_usage,
+            interval=2
+        # },
+        ),
+        'disk_usage': dict( #Field(
+            name='disk_usage',
+            func=get_disk_usage,
+            interval=10
+        # },
+        ),
+        'battery': dict( #Field(
+            name='battery',
+            func=get_battery_info,
+            interval=1,
+            override_refresh_rate=True
+        # },
+        ),
+        'net_stats': dict( #Field(
+            name='net_stats',
+            func=get_net_stats,
+            interval=10
+        # },
+        ),
+        'datetime': dict( #Field(
+            name='datetime',
+            func=get_datetime,
+            interval=1/8,
+            override_refresh_rate=True
+        # },
+        ),
+    }
+
     def __init__(self,
         /,
         name: str = None,
@@ -129,6 +225,19 @@ class Field:
         self.is_threaded = threaded
         self.thread = None
         # self.is_running = False
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(name={self.name!r})"
+
+    @classmethod
+    def from_default(cls, name: str, defaults: dict = None):
+        default = cls._default_fields.get(name)
+        if default is None:
+            raise DefaultNotFound(
+                f"{name!r} is not a default Field.")
+        spec = {}
+        spec.update(default)
+        return cls(**spec)
 
     def get_icon(self, default=None):
         if self.bar is None:
@@ -631,6 +740,113 @@ class Bar:
         except RuntimeError:
             pass
 
+class Config:
+    def __init__(self, file: os.PathLike = None): # Path = None):
+        # Get the config file name if passed as a command line argument
+        cli_parser = ArgumentParser()
+        cli_parser.add_argument('--config', nargs='+')
+        config_file = cli_parser.parse_args(sys.argv[1:]).config or file
+
+        # self.read_file()
+        if config_file is None:
+            config_file = os.path.expanduser('~/bar.conf')
+
+        config_file = 'bar.conf'
+        self.file = config_file
+        with open(config_file, 'r') as f:
+            raw_data = f.read()
+
+        self.yaml = strictyaml.load(raw_data)
+        # self.data = self.yaml.data
+        self.fields = self.get_fields()
+
+        bar_params = (
+            'fields',
+            'fmt',
+            'sep',
+            'refresh',
+            'stream',
+            'show_empty',
+            'field_params',
+            'gui_sep',
+            'term_sep',
+            'override_cooldown',
+            'thread_cooldown'
+        )
+
+        orig_params = self.bar_params = self.yaml.data.copy()
+        orig_params.pop('fields')
+        # for param in Bar._params:
+        params = {}
+        for k, v in orig_params.items():
+            # if k in Bar._default_fields.keys():
+            if k in bar_params:
+                if v is not None:
+                    params[k] = v
+        self.params = params
+            # add_if_exists(params, k, v)
+
+##        # Cast defaults to the proper types
+##        cmds['channels_set_min_perms'] = str_to_bool(channels_set_min_perms)
+##        cmds['chnls_set_case'] = str_to_bool(channels_set_case)
+##        cmds['require_message'] = str_to_bool(require_message)
+##
+##        dfts['perms'] = dfts.get('default_perms', "everyone")
+##        dfts['count'] = int(dfts.get('default_count', 0))
+##        dfts['is_enabled'] = str_to_bool(dfts.get('is_enabled', "t"))
+##        dfts['is_hidden'] = str_to_bool(dfts.get('is_hidden', "f"))
+##        dfts['case_sensitive'] = str_to_bool(dfts.get('case_sensitive', "f"))
+##
+##        default_cd = dfts.get('cooldowns', None)
+##        base_ranks = "everyone vip moderator owner".split()
+##        if default_cd is None:
+##            default_cd = dict.fromkeys(base_ranks, 1.0)
+##        # dfts['cooldowns'] = {rk: float(cd) for rk, cd in default_cd.items()}
+##        dfts['cooldowns'] = [default_cd[rk] for rk in base_ranks]
+##
+##        core_cmds = cmds['core_built_ins']
+##        for cmd, cfg in core_cmds.items():
+##            if 'aliases' in cfg:
+##                cfg['aliases'].remove('')
+##
+##        # override_builtins = self.commands.get('override_builtins', "t")
+##        # self.commands['override_builtins'] = str_to_bool(override_builtins)
+##
+##    # def _assert_
+
+
+    def _validate_yaml(self):
+       if not self.yaml['fields'].is_sequence():
+           raise InvalidConfig("'fields' must be a sequence.")
+
+    def write_config(self):
+        file = os.path.expanduser('~/bar.conf')
+        field_names = list(Field._default_fields.keys())
+        yaml = strictyaml.as_document(field_names).as_yaml()
+        with open(file, 'w') as f:
+            f.write(yaml)
+
+
+    def get_fields(self):
+        self._validate_yaml()
+        fields = []
+        for field in self.yaml.data['fields']:
+            if isinstance(field, dict):
+                try:
+                    ((name, params),) = field.items()
+                except ValueError:
+                    raise ValueError("Invalid YAML sequence structure...")
+                fields.append(Field.from_default(name, params))
+            elif isinstance(field, str):
+                fields.append(Field.from_default(field))
+        return fields
+
+    def get_bar(self):
+        params = self.yaml.data.copy()
+        # params = {**self.params}
+        params.update(fields=self.fields)
+        return Bar(**params)
+
 def main():
     fhostname = Field(name='hostname', func=get_hostname, run_once=True, term_icon='')
     fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up:')
@@ -650,6 +866,7 @@ def main():
         override_refresh_rate=True,
         term_icon='?'
     )
+    fcounter = Field(name='counter', func=counter, interval=1, args=[COUNT])
 
     # fdate = Field(name='datetime', func=get_datetime, interval=1, override_refresh_rate=False, term_icon='')
     # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False)
@@ -665,8 +882,8 @@ def main():
             run_once=True,
             # interval=0
         ),
-        fhostname,
-        fuptime,
+        # fhostname,
+        # fuptime,
         fcpupct,
         fcputemp,
         fmem,
@@ -674,6 +891,7 @@ def main():
         fbatt,
         fnet,
         fdate,
+        # fcounter,
     )
 
     # fields = [Field(name='test', interval=1/16, func=(lambda args=None, kwargs=None: "WORKING"), override_refresh_rate=True, term_icon='&', gui_icon='@')]
@@ -690,7 +908,9 @@ def main():
     # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
     # bar = Bar(fields='datetime hostname counter hostname uptime hostname'.split(), field_params={'counter': dict(args=(COUNT,), interval=0.333)})
 
-    bar.run()
+    # bar.run()
+
+
 
 if __name__ == '__main__':
     main()
