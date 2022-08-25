@@ -57,9 +57,6 @@ def add_if_exists(dct: dict, key, val):
     if val is not None:
         dct[key] = val
 
-class DefaultNotFound(Exception):
-    '''Raised for references to an undefined default Field or function.'''
-    pass
 class InvalidOutputStream(Exception):
     '''Raised when an IO stream lacks write(), flush() and isatty() methods.'''
     pass
@@ -81,22 +78,20 @@ class MissingBar(Exception):
     '''Raised when Field.run() is called before its instance is passed to the
     fields parameter in Bar().'''
     pass
+class DefaultNotFound(Exception):
+    '''Raised for references to an undefined default Field or function.'''
+    pass
 
+class ConfigInvalid(Exception):
+    '''Raised when a config file contains missing or malformed data.'''
+    pass
+class ConfigInvalidField(Exception):
+    '''Raised when a field definition block of a config file is malformed.'''
+    pass
+class ConfigCannotConvert(Exception):
+    '''Raised when a config value cannot be converted to the necessary type.'''
+    pass
 
-##FIELD_SCHEMA = y.MapPattern(y.Str(), y.Map({
-##    y.Optional('icon'): y.Str(),
-##    y.Optional('gui_icon'): y.Str(),
-##    y.Optional('term_icon'): y.Str(),
-##    y.Optional('fmt'): y.Str(),
-##    y.Optional('constant_output'): y.Str(),
-##    y.Optional('threaded'): y.Bool(),
-##    y.Optional('override_refresh_rate'): y.Bool(),
-##    y.Optional('run_once'): y.Bool(),
-##    y.Optional('args'): y.Seq(y.Any()),
-##    y.Optional('kwargs'): y.MapPattern(y.Str(), y.Any()),
-##}))
-##
-##SCHEMA = y.Seq(y.OrValidator(y.Str(), FIELD_SCHEMA))
 
 class Field:
     _default_fields = {
@@ -230,13 +225,18 @@ class Field:
         return f"{self.__class__.__name__}(name={self.name!r})"
 
     @classmethod
-    def from_default(cls, name: str, defaults: dict = None):
-        default = cls._default_fields.get(name)
+    def from_default(cls,
+        name: str,
+        params: dict = {},
+        defaults: dict = None
+    ):
+        default: dict = cls._default_fields.get(name)
         if default is None:
             raise DefaultNotFound(
-                f"{name!r} is not a default Field.")
+                f"{name!r} is not a default Field name.")
         spec = {}
         spec.update(default)
+        spec.update(params)
         return cls(**spec)
 
     def get_icon(self, default=None):
@@ -256,7 +256,7 @@ class Field:
         and send updates to the bar.'''
         self._check_bar()
         bar = self.bar
-        stopper = bar._stopped
+        running = bar._can_run
         run_once = self.run_once
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
@@ -274,7 +274,7 @@ class Field:
         use_format_str = (fmt is not None)
         last_val = None
 
-        while not stopper.is_set():
+        while running.is_set():
             res = await func(*args, **kwargs)
 
             if res == last_val:
@@ -293,6 +293,8 @@ class Field:
             # new line between refresh cycles.
             if overrides_refresh:
                 try:
+
+                    # print(f"{(self.bar._loop == asyncio.get_running_loop()) = }")
                     override_queue.put_nowait(
                         (field_name, contents)
                     )
@@ -301,6 +303,14 @@ class Field:
                     # queue is full. The update may still show while the queue
                     # handles the current override.
                     # If not, the line will update at the next refresh cycle.
+                    pass
+
+                # Running the bar a second time raises RuntimeError saying its
+                # event loop is closed.
+                # It's not, so we ignore that.
+                except RuntimeError:
+                    # print("\nGot RuntimeError")
+                    assert self.bar._loop.is_running()
                     pass
 
             if run_once:
@@ -313,7 +323,7 @@ class Field:
         and send its updates to the bar.'''
         self._check_bar()
         bar = self.bar
-        stopper = bar._stopped
+        running = bar._can_run
         run_once = self.run_once
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
@@ -351,7 +361,7 @@ class Field:
             return
 
         count = 0
-        while not stopper.is_set():
+        while running.is_set():
 
             # Instead of blocking the entire interval, use a quicker cooldown.
             # A shorter cooldown means more chances to check if the bar stops.
@@ -573,7 +583,7 @@ class Bar:
         self._thread_cooldown = thread_cooldown
 
         # Setting this Event cancels all fields:
-        self._stopped = threading.Event()
+        self._can_run = threading.Event()
 
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
@@ -604,7 +614,11 @@ class Bar:
         if stream is not None:
             self.stream = stream
 
+        # Allow the bar to run repeatedly in the same interpreter.
+        if self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
         try:
+            self._can_run.set()
             self._loop.run_until_complete(self._startup())
 
         except KeyboardInterrupt:
@@ -642,7 +656,7 @@ class Bar:
     def _shutdown(self):
         '''Notify fields that the bar has stopped,
         close the event loop and join threads.'''
-        self._stopped.set()
+        self._can_run.clear()
         self._loop.stop()
         self._loop.close()
         for field in self._fields.values():
@@ -679,7 +693,7 @@ class Bar:
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
         start_time = time.monotonic_ns()
-        while not self._stopped.is_set():
+        while self._can_run.is_set():
 
             if use_format_str:
                 line = self.fmt.format_map(self._buffers)
@@ -717,7 +731,7 @@ class Bar:
             beginning = clearline
 
         try:
-            while not self._stopped.is_set():
+            while self._can_run.is_set():
 
                 field, contents = await self._override_queue.get()
 
@@ -736,8 +750,10 @@ class Bar:
                 stream.flush()
                 await asyncio.sleep(cooldown)
 
-        # SIGINT raises RuntimeError saying an event loop is closed.
+        # SIGINT raises RuntimeError saying the event loop is closed.
+        # It's not, so we ignore that.
         except RuntimeError:
+            assert self._loop.is_running()
             pass
 
 class Config:
@@ -760,64 +776,115 @@ class Config:
         # self.data = self.yaml.data
         self.fields = self.get_fields()
 
-        bar_params = (
-            'fields',
-            'fmt',
-            'sep',
-            'refresh',
-            'stream',
-            'show_empty',
-            'field_params',
-            'gui_sep',
-            'term_sep',
-            'override_cooldown',
-            'thread_cooldown'
+        parms = self.yaml.copy()
+        self.bar_params = parms.data
+        self.bar_params.pop('fields')
+        try:
+            self.bar_params.pop('field_params', None)
+            self.bar_params.pop('stream', None)
+        except KeyError:
+            pass
+
+        bools = {}
+        bools['show_empty'] = parms.get('show_empty')
+        bools['override_cooldown'] = parms.get('override_cooldown')
+        self.bar_params.update(
+            self._cast_elements(bools, str_to_bool, "a boolean")
         )
 
-        orig_params = self.bar_params = self.yaml.data.copy()
-        orig_params.pop('fields')
-        # for param in Bar._params:
-        params = {}
-        for k, v in orig_params.items():
-            # if k in Bar._default_fields.keys():
-            if k in bar_params:
-                if v is not None:
-                    params[k] = v
-        self.params = params
-            # add_if_exists(params, k, v)
+        floats = {}
+        floats['refresh'] = parms.get('refresh')
+        floats['thread_cooldown'] = parms.get('thread_cooldown')
+        floats['override_cooldown'] = parms.get('override_cooldown')
+        self.bar_params.update(self._cast_elements(floats, float, "a number"))
 
-##        # Cast defaults to the proper types
-##        cmds['channels_set_min_perms'] = str_to_bool(channels_set_min_perms)
-##        cmds['chnls_set_case'] = str_to_bool(channels_set_case)
-##        cmds['require_message'] = str_to_bool(require_message)
-##
-##        dfts['perms'] = dfts.get('default_perms', "everyone")
-##        dfts['count'] = int(dfts.get('default_count', 0))
-##        dfts['is_enabled'] = str_to_bool(dfts.get('is_enabled', "t"))
-##        dfts['is_hidden'] = str_to_bool(dfts.get('is_hidden', "f"))
-##        dfts['case_sensitive'] = str_to_bool(dfts.get('case_sensitive', "f"))
-##
-##        default_cd = dfts.get('cooldowns', None)
-##        base_ranks = "everyone vip moderator owner".split()
-##        if default_cd is None:
-##            default_cd = dict.fromkeys(base_ranks, 1.0)
-##        # dfts['cooldowns'] = {rk: float(cd) for rk, cd in default_cd.items()}
-##        dfts['cooldowns'] = [default_cd[rk] for rk in base_ranks]
-##
-##        core_cmds = cmds['core_built_ins']
-##        for cmd, cfg in core_cmds.items():
-##            if 'aliases' in cfg:
-##                cfg['aliases'].remove('')
-##
-##        # override_builtins = self.commands.get('override_builtins', "t")
-##        # self.commands['override_builtins'] = str_to_bool(override_builtins)
-##
-##    # def _assert_
+        # updates = {}
+        # print(floats)
 
+    def _make_error_message(self,
+        label: str,
+        blame = None,
+        expected: str = None,
+        file: str = None,
+        line: int = None,
+        indent: str = "  ",
+        details: Iterable[str] = None
+    ):
+        level = 0
+
+        message = []
+        if file is not None:
+            message.append(f"In config file {file!r}")
+            if line is not None:
+                message[-1] += f" (line {line})"
+            message[-1] += ":"
+            level += 1
+
+        elif line is not None:
+            message.append(f"(line {line}):")
+            level += 1
+
+        message.append(f"{indent * level}While parsing {label}:")
+        level += 1
+
+        if details is not None:
+            message.append('\n'.join((indent * level + det) for det in details))
+            # message.append(
+                # ('\n' + indent * level).join(details)
+            # )
+
+        if blame is not None:
+            if expected is not None:
+                message.append(
+                    f"{indent * level}Expected {expected}, "
+                    f"but got {blame} instead."
+                )
+            else:
+                message.append(f"{indent * level}{blame}")
+
+        err = ('\n').join(message)
+        return err
+
+    def _cast_elements(self,
+        vals: dict,
+        typ,
+        expect: str,
+        keys: Iterable[str] = None,
+        # follow=None,
+        **kwargs
+    ):
+        # This happens when
+        # (When does this happen?)
+        if not isinstance(vals, dict):
+            text = ''
+            follow = kwargs.get('follow')
+            if follow is not None:
+                text = follow.lines().splitlines()[0]
+            raise ConfigInvalidField(repr(text))
+
+        ret = {}
+        for name, val in vals.items():
+            if val is not None:
+                try:
+                    if keys is not None:
+                        if name in keys:
+                            ret[name] = typ(val)
+                    else:
+                        ret[name] = typ(val)
+                except ValueError:
+                    raise ConfigCannotConvert(expect, val)
+
+        return ret
 
     def _validate_yaml(self):
-       if not self.yaml['fields'].is_sequence():
-           raise InvalidConfig("'fields' must be a sequence.")
+        if self.yaml.get('fields') is None:
+            raise ConfigInvalid(
+                f"The config file {self.file!r} is missing a 'fields' array.")
+        if not self.yaml['fields'].is_sequence():
+            raise ConfigInvalid(
+                f"'fields' in config file {self.file!r} must be an array of "
+                f"valid field names and or nonempty dictionaries."
+            )
 
     def write_config(self):
         file = os.path.expanduser('~/bar.conf')
@@ -826,24 +893,121 @@ class Config:
         with open(file, 'w') as f:
             f.write(yaml)
 
-
     def get_fields(self):
         self._validate_yaml()
+        to_float = ('interval',)
+        to_bool = ('override_refresh_rate', 'run_once', 'threaded')
+
         fields = []
-        for field in self.yaml.data['fields']:
-            if isinstance(field, dict):
+        for field in self.yaml['fields']:
+            # print(field.data)
+            if isinstance(field.data, dict):
                 try:
-                    ((name, params),) = field.items()
+                    ((name, params),) = field.data.items()
+                    start_line = field[name].start_line
+
+                    floats = self._cast_elements(
+                        keys=to_float,
+                        vals=params,
+                        typ=float,
+                        expect="a number",
+                        follow=field[name]
+                    )
+
+                    bools = self._cast_elements(
+                        keys=to_bool,
+                        vals=params,
+                        typ=str_to_bool,
+                        expect="a boolean",
+                        follow=field[name]
+                    )
+
+                    params.update(**floats, **bools)
+                    fields.append(Field.from_default(name, params))
+
+                except ConfigCannotConvert as e:
+                    err = self._make_error_message(
+                        label=f"field option {name!r}",
+                        blame=repr(e.args[1]),
+                        expected=e.args[0],
+                        file=self.file,
+                        line=start_line
+                    )
+                    raise ConfigCannotConvert('\n' + err) from e
+
+                except ConfigInvalidField as e:
+                    err = self._make_error_message(
+
+                        label=f"field {name!r}",
+                        # blame=params,
+                        blame=e.args[0], #.lines(),
+                        expected=(
+                            "the name of a default field or a dictionary "
+                            "with optional overrides to a default field"
+                        ),
+                        file=self.file,
+                        line=start_line,
+                        details=(
+                            f"Invalid field definition block.",
+                            # f"'fields' must be an array of valid "
+                            # f"field names and or nonempty dictionaries."
+                        )
+                    )
+
+                    raise ConfigInvalidField('\n' + err)
+
+                # An error about the dictionary update sequence means
+                # something other than a dictionary or field name was passed.
                 except ValueError:
-                    raise ValueError("Invalid YAML sequence structure...")
-                fields.append(Field.from_default(name, params))
-            elif isinstance(field, str):
-                fields.append(Field.from_default(field))
+                    print("Got ValueError!")
+                    err = self._make_error_message(
+                        file=self.file,
+                        line=start_line,
+                        label=f"field {name!r}",
+                        blame=params,
+                        expected="a dictionary",
+                        details=("Invalid field definition.",),
+                    )
+                    raise ConfigInvalid('\n' + err)
+
+                # Invalid keyword arguments are the cause of TypeErrors.
+                except TypeError as e:
+                    err = self._make_error_message(
+                        file=self.file,
+                        line=start_line,
+                        label=f"field {name!r}",
+                        blame=', '.join(repr(k) for k in params.keys()),
+                        details=(
+                            # f"Invalid keyword arguments for Field.__init__():",
+                            f"At least one of the following keyword arguments "
+                            f"for Field.__init__() are invalid:",
+                        )
+                    )
+                    raise ConfigInvalid('\n' + err) from e
+
+            elif isinstance(field.data, str):
+                fields.append(Field.from_default(field.data))
+
+            else:
+
+                err = self._make_error_message(
+                    file=self.file,
+                    line=field.start_line,
+                    label=f"field {field.data!r}",
+                    expected="a dictionary",
+                    details = (
+                        f"Invalid field definition block.",
+                        f"'fields' must be an array of valid "
+                        f"field names and or nonempty dictionaries."
+                    )
+                )
+
+                raise ConfigInvalid('\n' + err) from None
+
         return fields
 
     def get_bar(self):
-        params = self.yaml.data.copy()
-        # params = {**self.params}
+        params = self.bar_params.copy()
         params.update(fields=self.fields)
         return Bar(**params)
 
@@ -897,19 +1061,18 @@ def main():
     # fields = [Field(name='test', interval=1/16, func=(lambda args=None, kwargs=None: "WORKING"), override_refresh_rate=True, term_icon='&', gui_icon='@')]
 
     global bar
-    bar = Bar(fields=fields)
+    # bar = Bar(fields=fields)
     # bar = Bar(fields=fields, sep=None, fmt=None)  # Raise UndefinedSeparator
 
     # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}..."
     # fmt = None
-    # bar = Bar(fmt=fmt, fields=fields, refresh=1)
     # bar = Bar(fmt=fmt)
 
     # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
-    # bar = Bar(fields='datetime hostname counter hostname uptime hostname'.split(), field_params={'counter': dict(args=(COUNT,), interval=0.333)})
 
-    # bar.run()
-
+    CFG = Config('bar.conf')
+    bar = CFG.get_bar()
+    bar.run()
 
 
 if __name__ == '__main__':
