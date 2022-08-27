@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-#TODO: Config files!
+#TODO: JSONify config files!
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
@@ -24,7 +24,7 @@ from typing import Iterable, Callable, IO
 from field_funcs import *
 
 
-FILE = '~/bar.conf'
+CONFIG_FILE = 'bar.conf' #'~/bar.conf'
 CSI = '\033['  # Unix terminal escape code (control sequence introducer)
 CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
@@ -537,7 +537,8 @@ class Bar:
         self.separator = self.get_separator(sep)
         self.default_sep = sep
 
-        default_field_params = dict(args=[], kwargs={})
+        # default_field_params = dict(args=[], kwargs={})
+        # default_field_params = dict(args=None, kwargs=None)
         if field_params is None:
             field_params = {}
 
@@ -546,36 +547,22 @@ class Bar:
         self._ordering = []
 
         for field in fields:
+            # Make a Field from the defaults when only the name is given.
             if isinstance(field, str):
-                # Try getting the field func from the default function dict.
-                #TODO: Also try getting the entire field from _default_fields!
-                field_func = self._field_funcs.get(field)
-                if field_func is None:
-                    raise InvalidField(f"Unrecognized field name: {field!r}")
-
-                if field in self._ordering:
-                    continue
+                if field not in self._ordering:
+                    new_field = Field.from_default(field, params={'bar': self})
+                    self._fields[field] = new_field
+                    self._buffers[field] = ''
                 self._ordering.append(field)
-
-                params = field_params.get(field, default_field_params)
-
-                field = Field(
-                    name=field,
-                    func=field_func,
-                    bar=self,
-                    **params
-                )
 
             elif isinstance(field, Field):
                 field._bar = self
+                self._fields[field.name] = field
+                self._buffers[field.name] = ''
                 self._ordering.append(field.name)
 
             else:
                 raise InvalidField(f"Invalid field: {field}")
-
-            self._fields[field.name] = field
-            self._buffers[field.name] = ''
-            # self._ordering.append(field.name)
 
         # Whether empty fields are shown with the rest when fmt is None:
         self.show_empty_fields = show_empty
@@ -624,23 +611,28 @@ class Bar:
         return sep
 
     def to_conf_dict(self):
-        pass
         attrs = {
             k: v
             for k, v in self.__dict__.copy().items()
             if v is not None
             and not k.startswith('_')
         }
-
         fields = {
             name: field.to_dict()
             for name, field in self._fields.items()
         }
-        # for f in fields.values():
-            # del f['name']
         attrs['fields'] = fields
-
         return attrs
+
+    def write_yaml_config(self, file: os.PathLike = None):
+        if file is None:
+            file = CONFIG_FILE
+        obj = self.to_conf_dict()
+        for field in obj['fields'].values():
+            del field['name']
+        yaml = strictyaml.as_document(obj).as_yaml()
+        with open(os.path.expanduser(file), 'w') as f:
+            f.write(yaml)
 
     def run(self, stream: IO = None):
         '''Run the bar. Block until an exception is raised and exit smoothly.'''
@@ -922,7 +914,6 @@ class Config:
     def write_yaml_config(self, file: os.PathLike = None):
         if file is None:
             file = self.file
-
         obj = self.get_bar().to_conf_dict()
         for field in obj['fields'].values():
             del field['name']
@@ -1107,7 +1098,7 @@ def main():
 
     # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
 
-    bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage disk_usage battery net_stats datetime'.split())
+    bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
     # CFG = Config('bar.conf')
     # bar = CFG.get_bar()
 
