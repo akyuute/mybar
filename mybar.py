@@ -24,6 +24,7 @@ from typing import Iterable, Callable, IO
 from field_funcs import *
 
 
+FILE = '~/bar.conf'
 CSI = '\033['  # Unix terminal escape code (control sequence introducer)
 CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
@@ -94,65 +95,62 @@ class ConfigCannotConvert(Exception):
 
 
 class Field:
+
     _default_fields = {
-        'hostname': dict( #Field(
-            name='hostname',
-            func=get_hostname,
-            interval=10
-        # },
-        ),
-        'uptime': dict( #Field(
-            name='uptime',
-            func=get_uptime,
-            kwargs={'fmt': '%-dd:%-Hh:%-Mm'}
-        # },
-        ),
-        'cpu_usage': dict( #Field(
-            name='cpu_usage',
-            func=get_cpu_usage,
-            interval=2,
-            threaded=True
-        # },
-        ),
-        'cpu_temp': dict( #Field(
-            name='cpu_temp',
-            func=get_cpu_temp,
-            interval=2,
-            threaded=True
-        # },
-        ),
-        'mem_usage': dict( #Field(
-            name='mem_usage',
-            func=get_mem_usage,
-            interval=2
-        # },
-        ),
-        'disk_usage': dict( #Field(
-            name='disk_usage',
-            func=get_disk_usage,
-            interval=10
-        # },
-        ),
-        'battery': dict( #Field(
-            name='battery',
-            func=get_battery_info,
-            interval=1,
-            override_refresh_rate=True
-        # },
-        ),
-        'net_stats': dict( #Field(
-            name='net_stats',
-            func=get_net_stats,
-            interval=10
-        # },
-        ),
-        'datetime': dict( #Field(
-            name='datetime',
-            func=get_datetime,
-            interval=1/8,
-            override_refresh_rate=True
-        # },
-        ),
+        'hostname': {
+            'name': 'hostname',
+            'func': get_hostname,
+            'interval': 10
+        },
+        'uptime': {
+            'name': 'uptime',
+            'func': get_uptime,
+            'kwargs': {'fmt': '%-jd:%-Hh:%-Mm'},
+            'term_icon': 'Up '
+        },
+        'cpu_usage': {
+            'name': 'cpu_usage',
+            'func': get_cpu_usage,
+            'interval': 2,
+            'threaded': True
+        },
+        'cpu_temp': {
+            'name': 'cpu_temp',
+            'func': get_cpu_temp,
+            'interval': 2,
+            'threaded': True,
+            'term_icon': 'CPU '
+        },
+        'mem_usage': {
+            'name': 'mem_usage',
+            'func': get_mem_usage,
+            'interval': 2,
+            'term_icon': 'Mem '
+        },
+        'disk_usage': {
+            'name': 'disk_usage',
+            'func': get_disk_usage,
+            'interval': 4,
+            'term_icon': '/:'
+        },
+        'battery': {
+            'name': 'battery',
+            'func': get_battery_info,
+            'interval': 1,
+            'override_refresh_rate': True,
+            'term_icon': 'Bat '
+        },
+        'net_stats': {
+            'name': 'net_stats',
+            'func': get_net_stats,
+            'interval': 4
+        },
+        'datetime': {
+            'name': 'datetime',
+            'func': get_datetime,
+            'interval': 0.125,
+            'override_refresh_rate': True
+        }
     }
 
     def __init__(self,
@@ -162,14 +160,16 @@ class Field:
         icon: str = '',
         fmt: str = None,
         interval: float = 1.0,
-        align_to_seconds=False,
-        override_refresh_rate=False,
-        threaded=False,
+        # align_to_seconds: bool = False,
+        override_refresh_rate: bool = False,
+        threaded: bool = False,
         constant_output: str = None,
         run_once: bool = False,
         bar=None,
-        args = [],
-        kwargs = {},
+        # args = [],
+        args = None,
+        # kwargs = {},
+        kwargs = None,
         gui_icon: str = None,
         term_icon: str = None,
     ):
@@ -193,7 +193,7 @@ class Field:
                 raise UndefinedIcon("An icon is required when fmt is None.")
         self.fmt = fmt
 
-        self.bar = bar
+        self._bar = bar
 
         self.term_icon = term_icon
         self.gui_icon = gui_icon
@@ -210,15 +210,15 @@ class Field:
             name = self._func.__name__
         self.name = name
 
-        self.align_to_seconds = align_to_seconds
-        self.buffer = None
+        # self.align_to_seconds = align_to_seconds
+        self._buffer = None
         self.constant_output = constant_output
         self.run_once = run_once
         self.interval = interval
         self.overrides_refresh = override_refresh_rate
 
         self.is_threaded = threaded
-        self.thread = None
+        self._thread = None
         # self.is_running = False
 
     def __repr__(self):
@@ -239,10 +239,20 @@ class Field:
         spec.update(params)
         return cls(**spec)
 
+    def to_dict(self,
+    ):
+        attrs = {
+            k: v
+            for k, v in self.__dict__.copy().items()
+            if v is not None
+            and not k.startswith('_')
+        }
+        return attrs
+
     def get_icon(self, default=None):
-        if self.bar is None:
+        if self._bar is None:
             return default
-        icon = self.term_icon if self.bar.stream.isatty() else self.gui_icon
+        icon = self.term_icon if self._bar._stream.isatty() else self.gui_icon
         if icon is None:
             icon = default
         return icon
@@ -255,7 +265,7 @@ class Field:
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
         self._check_bar()
-        bar = self.bar
+        bar = self._bar
         running = bar._can_run
         run_once = self.run_once
         override_queue = bar._override_queue
@@ -266,8 +276,10 @@ class Field:
         field_buffers = bar._buffers
         interval = self.interval
         func = self._callback
-        args = self.args
-        kwargs = self.kwargs
+        # args = self.args
+        args = tuple() if self.args is None else self.args
+        # kwargs = self.kwargs
+        kwargs = {} if self.kwargs is None else self.kwargs
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
@@ -294,7 +306,7 @@ class Field:
             if overrides_refresh:
                 try:
 
-                    # print(f"{(self.bar._loop == asyncio.get_running_loop()) = }")
+                    # print(f"{(self._bar._loop == asyncio.get_running_loop()) = }")
                     override_queue.put_nowait(
                         (field_name, contents)
                     )
@@ -310,7 +322,7 @@ class Field:
                 # It's not, so we ignore that.
                 except RuntimeError:
                     # print("\nGot RuntimeError")
-                    assert self.bar._loop.is_running()
+                    assert self._bar._loop.is_running()
                     pass
 
             if run_once:
@@ -322,7 +334,7 @@ class Field:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
-        bar = self.bar
+        bar = self._bar
         running = bar._can_run
         run_once = self.run_once
         override_queue = bar._override_queue
@@ -333,8 +345,10 @@ class Field:
         field_buffers = bar._buffers
         interval = self.interval
         func = self._callback
-        args = self.args
-        kwargs = self.kwargs
+        # args = self.args
+        args = tuple() if self.args is None else self.args
+        # kwargs = self.kwargs
+        kwargs = {} if self.kwargs is None else self.kwargs
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
@@ -413,15 +427,15 @@ class Field:
 
     async def send_to_thread(self):
         '''Make and start a thread in which to run the field's callback.'''
-        self.thread = threading.Thread(
+        self._thread = threading.Thread(
             target=self.run_threaded,
             name=self.name
         )
-        self.thread.start()
+        self._thread.start()
 
     def _check_bar(self):
-        '''Raises MissingBar if self.bar is None.'''
-        if self.bar is None:
+        '''Raises MissingBar if self._bar is None.'''
+        if self._bar is None:
             raise MissingBar("Fields cannot run until they belong to a Bar.")
 
 class Bar:
@@ -471,7 +485,7 @@ class Bar:
             raise InvalidOutputStream(
                 f"Output stream {stream!r} needs "
                 f"{join_options(_io_meths, final=' and ')} methods.")
-        self.stream = stream
+        self._stream = stream
 
         if fmt is None:
             if fields is None:
@@ -516,7 +530,7 @@ class Bar:
             #TODO: Try getting fields from the default field dict.
             # fields = [self._default_fields.get(fname) for fname in field_names]
             fields = list(field_names)
-        self.field_names = field_names
+        self._field_names = field_names
         self.fmt = fmt
         self.term_sep = term_sep
         self.gui_sep = gui_sep
@@ -540,8 +554,8 @@ class Bar:
                     raise InvalidField(f"Unrecognized field name: {field!r}")
 
                 if field in self._ordering:
-                    self._ordering.append(field)
                     continue
+                self._ordering.append(field)
 
                 params = field_params.get(field, default_field_params)
 
@@ -553,7 +567,7 @@ class Bar:
                 )
 
             elif isinstance(field, Field):
-                field.bar = self
+                field._bar = self
                 self._ordering.append(field.name)
 
             else:
@@ -590,29 +604,48 @@ class Bar:
 
     @property
     def in_a_tty(self):
-        if self.stream is None:
+        if self._stream is None:
             return False
-        return self.stream.isatty()
+        return self._stream.isatty()
 
     @property
     def clearline_char(self):
-        if self.stream is None:
+        if self._stream is None:
             return None
-        clearline = CLEAR_LINE if self.stream.isatty() else ''
+        clearline = CLEAR_LINE if self._stream.isatty() else ''
         return clearline
 
     def get_separator(self, default=None):
-        if self.stream is None:
+        if self._stream is None:
             return default
-        sep = self.term_sep if self.stream.isatty() else self.gui_sep
+        sep = self.term_sep if self._stream.isatty() else self.gui_sep
         if sep is None:
             sep = default
         return sep
 
+    def to_conf_dict(self):
+        pass
+        attrs = {
+            k: v
+            for k, v in self.__dict__.copy().items()
+            if v is not None
+            and not k.startswith('_')
+        }
+
+        fields = {
+            name: field.to_dict()
+            for name, field in self._fields.items()
+        }
+        # for f in fields.values():
+            # del f['name']
+        attrs['fields'] = fields
+
+        return attrs
+
     def run(self, stream: IO = None):
         '''Run the bar. Block until an exception is raised and exit smoothly.'''
         if stream is not None:
-            self.stream = stream
+            self._stream = stream
 
         # Allow the bar to run repeatedly in the same interpreter.
         if self._loop.is_closed():
@@ -626,8 +659,8 @@ class Bar:
 
         finally:
             if self.in_a_tty:
-                self.stream.write('\n')
-                self.stream.write(CSI + UNHIDE_CURSOR)
+                self._stream.write('\n')
+                self._stream.write(CSI + UNHIDE_CURSOR)
             self._shutdown()
 
     async def _startup(self):
@@ -660,13 +693,13 @@ class Bar:
         self._loop.stop()
         self._loop.close()
         for field in self._fields.values():
-            if field.is_threaded and field.thread is not None:
+            if field.is_threaded and field._thread is not None:
 ##                # Optionally kill threads that are still blocking program exit.
 ##                if self._kill_threads:
-##                    signal.pthread_kill(field.thread.ident, self._kill_signal)
+##                    signal.pthread_kill(field._thread.ident, self._kill_signal)
 ##                    print(f"Sent {self._kill_signal} to {field.name}")
-                field.thread.join()
-                # print(f"{field.thread.name}: {field.thread.is_alive() = }")
+                field._thread.join()
+                # print(f"{field._thread.name}: {field._thread.is_alive() = }")
 
     async def _schedule_threads(self):
         '''Sends fields to threads if they are meant to be threaded.'''
@@ -679,7 +712,7 @@ class Bar:
         Fields are responsible for sending updates to the bar's buffers.
         This only writes using the current buffer contents.'''
         use_format_str = (self.fmt is not None)
-        stream = self.stream
+        stream = self._stream
         sep = self.separator
         clearline = self.clearline_char
         show_empty_fields = self.show_empty_fields
@@ -719,7 +752,7 @@ class Bar:
     async def _check_queue(self, end: str = '\r'):
         '''Prints a line when fields with overrides_refresh send new data.'''
         use_format_str = (self.fmt is not None)
-        stream = self.stream
+        stream = self._stream
         sep = self.separator
         clearline = self.clearline_char
         show_empty_fields = self.show_empty_fields
@@ -740,7 +773,7 @@ class Bar:
                 else:
                     line = sep.join(
                         buf
-                        # for field in self.field_names
+                        # for field in self._field_names
                         for field in self._ordering
                             if (buf := self._buffers[field])
                             or show_empty_fields
@@ -767,7 +800,7 @@ class Config:
         if config_file is None:
             config_file = os.path.expanduser('~/bar.conf')
 
-        config_file = 'bar.conf'
+        # config_file = 'bar.conf'
         self.file = config_file
         with open(config_file, 'r') as f:
             raw_data = f.read()
@@ -776,8 +809,8 @@ class Config:
         # self.data = self.yaml.data
         self.fields = self.get_fields()
 
-        parms = self.yaml.copy()
-        self.bar_params = parms.data
+        params = self.yaml.copy()
+        self.bar_params = params.data
         self.bar_params.pop('fields')
         try:
             self.bar_params.pop('field_params', None)
@@ -786,16 +819,16 @@ class Config:
             pass
 
         bools = {}
-        bools['show_empty'] = parms.get('show_empty')
-        bools['override_cooldown'] = parms.get('override_cooldown')
+        bools['show_empty'] = params.get('show_empty')
+        bools['override_cooldown'] = params.get('override_cooldown')
         self.bar_params.update(
             self._cast_elements(bools, str_to_bool, "a boolean")
         )
 
         floats = {}
-        floats['refresh'] = parms.get('refresh')
-        floats['thread_cooldown'] = parms.get('thread_cooldown')
-        floats['override_cooldown'] = parms.get('override_cooldown')
+        floats['refresh'] = params.get('refresh')
+        floats['thread_cooldown'] = params.get('thread_cooldown')
+        floats['override_cooldown'] = params.get('override_cooldown')
         self.bar_params.update(self._cast_elements(floats, float, "a number"))
 
         # updates = {}
@@ -886,10 +919,14 @@ class Config:
                 f"valid field names and or nonempty dictionaries."
             )
 
-    def write_config(self):
-        file = os.path.expanduser('~/bar.conf')
-        field_names = list(Field._default_fields.keys())
-        yaml = strictyaml.as_document(field_names).as_yaml()
+    def write_yaml_config(self, file: os.PathLike = None):
+        if file is None:
+            file = self.file
+
+        obj = self.get_bar().to_conf_dict()
+        for field in obj['fields'].values():
+            del field['name']
+        yaml = strictyaml.as_document(obj).as_yaml()
         with open(file, 'w') as f:
             f.write(yaml)
 
@@ -1070,8 +1107,13 @@ def main():
 
     # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
 
-    CFG = Config('bar.conf')
-    bar = CFG.get_bar()
+    bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage disk_usage battery net_stats datetime'.split())
+    # CFG = Config('bar.conf')
+    # bar = CFG.get_bar()
+
+##    if not os.path.exists(file):
+##        CFG.write_config(file, defaults)
+
     bar.run()
 
 
