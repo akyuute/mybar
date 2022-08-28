@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-#TODO: JSONify config files!
+#TODO: Bar.__init__(ordering=) parameter!
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
@@ -10,13 +10,13 @@
 
 import os
 import sys
+import json
 import time
 import psutil
 import signal
 import asyncio
 import inspect
 import threading
-import strictyaml
 from string import Formatter
 from argparse import ArgumentParser
 from typing import Iterable, Callable, IO
@@ -30,7 +30,6 @@ CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 COUNT = [0]
-
 
 def join_options(
     it: Iterable[str],
@@ -83,17 +82,6 @@ class DefaultNotFound(Exception):
     '''Raised for references to an undefined default Field or function.'''
     pass
 
-class ConfigInvalid(Exception):
-    '''Raised when a config file contains missing or malformed data.'''
-    pass
-class ConfigInvalidField(Exception):
-    '''Raised when a field definition block of a config file is malformed.'''
-    pass
-class ConfigCannotConvert(Exception):
-    '''Raised when a config value cannot be converted to the necessary type.'''
-    pass
-
-
 class Field:
 
     _default_fields = {
@@ -137,7 +125,7 @@ class Field:
             'name': 'battery',
             'func': get_battery_info,
             'interval': 1,
-            'override_refresh_rate': True,
+            'overrides_refresh': True,
             'term_icon': 'Bat '
         },
         'net_stats': {
@@ -149,7 +137,7 @@ class Field:
             'name': 'datetime',
             'func': get_datetime,
             'interval': 0.125,
-            'override_refresh_rate': True
+            'overrides_refresh': True
         }
     }
 
@@ -161,7 +149,7 @@ class Field:
         fmt: str = None,
         interval: float = 1.0,
         # align_to_seconds: bool = False,
-        override_refresh_rate: bool = False,
+        overrides_refresh: bool = False,
         threaded: bool = False,
         constant_output: str = None,
         run_once: bool = False,
@@ -215,9 +203,9 @@ class Field:
         self.constant_output = constant_output
         self.run_once = run_once
         self.interval = interval
-        self.overrides_refresh = override_refresh_rate
+        self.overrides_refresh = overrides_refresh
 
-        self.is_threaded = threaded
+        self.threaded = threaded
         self._thread = None
         # self.is_running = False
 
@@ -238,16 +226,6 @@ class Field:
         spec.update(default)
         spec.update(params)
         return cls(**spec)
-
-    def to_dict(self,
-    ):
-        attrs = {
-            k: v
-            for k, v in self.__dict__.copy().items()
-            if v is not None
-            and not k.startswith('_')
-        }
-        return attrs
 
     def get_icon(self, default=None):
         if self._bar is None:
@@ -458,20 +436,19 @@ class Bar:
         'cpu_temp': Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True),
         'mem_usage': Field(name='mem_usage', func=get_mem_usage, interval=2),
         'disk_usage': Field(name='disk_usage', func=get_disk_usage, interval=10),
-        'battery': Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=True),
+        'battery': Field(name='battery', func=get_battery_info, interval=1, overrides_refresh=True),
         'net_stats': Field(name='net_stats', func=get_net_stats, interval=10),
         'datetime': Field(name='datetime', func=get_datetime, interval=1/8),
     }
 
-    def __init__(
-        self,
+    def __init__(self,
         /,
         fields: Iterable[Field|str] = None,
         fmt: str = None,
-        sep: str = '|',
-        refresh: float = 1.0,
+        separator: str = '|',
+        refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
-        show_empty: bool = False,
+        show_empty_fields: bool = False,
         field_params: dict = None,
         gui_sep: str = None,
         term_sep: str = None,
@@ -496,7 +473,7 @@ class Bar:
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The fields argument must be iterable.")
 
-            if all(s is None for s in (gui_sep, term_sep, sep)):
+            if all(s is None for s in (gui_sep, term_sep, separator)):
                 raise UndefinedSeparator(
                     "A separator is required when fmt is None.")
 
@@ -534,8 +511,8 @@ class Bar:
         self.fmt = fmt
         self.term_sep = term_sep
         self.gui_sep = gui_sep
-        self.separator = self.get_separator(sep)
-        self.default_sep = sep
+        self.separator = self.get_separator(separator)
+        self.default_sep = separator
 
         # default_field_params = dict(args=[], kwargs={})
         # default_field_params = dict(args=None, kwargs=None)
@@ -565,10 +542,10 @@ class Bar:
                 raise InvalidField(f"Invalid field: {field}")
 
         # Whether empty fields are shown with the rest when fmt is None:
-        self.show_empty_fields = show_empty
+        self.show_empty_fields = show_empty_fields
 
         # Set the bar's normal refresh rate, that is, how often it is printed:
-        self.refresh_rate = refresh
+        self.refresh_rate = refresh_rate
 
         # Make a queue to which fields with overrides_refresh send updates.
         # Process only one item per refresh cycle to reduce flickering in a GUI.
@@ -602,6 +579,22 @@ class Bar:
         clearline = CLEAR_LINE if self._stream.isatty() else ''
         return clearline
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        data = data.copy()
+        field_dicts = data.pop('fields', None)
+        fields = []
+        for obj in field_dicts:
+            if isinstance(obj, str):
+                fields.append(Field.from_default(obj))
+                continue
+            name, params = list(*obj.items())
+            # # (name, params) ,= dct.items()
+            fields.append(Field.from_default(name=name, params=params))
+        # list(*d.items() for d in field_dicts)
+        bar = cls(**data, fields=fields)
+        return bar
+
     def get_separator(self, default=None):
         if self._stream is None:
             return default
@@ -609,30 +602,6 @@ class Bar:
         if sep is None:
             sep = default
         return sep
-
-    def to_conf_dict(self):
-        attrs = {
-            k: v
-            for k, v in self.__dict__.copy().items()
-            if v is not None
-            and not k.startswith('_')
-        }
-        fields = {
-            name: field.to_dict()
-            for name, field in self._fields.items()
-        }
-        attrs['fields'] = fields
-        return attrs
-
-    def write_yaml_config(self, file: os.PathLike = None):
-        if file is None:
-            file = CONFIG_FILE
-        obj = self.to_conf_dict()
-        for field in obj['fields'].values():
-            del field['name']
-        yaml = strictyaml.as_document(obj).as_yaml()
-        with open(os.path.expanduser(file), 'w') as f:
-            f.write(yaml)
 
     def run(self, stream: IO = None):
         '''Run the bar. Block until an exception is raised and exit smoothly.'''
@@ -666,7 +635,7 @@ class Bar:
                 self._buffers[field.name] = field.constant_output
                 continue
 
-            if field.is_threaded:
+            if field.threaded:
                 await field.send_to_thread()
             else:
                 field_coros.append((field.run()))
@@ -685,7 +654,7 @@ class Bar:
         self._loop.stop()
         self._loop.close()
         for field in self._fields.values():
-            if field.is_threaded and field._thread is not None:
+            if field.threaded and field._thread is not None:
 ##                # Optionally kill threads that are still blocking program exit.
 ##                if self._kill_threads:
 ##                    signal.pthread_kill(field._thread.ident, self._kill_signal)
@@ -696,7 +665,7 @@ class Bar:
     async def _schedule_threads(self):
         '''Sends fields to threads if they are meant to be threaded.'''
         for field in self._fields.values():
-            if field.is_threaded and field.constant_output is None:
+            if field.threaded and field.constant_output is None:
                 await field.send_to_thread()
 
     async def _continuous_line_printer(self, end: str = '\r'):
@@ -765,7 +734,6 @@ class Bar:
                 else:
                     line = sep.join(
                         buf
-                        # for field in self._field_names
                         for field in self._ordering
                             if (buf := self._buffers[field])
                             or show_empty_fields
@@ -788,43 +756,27 @@ class Config:
         cli_parser.add_argument('--config', nargs='+')
         config_file = cli_parser.parse_args(sys.argv[1:]).config or file
 
-        # self.read_file()
         if config_file is None:
-            config_file = os.path.expanduser('~/bar.conf')
+            # config_file = os.path.expanduser('~/bar.conf')
+            config_file = os.path.expanduser(CONFIG_FILE)
 
-        # config_file = 'bar.conf'
         self.file = config_file
-        with open(config_file, 'r') as f:
-            raw_data = f.read()
+        with open(self.file, 'r') as f:
+            self.data = json.load(f)
+            self.raw = f.read()
 
-        self.yaml = strictyaml.load(raw_data)
-        # self.data = self.yaml.data
-        self.fields = self.get_fields()
+    def write_file(self, file: os.PathLike = None, obj: dict = None):
+        if file is None:
+            file = self.file
+        if obj is None:
+            obj = self.data
+        # return json.dumps(obj)
+        with open(file, 'w') as f:
+            json.dump(obj, f)
 
-        params = self.yaml.copy()
-        self.bar_params = params.data
-        self.bar_params.pop('fields')
-        try:
-            self.bar_params.pop('field_params', None)
-            self.bar_params.pop('stream', None)
-        except KeyError:
-            pass
 
-        bools = {}
-        bools['show_empty'] = params.get('show_empty')
-        bools['override_cooldown'] = params.get('override_cooldown')
-        self.bar_params.update(
-            self._cast_elements(bools, str_to_bool, "a boolean")
-        )
-
-        floats = {}
-        floats['refresh'] = params.get('refresh')
-        floats['thread_cooldown'] = params.get('thread_cooldown')
-        floats['override_cooldown'] = params.get('override_cooldown')
-        self.bar_params.update(self._cast_elements(floats, float, "a number"))
-
-        # updates = {}
-        # print(floats)
+    def get_bar(self):
+        return Bar.from_dict(self.data)
 
     def _make_error_message(self,
         label: str,
@@ -870,175 +822,6 @@ class Config:
         err = ('\n').join(message)
         return err
 
-    def _cast_elements(self,
-        vals: dict,
-        typ,
-        expect: str,
-        keys: Iterable[str] = None,
-        # follow=None,
-        **kwargs
-    ):
-        # This happens when
-        # (When does this happen?)
-        if not isinstance(vals, dict):
-            text = ''
-            follow = kwargs.get('follow')
-            if follow is not None:
-                text = follow.lines().splitlines()[0]
-            raise ConfigInvalidField(repr(text))
-
-        ret = {}
-        for name, val in vals.items():
-            if val is not None:
-                try:
-                    if keys is not None:
-                        if name in keys:
-                            ret[name] = typ(val)
-                    else:
-                        ret[name] = typ(val)
-                except ValueError:
-                    raise ConfigCannotConvert(expect, val)
-
-        return ret
-
-    def _validate_yaml(self):
-        if self.yaml.get('fields') is None:
-            raise ConfigInvalid(
-                f"The config file {self.file!r} is missing a 'fields' array.")
-        if not self.yaml['fields'].is_sequence():
-            raise ConfigInvalid(
-                f"'fields' in config file {self.file!r} must be an array of "
-                f"valid field names and or nonempty dictionaries."
-            )
-
-    def write_yaml_config(self, file: os.PathLike = None):
-        if file is None:
-            file = self.file
-        obj = self.get_bar().to_conf_dict()
-        for field in obj['fields'].values():
-            del field['name']
-        yaml = strictyaml.as_document(obj).as_yaml()
-        with open(file, 'w') as f:
-            f.write(yaml)
-
-    def get_fields(self):
-        self._validate_yaml()
-        to_float = ('interval',)
-        to_bool = ('override_refresh_rate', 'run_once', 'threaded')
-
-        fields = []
-        for field in self.yaml['fields']:
-            # print(field.data)
-            if isinstance(field.data, dict):
-                try:
-                    ((name, params),) = field.data.items()
-                    start_line = field[name].start_line
-
-                    floats = self._cast_elements(
-                        keys=to_float,
-                        vals=params,
-                        typ=float,
-                        expect="a number",
-                        follow=field[name]
-                    )
-
-                    bools = self._cast_elements(
-                        keys=to_bool,
-                        vals=params,
-                        typ=str_to_bool,
-                        expect="a boolean",
-                        follow=field[name]
-                    )
-
-                    params.update(**floats, **bools)
-                    fields.append(Field.from_default(name, params))
-
-                except ConfigCannotConvert as e:
-                    err = self._make_error_message(
-                        label=f"field option {name!r}",
-                        blame=repr(e.args[1]),
-                        expected=e.args[0],
-                        file=self.file,
-                        line=start_line
-                    )
-                    raise ConfigCannotConvert('\n' + err) from e
-
-                except ConfigInvalidField as e:
-                    err = self._make_error_message(
-
-                        label=f"field {name!r}",
-                        # blame=params,
-                        blame=e.args[0], #.lines(),
-                        expected=(
-                            "the name of a default field or a dictionary "
-                            "with optional overrides to a default field"
-                        ),
-                        file=self.file,
-                        line=start_line,
-                        details=(
-                            f"Invalid field definition block.",
-                            # f"'fields' must be an array of valid "
-                            # f"field names and or nonempty dictionaries."
-                        )
-                    )
-
-                    raise ConfigInvalidField('\n' + err)
-
-                # An error about the dictionary update sequence means
-                # something other than a dictionary or field name was passed.
-                except ValueError:
-                    print("Got ValueError!")
-                    err = self._make_error_message(
-                        file=self.file,
-                        line=start_line,
-                        label=f"field {name!r}",
-                        blame=params,
-                        expected="a dictionary",
-                        details=("Invalid field definition.",),
-                    )
-                    raise ConfigInvalid('\n' + err)
-
-                # Invalid keyword arguments are the cause of TypeErrors.
-                except TypeError as e:
-                    err = self._make_error_message(
-                        file=self.file,
-                        line=start_line,
-                        label=f"field {name!r}",
-                        blame=', '.join(repr(k) for k in params.keys()),
-                        details=(
-                            # f"Invalid keyword arguments for Field.__init__():",
-                            f"At least one of the following keyword arguments "
-                            f"for Field.__init__() are invalid:",
-                        )
-                    )
-                    raise ConfigInvalid('\n' + err) from e
-
-            elif isinstance(field.data, str):
-                fields.append(Field.from_default(field.data))
-
-            else:
-
-                err = self._make_error_message(
-                    file=self.file,
-                    line=field.start_line,
-                    label=f"field {field.data!r}",
-                    expected="a dictionary",
-                    details = (
-                        f"Invalid field definition block.",
-                        f"'fields' must be an array of valid "
-                        f"field names and or nonempty dictionaries."
-                    )
-                )
-
-                raise ConfigInvalid('\n' + err) from None
-
-        return fields
-
-    def get_bar(self):
-        params = self.bar_params.copy()
-        params.update(fields=self.fields)
-        return Bar(**params)
-
 def main():
     fhostname = Field(name='hostname', func=get_hostname, run_once=True, term_icon='')
     fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up:')
@@ -1046,8 +829,8 @@ def main():
     fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='')
     fmem = Field(name='mem_usage', func=get_mem_usage, interval=2, term_icon='Mem:')
     fdisk = Field(name='disk_usage', func=get_disk_usage, interval=2, term_icon='/:')
-    # fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=False, term_icon='Bat:')
-    fbatt = Field(name='battery', func=get_battery_info, interval=1, override_refresh_rate=True, term_icon='Bat:')
+    # fbatt = Field(name='battery', func=get_battery_info, interval=1, overrides_refresh=False, term_icon='Bat:')
+    fbatt = Field(name='battery', func=get_battery_info, interval=1, overrides_refresh=True, term_icon='Bat:')
     fnet = Field(name='net_stats', func=get_net_stats, interval=4, term_icon='', threaded=False)
 
     fdate = Field(
@@ -1055,13 +838,13 @@ def main():
         name='datetime',
         func=get_datetime,
         interval=1/8,
-        override_refresh_rate=True,
+        overrides_refresh=True,
         term_icon='?'
     )
     fcounter = Field(name='counter', func=counter, interval=1, args=[COUNT])
 
-    # fdate = Field(name='datetime', func=get_datetime, interval=1, override_refresh_rate=False, term_icon='')
-    # fdate = Field(func=get_datetime, interval=0.5, override_refresh_rate=False)
+    # fdate = Field(name='datetime', func=get_datetime, interval=1, overrides_refresh=False, term_icon='')
+    # fdate = Field(func=get_datetime, interval=0.5, overrides_refresh=False)
     # fdate = Field(func=get_datetime, interval=1)
     # mocpline = Field(name='mocpline', func=
 
@@ -1086,7 +869,7 @@ def main():
         # fcounter,
     )
 
-    # fields = [Field(name='test', interval=1/16, func=(lambda args=None, kwargs=None: "WORKING"), override_refresh_rate=True, term_icon='&', gui_icon='@')]
+    # fields = [Field(name='test', interval=1/16, func=(lambda args=None, kwargs=None: "WORKING"), overrides_refresh=True, term_icon='&', gui_icon='@')]
 
     global bar
     # bar = Bar(fields=fields)
@@ -1098,16 +881,20 @@ def main():
 
     # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
 
-    bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
+    # bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
+
+
     # CFG = Config('bar.conf')
-    # bar = CFG.get_bar()
+    CFG = Config('bar.json')
+    bar = CFG.get_bar()
 
 ##    if not os.path.exists(file):
 ##        CFG.write_config(file, defaults)
 
-    bar.run()
+    # bar.run()
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    CFG = Config('bar.json')
 

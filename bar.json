@@ -1,0 +1,77 @@
+{
+    "separator": "|",
+    "show_empty_fields": false,
+    "refresh_rate": 1.0,
+
+    "fields": [
+
+        {
+            "uptime": {
+                "kwargs": {
+                    "fmt": "%-jd:%-Hh:%-Mm"
+                },
+                "term_icon": "Up ",
+                "icon": "Up ",
+                "interval": 1.0
+            }
+        },
+
+        {
+            "cpu_usage": {
+            
+                "icon": "",
+                "interval": 2,
+                "threaded": true
+            }
+        },
+
+        {
+            "cpu_temp": {
+                "term_icon": "CPU ",
+                "icon": "CPU ",
+                "interval": 2,
+                "threaded": true
+            }
+        },
+
+        {
+            "mem_usage": {
+                "term_icon": "Mem ",
+                "icon": "Mem ",
+                "interval": 2
+            }
+        },
+
+        {
+            "disk_usage": {
+                "term_icon": "/:",
+                "icon": "/:",
+                "interval": 4
+            }
+        },
+
+        {
+            "battery": {
+                "term_icon": "Bat ",
+                "icon": "Bat ",
+                "interval": 1,
+                "overrides_refresh": true
+            }
+        },
+
+        {
+            "net_stats": {
+                "icon": "",
+                "interval": 4
+            }
+        },
+
+        {
+            "datetime": {
+                "icon": "",
+                "interval": 0.125,
+                "overrides_refresh": true
+            }
+        }
+    ]
+}
