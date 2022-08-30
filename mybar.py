@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-#TODO: Bar.__init__(ordering=) parameter!
+#TODO: Case detection, type handling, etc.
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
@@ -40,7 +40,7 @@ def join_options(
 ):
     if not hasattr(it, '__iter__'):
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
-    return sep.join(list(it)[:-1]) + ('', ',')[oxford] + final + it[-1]
+    return sep.join(tuple(it)[:-1]) + ('', ',')[oxford] + final + it[-1]
 
 def str_to_bool(value: str, /):
     '''Returns `True` or `False` bools for truthy or falsy strings.'''
@@ -51,36 +51,30 @@ def str_to_bool(value: str, /):
         raise ValueError(f"Invalid argument: {value!r}")
     return (pattern in truthy or not pattern in falsy)
 
-def add_if_exists(dct: dict, key, val):
-    if not isinstance(dct, dict):
-        raise ValueError("dct must be a mutable mapping such as a dict.")
-    if val is not None:
-        dct[key] = val
 
-class InvalidOutputStream(Exception):
+class InvalidOutputStream(AttributeError):
     '''Raised when an IO stream lacks write(), flush() and isatty() methods.'''
     pass
-class UndefinedSeparator(Exception):
-    '''Raised when a Bar lacks a separator when its fmt is None.'''
+class IncompatibleParams(ValueError):
+    '''Raised when a class is instantiated with one or more missing or
+    incompatible parameters.'''
     pass
-class UndefinedIcon(Exception):
-    '''Raised when a Field lacks an icon when its fmt is None.'''
-    pass
-class BadFormatString(Exception):
+class BadFormatString(ValueError):
     '''Raised when a format string cannot be properly parsed or contains
     positional fields ('{}').'''
     pass
-class InvalidField(Exception):
+class InvalidField(TypeError):
     '''Raised when a field is either not an instance of Field or a string not
     found in the default fields collection.'''
     pass
-class MissingBar(Exception):
+class MissingBar(AttributeError):
     '''Raised when Field.run() is called before its instance is passed to the
     fields parameter in Bar().'''
     pass
-class DefaultNotFound(Exception):
+class DefaultNotFound(NameError):
     '''Raised for references to an undefined default Field or function.'''
     pass
+
 
 class Field:
 
@@ -178,7 +172,8 @@ class Field:
 
         if fmt is None:
             if all(s is None for s in (gui_icon, term_icon, icon)):
-                raise UndefinedIcon("An icon is required when fmt is None.")
+                raise IncompatibleParams(
+                    "An icon is required when fmt is None.")
         self.fmt = fmt
 
         self._bar = bar
@@ -188,14 +183,14 @@ class Field:
         self.icon = self.get_icon(icon)
         self.default_icon = icon
 
-        if inspect.iscoroutinefunction(self._func) or threaded:
-            self._callback = self._func
+        if inspect.iscoroutinefunction(func) or threaded:
+            self._callback = func
         else:
             # Wrap a synchronous function call
             self._callback = self._asyncify
 
         if name is None:
-            name = self._func.__name__
+            name = func.__name__
         self.name = name
 
         # self.align_to_seconds = align_to_seconds
@@ -442,104 +437,68 @@ class Bar:
     }
 
     def __init__(self,
-        /,
-        fields: Iterable[Field|str] = None,
+        *,
+        fields: Iterable[Field] = None, #|str] = None,
+        order: Iterable[str] = None,
         fmt: str = None,
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
         show_empty_fields: bool = False,
-        field_params: dict = None,
         gui_sep: str = None,
         term_sep: str = None,
         override_cooldown: float = 1/60,
         thread_cooldown: float = 1/8
     ):
 
-        io_meths = ('write', 'flush', 'isatty')
-        if not all(hasattr(stream, a) for a in io_meths):
-            _io_meths = [a + '()' for a in io_meths]
+        io_methods = ('write', 'flush', 'isatty')
+        if not all(hasattr(stream, a) for a in io_methods):
+            io_method_calls = [a + '()' for a in io_methods]
             raise InvalidOutputStream(
                 f"Output stream {stream!r} needs "
-                f"{join_options(_io_meths, final=' and ')} methods.")
+                f"{join_options(io_method_calls, final=' and ')} methods.")
         self._stream = stream
 
         if fmt is None:
-            if fields is None:
+            if None in (fields, order):
                 raise ValueError(
-                    f"Either a list of Fields 'fields' "
-                    f"or a format string 'fmt' is required.")
+                    f"Either a list of Field objects 'fields', "
+                    f"a list of defined field names 'order', "
+                    f"or a format string 'fmt' is required."
+                )
 
             if not hasattr(fields, '__iter__'):
-                raise ValueError("The fields argument must be iterable.")
+                raise ValueError("The 'fields' argument must be iterable.")
 
             if all(s is None for s in (gui_sep, term_sep, separator)):
-                raise UndefinedSeparator(
-                    "A separator is required when fmt is None.")
-
-            field_names = [
-                getattr(f, 'name') if isinstance(f, Field)
-                else f
-                for f in fields
-            ]
+                raise IncompatibleParams(
+                    "A separator is required when 'fmt' is None.")
 
         elif not isinstance(fmt, str):
             raise TypeError(
                 f"Format string 'fmt' must be a string, not {type(fmt)}")
 
         else:
-            try:
-                # Parse the field names found within fmt only if it is defined.
-                # They may be used later to join field buffers for printing.
-                field_names = [
-                    name
-                    for m in Formatter().parse(fmt)
-                    if (name := m[1]) is not None
-                ]
-            except ValueError:
-                e = BadFormatString(f"Invalid bar format string: {fmt}")
-                raise e from None
+            order = self.parse_fmt(fmt)
 
-            if '' in field_names:
-                raise BadFormatString(
-                    "The bar's format string contains positional fields: '{}'")
+        self._fields = self.supplement_fields(fields, order)
+        self._buffers = {}
+        self._field_order = order
 
-            #TODO: Try getting fields from the default field dict.
-            # fields = [self._default_fields.get(fname) for fname in field_names]
-            fields = list(field_names)
-        self._field_names = field_names
         self.fmt = fmt
         self.term_sep = term_sep
         self.gui_sep = gui_sep
         self.separator = self.get_separator(separator)
         self.default_sep = separator
 
-        # default_field_params = dict(args=[], kwargs={})
-        # default_field_params = dict(args=None, kwargs=None)
-        if field_params is None:
-            field_params = {}
 
-        self._fields = {}
-        self._buffers = {}
-        self._ordering = []
+        for name, field in self._fields.items():
+            # All of the items in fields should be Field objects (right?)
+            field._bar = self
+            self._buffers[name] = ''
 
-        for field in fields:
-            # Make a Field from the defaults when only the name is given.
-            if isinstance(field, str):
-                if field not in self._ordering:
-                    new_field = Field.from_default(field, params={'bar': self})
-                    self._fields[field] = new_field
-                    self._buffers[field] = ''
-                self._ordering.append(field)
-
-            elif isinstance(field, Field):
-                field._bar = self
-                self._fields[field.name] = field
-                self._buffers[field.name] = ''
-                self._ordering.append(field.name)
-
-            else:
-                raise InvalidField(f"Invalid field: {field}")
+##            else:
+##                raise InvalidField(f"Invalid field: {field}")
 
         # Whether empty fields are shown with the rest when fmt is None:
         self.show_empty_fields = show_empty_fields
@@ -567,35 +526,72 @@ class Bar:
         self._loop = asyncio.new_event_loop()
 
     @property
-    def in_a_tty(self):
+    def in_a_tty(self) -> bool:
         if self._stream is None:
             return False
         return self._stream.isatty()
 
     @property
-    def clearline_char(self):
+    def clearline_char(self) -> str:
         if self._stream is None:
             return None
         clearline = CLEAR_LINE if self._stream.isatty() else ''
         return clearline
 
     @classmethod
-    def from_dict(cls, data: dict):
-        data = data.copy()
-        field_dicts = data.pop('fields', None)
-        fields = []
-        for obj in field_dicts:
-            if isinstance(obj, str):
-                fields.append(Field.from_default(obj))
-                continue
-            name, params = list(*obj.items())
-            # # (name, params) ,= dct.items()
-            fields.append(Field.from_default(name=name, params=params))
-        # list(*d.items() for d in field_dicts)
-        bar = cls(**data, fields=fields)
+    def from_dict(cls, dct: dict):
+        data = dct.copy()
+        fields = data.pop('field_definitions', None)
+        bar_params = data
+
+        if (field_order := bar_params.pop('field_order', None)) is None:
+            if (fmt := bar_params.get('fmt')) is None:
+                raise IncompatibleParams(
+                    "A bar format string 'fmt' is required when field order "
+                    "'order' is undefined."
+                )
+            field_order = cls.parse_fmt(fmt)
+
+        # Only the fields that were tweaked:
+        mod_fields = {
+            name: Field.from_default(name, params)
+            for name, params in fields.items()
+        }
+
+        mod_and_dft_fields = cls.supplement_fields(mod_fields, field_order)
+        bar = cls(fields=mod_and_dft_fields, order=field_order, **bar_params)
         return bar
 
-    def get_separator(self, default=None):
+    @staticmethod
+    def supplement_fields(fields: dict[Field], order: Iterable[str]) -> dict:
+        # Include default fields only specified in the field order parameter:
+        new_fields = {
+            name: fields.get(name,
+                Field.from_default(name)
+            )
+            for name in order
+        }
+        return new_fields
+
+    @staticmethod
+    def parse_fmt(fmt: str) -> list[str]:
+        '''Returns a list of field names that should act as a field order.'''
+        try:
+            field_names = [
+                name
+                for m in Formatter().parse(fmt)
+                if (name := m[1]) is not None
+            ]
+        except ValueError:
+            e = BadFormatString(f"Invalid bar format string: {fmt!r}")
+            raise e from None
+        if '' in field_names:
+            raise BadFormatString(
+                "The bar format string cannot contain "
+                "positional fields ('{}').")
+        return field_names
+
+    def get_separator(self, default=None) -> str:
         if self._stream is None:
             return default
         sep = self.term_sep if self._stream.isatty() else self.gui_sep
@@ -694,7 +690,7 @@ class Bar:
             else:
                 line = sep.join(
                     buf
-                    for field in self._ordering
+                    for field in self._field_order
                         if (buf := self._buffers[field])
                         or show_empty_fields
                 )
@@ -734,7 +730,7 @@ class Bar:
                 else:
                     line = sep.join(
                         buf
-                        for field in self._ordering
+                        for field in self._field_order
                             if (buf := self._buffers[field])
                             or show_empty_fields
                     )
@@ -873,7 +869,7 @@ def main():
 
     global bar
     # bar = Bar(fields=fields)
-    # bar = Bar(fields=fields, sep=None, fmt=None)  # Raise UndefinedSeparator
+    # bar = Bar(fields=fields, sep=None, fmt=None)  # Raise IncompatibleParams
 
     # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}..."
     # fmt = None
@@ -891,10 +887,10 @@ def main():
 ##    if not os.path.exists(file):
 ##        CFG.write_config(file, defaults)
 
-    # bar.run()
+    bar.run()
 
 
 if __name__ == '__main__':
-    # main()
+    main()
     CFG = Config('bar.json')
 
