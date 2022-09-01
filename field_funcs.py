@@ -9,6 +9,8 @@ from typing import Callable, Iterable
 
 __all__ = (
     'counter',
+    'join_options',
+    'str_to_bool',
     'get_datetime',
     'get_hostname',
     'get_uptime',
