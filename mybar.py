@@ -671,7 +671,12 @@ class Bar:
             # Do not run fields which have a constant output;
             # only set the bar buffer.
             if field.constant_output is not None:
-                self._buffers[field.name] = field.constant_output
+                if field.fmt is None:
+                    self._buffers[field.name] = field.constant_output
+                else:
+                    self._buffers[field.name] = field.fmt.format(
+                        field.constant_output
+                    )
                 continue
 
             if field.threaded:
