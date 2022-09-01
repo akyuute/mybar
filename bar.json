@@ -26,7 +26,6 @@
 
     "field_order": [
        
-        "foo",
         "uptime",
         "cpu_usage",
         "cpu_temp",
