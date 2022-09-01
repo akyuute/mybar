@@ -31,26 +31,6 @@ HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 COUNT = [0]
 
-def join_options(
-    it: Iterable[str],
-    /,
-    sep: str = ', ',
-    final: str = ' or ',
-    oxford: bool = False
-):
-    if not hasattr(it, '__iter__'):
-        raise TypeError(f"Can only join an iterable, not {type(it)}.")
-    return sep.join(tuple(it)[:-1]) + ('', ',')[oxford] + final + it[-1]
-
-def str_to_bool(value: str, /):
-    '''Returns `True` or `False` bools for truthy or falsy strings.'''
-    truthy = "true t yes y on 1".split()
-    falsy = "false f no n off 0".split()
-    pattern = value.lower()
-    if pattern not in truthy + falsy:
-        raise ValueError(f"Invalid argument: {value!r}")
-    return (pattern in truthy or not pattern in falsy)
-
 
 class InvalidOutputStream(AttributeError):
     '''Raised when an IO stream lacks write(), flush() and isatty() methods.'''
@@ -920,6 +900,7 @@ def main():
     # bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
 
 
+    global CFG
     # CFG = Config('bar.conf')
     CFG = Config('bar.json')
     bar = CFG.get_bar()
@@ -932,5 +913,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-    CFG = Config('bar.json')
 
