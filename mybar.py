@@ -1,6 +1,5 @@
 #!/usr/bin/python
 
-#TODO: Case detection, type handling, etc.
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
@@ -8,23 +7,24 @@
 #TODO: Implement dynamic icons!
 
 
-import os
-import sys
-import json
-import time
-import psutil
-import signal
 import asyncio
 import inspect
+import json
+import os
+import psutil
+import signal
+import sys
 import threading
-from string import Formatter
+import time
+
 from argparse import ArgumentParser
+from string import Formatter
 from typing import Iterable, Callable, IO
 
 from field_funcs import *
 
 
-CONFIG_FILE = 'bar.conf' #'~/bar.conf'
+CONFIG_FILE = 'bar.json' #'~/bar.json'
 CSI = '\033['  # Unix terminal escape code (control sequence introducer)
 CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
@@ -73,6 +73,11 @@ class MissingBar(AttributeError):
     pass
 class DefaultNotFound(NameError):
     '''Raised for references to an undefined default Field or function.'''
+    pass
+class UndefinedField(NameError):
+    '''Raised if, when parsing a config file, a field name appears in the
+    'field_order' item of the dict passed to Bar.from_dict() that is neither
+    found in its 'field_definitions' parameter nor in Field._default_fields.'''
     pass
 
 
@@ -155,17 +160,22 @@ class Field:
         gui_icon: str = None,
         term_icon: str = None,
     ):
-        if func is None and constant_output is None:
-            raise ValueError(
-                f"Either a function that returns a string or "
-                f"a constant output string is required."
-            )
 
-        if not callable(func):
-            raise TypeError(
-                f"Type of 'func' must be callable, "
-                f"not {type(self._callback)}"
-            )
+        if constant_output is None:
+            #NOTE: This will change when dynamic icons and fmts are implemented.
+            if func is None:
+                raise IncompatibleParams(
+                    f"Either a function that returns a string or "
+                    f"a constant output string is required."
+                )
+            if not callable(func):
+                raise TypeError(
+                    f"Type of 'func' must be callable, not {type(func)}")
+
+        if name is None and callable(func):
+            name = func.__name__
+        self.name = name
+
         self._func = func
         self.args = args
         self.kwargs = kwargs
@@ -189,10 +199,6 @@ class Field:
             # Wrap a synchronous function call
             self._callback = self._asyncify
 
-        if name is None:
-            name = func.__name__
-        self.name = name
-
         # self.align_to_seconds = align_to_seconds
         self._buffer = None
         self.constant_output = constant_output
@@ -204,23 +210,26 @@ class Field:
         self._thread = None
         # self.is_running = False
 
-    def __repr__(self):
-        return f"{self.__class__.__name__}(name={self.name!r})"
-
     @classmethod
     def from_default(cls,
         name: str,
         params: dict = {},
-        defaults: dict = None
+        source: dict = None
     ):
-        default: dict = cls._default_fields.get(name)
+        if source is None:
+            source = cls._default_fields
+
+        default: dict = source.get(name)
         if default is None:
             raise DefaultNotFound(
-                f"{name!r} is not a default Field name.")
-        spec = {}
-        spec.update(default)
+                f"{name!r} is not the name of a default Field.")
+
+        spec = {**default}
         spec.update(params)
         return cls(**spec)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(name={self.name!r})"
 
     def get_icon(self, default=None):
         if self._bar is None:
@@ -438,8 +447,7 @@ class Bar:
 
     def __init__(self,
         *,
-        fields: Iterable[Field] = None, #|str] = None,
-        order: Iterable[str] = None,
+        fields: Iterable[Field|str] = None,
         fmt: str = None,
         separator: str = '|',
         refresh_rate: float = 1.0,
@@ -460,12 +468,10 @@ class Bar:
         self._stream = stream
 
         if fmt is None:
-            if None in (fields, order):
+            if fields is None:
                 raise ValueError(
-                    f"Either a list of Field objects 'fields', "
-                    f"a list of defined field names 'order', "
-                    f"or a format string 'fmt' is required."
-                )
+                    f"Either a list of Fields 'fields' "
+                    f"or a format string 'fmt' is required.")
 
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The 'fields' argument must be iterable.")
@@ -474,31 +480,29 @@ class Bar:
                 raise IncompatibleParams(
                     "A separator is required when 'fmt' is None.")
 
+            field_order = [
+                getattr(f, 'name') if isinstance(f, Field)
+                else f
+                for f in fields
+            ]
+
         elif not isinstance(fmt, str):
             raise TypeError(
                 f"Format string 'fmt' must be a string, not {type(fmt)}")
 
         else:
-            order = self.parse_fmt(fmt)
+            field_order = self.parse_fmt(fmt)
+            fields = list(field_order)
 
-        self._fields = self.supplement_fields(fields, order)
-        self._buffers = {}
-        self._field_order = order
-
+        self._field_order = field_order
         self.fmt = fmt
         self.term_sep = term_sep
         self.gui_sep = gui_sep
         self.separator = self.get_separator(separator)
         self.default_sep = separator
 
-
-        for name, field in self._fields.items():
-            # All of the items in fields should be Field objects (right?)
-            field._bar = self
-            self._buffers[name] = ''
-
-##            else:
-##                raise InvalidField(f"Invalid field: {field}")
+        self._fields = self.convert_fields(fields)
+        self._buffers = {name: '' for name in self._fields}
 
         # Whether empty fields are shown with the rest when fmt is None:
         self.show_empty_fields = show_empty_fields
@@ -541,37 +545,59 @@ class Bar:
     @classmethod
     def from_dict(cls, dct: dict):
         data = dct.copy()
-        fields = data.pop('field_definitions', None)
+        field_dicts = data.pop('field_definitions', None)
         bar_params = data
 
         if (field_order := bar_params.pop('field_order', None)) is None:
             if (fmt := bar_params.get('fmt')) is None:
                 raise IncompatibleParams(
                     "A bar format string 'fmt' is required when field order "
-                    "'order' is undefined."
+                    "list 'field_order' is undefined."
                 )
             field_order = cls.parse_fmt(fmt)
 
-        # Only the fields that were tweaked:
-        mod_fields = {
-            name: Field.from_default(name, params)
-            for name, params in fields.items()
-        }
+        fields = []
+        for name in field_order:
+            params = field_dicts.get(name)
 
-        mod_and_dft_fields = cls.supplement_fields(mod_fields, field_order)
-        bar = cls(fields=mod_and_dft_fields, order=field_order, **bar_params)
+            if isinstance(params, dict):
+                # Disallow 'name' param if coming from a dict anyway:
+                #TODO: Consider raising an error!
+                params.pop('name', None)
+
+            if params is None:
+                # The field is strictly default:
+                field = Field.from_default(name)
+                if field is None:
+                    raise UndefinedField(f"\n"
+                        f"In 'field_order':\n"
+                        f"  Expected the name of a default field or a custom "
+                        f"field defined in 'field_definitions', "
+                        f"but got {name!r} instead."
+                    )
+
+            elif params.pop('custom', False):
+                # The field is only defined in field_definitions and will not
+                # be found as a default.
+                field = Field(**params, name=name)
+
+            else:
+                # The field is a default overridden by the user:
+                params = field_dicts.get(name)
+                field = Field.from_default(name, params)
+                if field is None:
+                    raise DefaultNotFound(f"\n"
+                        f"In 'field_definitions':\n"
+                        f"  Expected a default Field name but got {name!r} "
+                        f"instead.\n"
+                        f"  Remember to specify `\"custom\": true` "
+                        f"in custom field definitions."
+                    )
+
+            fields.append(field)
+
+        bar = cls(fields=fields, **bar_params)
         return bar
-
-    @staticmethod
-    def supplement_fields(fields: dict[Field], order: Iterable[str]) -> dict:
-        # Include default fields only specified in the field order parameter:
-        new_fields = {
-            name: fields.get(name,
-                Field.from_default(name)
-            )
-            for name in order
-        }
-        return new_fields
 
     @staticmethod
     def parse_fmt(fmt: str) -> list[str]:
@@ -590,6 +616,23 @@ class Bar:
                 "The bar format string cannot contain "
                 "positional fields ('{}').")
         return field_names
+
+    def convert_fields(self, fields: Iterable[str] = None) -> dict[str, Field]:
+        '''Converts strings in a list of fields to corresponding default Fields
+        and returns a dict mapping field names to Fields.'''
+        converted = {}
+        for field in fields:
+            if isinstance(field, str):
+                converted[field] = Field.from_default(
+                    name=field,
+                    params={'bar': self}
+                )
+            elif isinstance(field, Field):
+                field._bar = self
+                converted[field.name] = field
+            else:
+                raise InvalidField(f"Invalid field: {field}")
+        return converted
 
     def get_separator(self, default=None) -> str:
         if self._stream is None:
@@ -638,7 +681,6 @@ class Bar:
 
         await asyncio.gather(
             *field_coros,
-            # self._schedule_threads(),
             self._check_queue(),
             self._continuous_line_printer(),
         )
@@ -657,12 +699,6 @@ class Bar:
 ##                    print(f"Sent {self._kill_signal} to {field.name}")
                 field._thread.join()
                 # print(f"{field._thread.name}: {field._thread.is_alive() = }")
-
-    async def _schedule_threads(self):
-        '''Sends fields to threads if they are meant to be threaded.'''
-        for field in self._fields.values():
-            if field.threaded and field.constant_output is None:
-                await field.send_to_thread()
 
     async def _continuous_line_printer(self, end: str = '\r'):
         '''The bar's primary line-printing mechanism.
@@ -753,7 +789,6 @@ class Config:
         config_file = cli_parser.parse_args(sys.argv[1:]).config or file
 
         if config_file is None:
-            # config_file = os.path.expanduser('~/bar.conf')
             config_file = os.path.expanduser(CONFIG_FILE)
 
         self.file = config_file
@@ -771,7 +806,7 @@ class Config:
             json.dump(obj, f)
 
 
-    def get_bar(self):
+    def get_bar(self) -> Bar:
         return Bar.from_dict(self.data)
 
     def _make_error_message(self,
@@ -782,7 +817,7 @@ class Config:
         line: int = None,
         indent: str = "  ",
         details: Iterable[str] = None
-    ):
+    ) -> str:
         level = 0
 
         message = []

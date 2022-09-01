@@ -13,12 +13,20 @@
 
         "battery": {
             "overrides_refresh": true
+        },
+
+        "foo": {
+            "custom": true,
+            "constant_output": "Fooooo",
+            "gui_icon": "!!!",
+            "fmt": "((({}!!"
         }
 
     },
 
     "field_order": [
        
+        "foo",
         "uptime",
         "cpu_usage",
         "cpu_temp",
