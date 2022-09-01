@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 #TODO: Command line args!
 #TODO: Finish Mocp line!
@@ -902,7 +902,8 @@ def main():
 
     global CFG
     # CFG = Config('bar.conf')
-    CFG = Config('bar.json')
+    # CFG = Config('bar.json')
+    CFG = Config(CONFIG_FILE)
     bar = CFG.get_bar()
 
 ##    if not os.path.exists(file):
