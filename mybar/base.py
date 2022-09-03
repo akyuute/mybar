@@ -730,7 +730,7 @@ class Config:
             or CONFIG_FILE
         )
 
-        self.file = config_file
+        self.file = os.path.expanduser(config_file)
         with open(self.file, 'r') as f:
             self.data = json.load(f)
             self.raw = f.read()
