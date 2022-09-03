@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement killing threads!
@@ -11,8 +9,7 @@ import asyncio
 import inspect
 import json
 import os
-import psutil
-import signal
+# import signal
 import sys
 import threading
 import time
@@ -21,8 +18,16 @@ from argparse import ArgumentParser
 from string import Formatter
 from typing import Iterable, Callable, IO
 
-from field_funcs import *
+from .field_funcs import *
+from .errors import *
+from .utils import join_options, str_to_bool
 
+__all__ = (
+    'Field',
+    'Bar',
+    'Config',
+    'run',
+)
 
 CONFIG_FILE = 'bar.json' #'~/bar.json'
 CSI = '\033['  # Unix terminal escape code (control sequence introducer)
@@ -30,35 +35,6 @@ CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
 UNHIDE_CURSOR = '?25h'
 COUNT = [0]
-
-
-class InvalidOutputStream(AttributeError):
-    '''Raised when an IO stream lacks write(), flush() and isatty() methods.'''
-    pass
-class IncompatibleParams(ValueError):
-    '''Raised when a class is instantiated with one or more missing or
-    incompatible parameters.'''
-    pass
-class BadFormatString(ValueError):
-    '''Raised when a format string cannot be properly parsed or contains
-    positional fields ('{}').'''
-    pass
-class InvalidField(TypeError):
-    '''Raised when a field is either not an instance of Field or a string not
-    found in the default fields collection.'''
-    pass
-class MissingBar(AttributeError):
-    '''Raised when Field.run() is called before its instance is passed to the
-    fields parameter in Bar().'''
-    pass
-class DefaultNotFound(NameError):
-    '''Raised for references to an undefined default Field or function.'''
-    pass
-class UndefinedField(NameError):
-    '''Raised if, when parsing a config file, a field name appears in the
-    'field_order' item of the dict passed to Bar.from_dict() that is neither
-    found in its 'field_definitions' parameter nor in Field._default_fields.'''
-    pass
 
 
 class Field:
@@ -401,30 +377,6 @@ class Field:
             raise MissingBar("Fields cannot run until they belong to a Bar.")
 
 class Bar:
-    _field_funcs = {
-        'hostname': get_hostname,
-        'uptime': get_uptime,
-        'cpu_usage': get_cpu_usage,
-        'cpu_temp': get_cpu_temp,
-        'mem_usage': get_mem_usage,
-        'disk_usage': get_disk_usage,
-        'battery': get_battery_info,
-        'net_stats': get_net_stats,
-        'datetime': get_datetime,
-    }
-
-    _default_fields = {
-        'hostname': Field(name='hostname', func=get_hostname, interval=10),
-        'uptime': Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-dd:%-Hh:%-Mm'}),
-        'cpu_usage': Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True),
-        'cpu_temp': Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True),
-        'mem_usage': Field(name='mem_usage', func=get_mem_usage, interval=2),
-        'disk_usage': Field(name='disk_usage', func=get_disk_usage, interval=10),
-        'battery': Field(name='battery', func=get_battery_info, interval=1, overrides_refresh=True),
-        'net_stats': Field(name='net_stats', func=get_net_stats, interval=10),
-        'datetime': Field(name='datetime', func=get_datetime, interval=1/8),
-    }
-
     def __init__(self,
         *,
         fields: Iterable[Field|str] = None,
@@ -761,20 +713,22 @@ class Bar:
                 await asyncio.sleep(cooldown)
 
         # SIGINT raises RuntimeError saying the event loop is closed.
-        # It's not, so we ignore that.
+        # It's usually not, so we ignore that.
         except RuntimeError:
-            assert self._loop.is_running()
+            # assert self._loop.is_running()
             pass
+
 
 class Config:
     def __init__(self, file: os.PathLike = None): # Path = None):
         # Get the config file name if passed as a command line argument
         cli_parser = ArgumentParser()
         cli_parser.add_argument('--config', nargs='+')
-        config_file = cli_parser.parse_args(sys.argv[1:]).config or file
-
-        if config_file is None:
-            config_file = os.path.expanduser(CONFIG_FILE)
+        config_file = (
+            cli_parser.parse_args(sys.argv[1:]).config
+            or file
+            or CONFIG_FILE
+        )
 
         self.file = config_file
         with open(self.file, 'r') as f:
@@ -794,114 +748,31 @@ class Config:
     def get_bar(self) -> Bar:
         return Bar.from_dict(self.data)
 
-    def _make_error_message(self,
-        label: str,
-        blame = None,
-        expected: str = None,
-        file: str = None,
-        line: int = None,
-        indent: str = "  ",
-        details: Iterable[str] = None
-    ) -> str:
-        level = 0
 
-        message = []
-        if file is not None:
-            message.append(f"In config file {file!r}")
-            if line is not None:
-                message[-1] += f" (line {line})"
-            message[-1] += ":"
-            level += 1
+def run():
 
-        elif line is not None:
-            message.append(f"(line {line}):")
-            level += 1
+##    fdate = Field(
+##        # fmt="<3 {icon}{}!",
+##        name='datetime',
+##        func=get_datetime,
+##        interval=1/8,
+##        overrides_refresh=True,
+##        term_icon='?'
+##    )
 
-        message.append(f"{indent * level}While parsing {label}:")
-        level += 1
+##    fcounter = Field(name='counter', func=counter, interval=1, args=[COUNT])
 
-        if details is not None:
-            message.append('\n'.join((indent * level + det) for det in details))
-            # message.append(
-                # ('\n' + indent * level).join(details)
-            # )
-
-        if blame is not None:
-            if expected is not None:
-                message.append(
-                    f"{indent * level}Expected {expected}, "
-                    f"but got {blame} instead."
-                )
-            else:
-                message.append(f"{indent * level}{blame}")
-
-        err = ('\n').join(message)
-        return err
-
-def main():
-    fhostname = Field(name='hostname', func=get_hostname, run_once=True, term_icon='')
-    fuptime = Field(name='uptime', func=get_uptime, kwargs={'fmt': '%-jd:%-Hh:%-Mm'}, term_icon='Up:')
-    fcpupct = Field(name='cpu_usage', func=get_cpu_usage, interval=2, threaded=True, term_icon='CPU:')
-    fcputemp = Field(name='cpu_temp', func=get_cpu_temp, interval=2, threaded=True, term_icon='')
-    fmem = Field(name='mem_usage', func=get_mem_usage, interval=2, term_icon='Mem:')
-    fdisk = Field(name='disk_usage', func=get_disk_usage, interval=2, term_icon='/:')
-    # fbatt = Field(name='battery', func=get_battery_info, interval=1, overrides_refresh=False, term_icon='Bat:')
-    fbatt = Field(name='battery', func=get_battery_info, interval=1, overrides_refresh=True, term_icon='Bat:')
-    fnet = Field(name='net_stats', func=get_net_stats, interval=4, term_icon='', threaded=False)
-
-    fdate = Field(
-        # fmt="<3 {icon}{}!",
-        name='datetime',
-        func=get_datetime,
-        interval=1/8,
-        overrides_refresh=True,
-        term_icon='?'
-    )
-    fcounter = Field(name='counter', func=counter, interval=1, args=[COUNT])
-
-    # fdate = Field(name='datetime', func=get_datetime, interval=1, overrides_refresh=False, term_icon='')
-    # fdate = Field(func=get_datetime, interval=0.5, overrides_refresh=False)
-    # fdate = Field(func=get_datetime, interval=1)
-    # mocpline = Field(name='mocpline', func=
-
-    global fields
-    fields = (
-        Field(
-            name='isatty',
-            func=(lambda args=None, kwargs=None: str(bar.in_a_tty)),
-            # icon='TTY:',
-            run_once=True,
-            # interval=0
-        ),
-        # fhostname,
-        # fuptime,
-        fcpupct,
-        fcputemp,
-        fmem,
-        fdisk,
-        fbatt,
-        fnet,
-        fdate,
-        # fcounter,
-    )
-
-    # fields = [Field(name='test', interval=1/16, func=(lambda args=None, kwargs=None: "WORKING"), overrides_refresh=True, term_icon='&', gui_icon='@')]
-
-    global bar
-    # bar = Bar(fields=fields)
-    # bar = Bar(fields=fields, sep=None, fmt=None)  # Raise IncompatibleParams
-
-    # fmt = "Up{uptime} | CPU: {cpu_usage}, {cpu_temp}|Disk: {disk_usage} Date:{datetime}..."
-    # fmt = None
-    # bar = Bar(fmt=fmt)
-
-    # bar = Bar(fields=[fdate, fcount, fhostname, fuptime])
+##    ftty = Field(
+##        name='isatty',
+##        func=(lambda args=None, kwargs=None: str(bar.in_a_tty)),
+##        # icon='TTY:',
+##        run_once=True,
+##        # interval=0
+##    )
 
     # bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
 
 
-    global CFG
-    # CFG = Config('bar.conf')
     # CFG = Config('bar.json')
     CFG = Config(CONFIG_FILE)
     bar = CFG.get_bar()
@@ -910,8 +781,4 @@ def main():
 ##        CFG.write_config(file, defaults)
 
     bar.run()
-
-
-if __name__ == '__main__':
-    main()
 

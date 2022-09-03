@@ -7,10 +7,10 @@ from datetime import datetime
 from os import uname
 from typing import Callable, Iterable
 
+from .errors import *
+
 __all__ = (
     'counter',
-    'join_options',
-    'str_to_bool',
     'get_datetime',
     'get_hostname',
     'get_uptime',
@@ -28,36 +28,6 @@ UNITS = {
     'M': 2,
     'K': 1
 }
-
-
-class InvalidArg(Exception):
-    '''Raised by a field function when it receives an invalid argument.'''
-    pass
-
-
-# Utility functions
-
-def join_options(
-    it: Iterable[str],
-    /,
-    sep: str = ', ',
-    final: str = ' or ',
-    quote: bool = False,
-    oxford: bool = False
-):
-    if not hasattr(it, '__iter__'):
-        raise TypeError(f"Can only join an iterable, not {type(it)}.")
-    opts = tuple(repr(e) if quote else e for e in it)
-    return sep.join(opts[:-1]) + ('', ',')[oxford] + final + opts[-1]
-
-def str_to_bool(value: str, /):
-    '''Returns `True` or `False` bools for truthy or falsy strings.'''
-    truthy = "true t yes y on 1".split()
-    falsy = "false f no n off 0".split()
-    pattern = value.lower()
-    if pattern not in truthy + falsy:
-        raise ValueError(f"Invalid argument: {value!r}")
-    return (pattern in truthy or not pattern in falsy)
 
 
 # Field functions
