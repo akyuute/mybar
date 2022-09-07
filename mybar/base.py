@@ -16,11 +16,14 @@ import time
 
 from argparse import ArgumentParser
 from string import Formatter
-from typing import Iterable, Callable, IO
+from types import SimpleNamespace
+from typing import Callable, Coroutine, IO, Iterable
 
-from .field_funcs import *
-from .errors import *
-from .utils import join_options, str_to_bool
+from mybar import field_funcs
+from mybar import setups
+from mybar.errors import *
+# from mybar.field_funcs import *
+from mybar.utils import join_options, str_to_bool, clean_comment_keys
 
 __all__ = (
     'Field',
@@ -29,7 +32,7 @@ __all__ = (
     'run',
 )
 
-CONFIG_FILE = 'bar.json' #'~/bar.json'
+CONFIG_FILE = '~/.mybar.json'
 CSI = '\033['  # Unix terminal escape code (control sequence introducer)
 CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR = '?25l'
@@ -40,60 +43,74 @@ COUNT = [0]
 class Field:
 
     _default_fields = {
+
         'hostname': {
             'name': 'hostname',
-            'func': get_hostname,
+            'func': field_funcs.get_hostname,
             'interval': 10
         },
+
         'uptime': {
             'name': 'uptime',
-            'func': get_uptime,
-            'kwargs': {'fmt': '%-jd:%-Hh:%-Mm'},
-            'term_icon': 'Up '
+            'func': field_funcs.get_uptime,
+            'kwargs': {
+                'fmt': '{days}d:{hours}h:{mins}m',
+                'sep': ':'
+            },
+            'icon': 'Up ',
+            'setup': setups.setup_uptime,
         },
+
         'cpu_usage': {
             'name': 'cpu_usage',
-            'func': get_cpu_usage,
+            'func': field_funcs.get_cpu_usage,
             'interval': 2,
             'threaded': True
         },
+
         'cpu_temp': {
             'name': 'cpu_temp',
-            'func': get_cpu_temp,
+            'func': field_funcs.get_cpu_temp,
             'interval': 2,
             'threaded': True,
-            'term_icon': 'CPU '
+            'icon': 'CPU ',
         },
+
         'mem_usage': {
             'name': 'mem_usage',
-            'func': get_mem_usage,
+            'func': field_funcs.get_mem_usage,
             'interval': 2,
-            'term_icon': 'Mem '
+            'icon': 'Mem '
         },
+
         'disk_usage': {
             'name': 'disk_usage',
-            'func': get_disk_usage,
+            'func': field_funcs.get_disk_usage,
             'interval': 4,
-            'term_icon': '/:'
+            'icon': '/:'
         },
+
         'battery': {
             'name': 'battery',
-            'func': get_battery_info,
+            'func': field_funcs.get_battery_info,
             'interval': 1,
             'overrides_refresh': True,
-            'term_icon': 'Bat '
+            'icon': 'Bat '
         },
+
         'net_stats': {
             'name': 'net_stats',
-            'func': get_net_stats,
+            'func': field_funcs.get_net_stats,
             'interval': 4
         },
+
         'datetime': {
             'name': 'datetime',
-            'func': get_datetime,
+            'func': field_funcs.get_datetime,
             'interval': 0.125,
             'overrides_refresh': True
-        }
+        },
+
     }
 
     def __init__(self,
@@ -115,6 +132,8 @@ class Field:
         kwargs = None,
         gui_icon: str = None,
         term_icon: str = None,
+        setup: Callable | Coroutine = None,
+
     ):
 
         if constant_output is None:
@@ -133,8 +152,17 @@ class Field:
         self.name = name
 
         self._func = func
-        self.args = args
-        self.kwargs = kwargs
+        self.args = () if args is None else args
+        self.kwargs = {} if kwargs is None else kwargs
+
+        if setup is not None:
+            if not (inspect.iscoroutinefunction(setup) or callable(setup)):
+                raise TypeError(
+                    f"Parameter 'setup' must be callable or awaitable, "
+                    f"not {type(setup)}"
+                )
+        self._setupfunc = setup
+        # self._setupvars = {}
 
         if fmt is None:
             if all(s is None for s in (gui_icon, term_icon, icon)):
@@ -146,8 +174,8 @@ class Field:
 
         self.term_icon = term_icon
         self.gui_icon = gui_icon
-        self.icon = self.get_icon(icon)
         self.default_icon = icon
+        self.icon = self.get_icon(icon)
 
         if inspect.iscoroutinefunction(func) or threaded:
             self._callback = func
@@ -158,9 +186,9 @@ class Field:
         # self.align_to_seconds = align_to_seconds
         self._buffer = None
         self.constant_output = constant_output
-        self.run_once = run_once
         self.interval = interval
         self.overrides_refresh = overrides_refresh
+        self.run_once = run_once
 
         self.threaded = threaded
         self._thread = None
@@ -199,10 +227,19 @@ class Field:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
 
+    async def setup(self, args, kwargs):
+        '''Initialize static variables used by self._func here once.'''
+        if inspect.iscoroutinefunction(self._setupfunc):
+            return await self._setupfunc(*args, **kwargs)
+        return self._setupfunc(*args, **kwargs)
+
     async def run(self):
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
         self._check_bar()
+
+        # Defining local variables imperceptibly improves performance.
+        # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
         running = bar._can_run
         run_once = self.run_once
@@ -214,15 +251,31 @@ class Field:
         field_buffers = bar._buffers
         interval = self.interval
         func = self._callback
-        # args = self.args
-        args = tuple() if self.args is None else self.args
-        # kwargs = self.kwargs
-        kwargs = {} if self.kwargs is None else self.kwargs
+        args = self.args
+        kwargs = self.kwargs
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
         use_format_str = (fmt is not None)
         last_val = None
+
+        if self._setupfunc is not None:
+            kwargs.update(
+                await self.setup(args, kwargs)
+            )
+
+        if self.run_once:
+            if is_async:
+                res = loop.run_until_complete(func(*args, **kwargs))
+            else:
+                res = func(*args, **kwargs)
+
+            if use_format_str:
+                contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
+            field_buffers[field_name] = contents
+            return
 
         while running.is_set():
             res = await func(*args, **kwargs)
@@ -272,6 +325,9 @@ class Field:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
+
+        # Defining local variables imperceptibly improves performance.
+        # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
         running = bar._can_run
         run_once = self.run_once
@@ -283,10 +339,8 @@ class Field:
         field_buffers = bar._buffers
         interval = self.interval
         func = self._callback
-        # args = self.args
-        args = tuple() if self.args is None else self.args
-        # kwargs = self.kwargs
-        kwargs = {} if self.kwargs is None else self.kwargs
+        args = self.args
+        kwargs = self.kwargs
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
@@ -298,6 +352,11 @@ class Field:
         # If the field's callback is asynchronous, run it in an event loop.
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
+
+        if self._setupfunc is not None:
+            kwargs.update(
+                loop.run_until_complete(self.setup(args, kwargs))
+            )
 
         if self.run_once:
             if is_async:
@@ -377,6 +436,27 @@ class Field:
             raise MissingBar("Fields cannot run until they belong to a Bar.")
 
 class Bar:
+
+    _default_params = {
+        'separator': '|',
+        'refresh_rate': 1.0,
+        'show_empty_fields': False,
+
+    }
+
+    _default_field_order = [
+        'hostname',
+        'uptime',
+        'cpu_usage',
+        'cpu_temp',
+        'mem_usage',
+        'disk_usage',
+        'battery',
+        'net_stats',
+        'datetime',
+    ]
+
+
     def __init__(self,
         *,
         fields: Iterable[Field|str] = None,
@@ -476,7 +556,9 @@ class Bar:
 
     @classmethod
     def from_dict(cls, dct: dict):
-        data = dct.copy()
+
+        #NOTE: This can raise AttributeError if it encounters a nested list!
+        data = clean_comment_keys(dct, '//')
         field_dicts = data.pop('field_definitions', None)
         bar_params = data
 
@@ -488,8 +570,13 @@ class Bar:
                 )
             field_order = cls.parse_fmt(fmt)
 
+
         fields = []
         for name in field_order:
+            # Do the best to emulate comments in JSON:
+            if name.startswith('//'):
+                continue
+
             params = field_dicts.get(name)
 
             if isinstance(params, dict):
@@ -730,7 +817,11 @@ class Config:
             or CONFIG_FILE
         )
 
+        if not os.path.exists(config_file):
+            self.write_file(config_file)
         self.file = os.path.expanduser(config_file)
+
+
         with open(self.file, 'r') as f:
             self.data = json.load(f)
             self.raw = f.read()
@@ -738,11 +829,24 @@ class Config:
     def write_file(self, file: os.PathLike = None, obj: dict = None):
         if file is None:
             file = self.file
-        if obj is None:
-            obj = self.data
         # return json.dumps(obj)
-        with open(file, 'w') as f:
-            json.dump(obj, f)
+        obj = Bar._default_params.copy() if obj is None else obj
+
+        dft_bar = obj
+        dft_fields = Field._default_fields.copy()
+
+        for name, field in dft_fields.items():
+            new = dft_fields[name] = field.copy()
+            new.pop('func', None)
+            new.pop('setup', None)
+
+        dft_bar['field_definitions'] = dft_fields
+        dft_bar['field_order'] = Bar._default_field_order
+        self.defaults = dft_bar
+
+        # return self.defaults
+        with open(os.path.expanduser(file), 'w') as f:
+            json.dump(self.defaults, f, indent=4, ) #separators=(',\n', ': '))
 
 
     def get_bar(self) -> Bar:
@@ -754,7 +858,7 @@ def run():
 ##    fdate = Field(
 ##        # fmt="<3 {icon}{}!",
 ##        name='datetime',
-##        func=get_datetime,
+##        func=field_funcs.get_datetime,
 ##        interval=1/8,
 ##        overrides_refresh=True,
 ##        term_icon='?'
@@ -776,9 +880,8 @@ def run():
     # CFG = Config('bar.json')
     CFG = Config(CONFIG_FILE)
     bar = CFG.get_bar()
-
-##    if not os.path.exists(file):
-##        CFG.write_config(file, defaults)
+##    if not os.path.exists(CONFIG_FILE):
+##        CFG.write_file()
 
     bar.run()
 

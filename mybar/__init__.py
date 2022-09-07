@@ -18,6 +18,7 @@ __copyright__ = 'Copyright (c) 2022 derek-yeetr'
 
 
 from . import field_funcs
+from . import setups
 from . import utils
 from .base import *
 from .errors import *

@@ -29,6 +29,21 @@ UNITS = {
     'K': 1
 }
 
+DURATION_SWITCH = [
+    ('mins', 'secs', 60),
+    ('hours', 'mins', 60),
+    ('days', 'hours', 24),
+    ('weeks', 'days', 7),
+]
+
+DURATIONS = [
+    'secs',
+    'mins',
+    'hours',
+    'days',
+    'weeks',
+]
+
 
 # Field functions
 
@@ -187,19 +202,20 @@ async def get_mem_usage(
     return mem
 
 async def get_net_stats(
-    device=None,
-    stats=False,
-    nm=True,
+    # device: str = None,
+    # stats: bool = False,
+    # stats: Iterable[str] = None,
+    nm: bool = True,
     *args,
     **kwargs
 ):
     '''Returns active network name (and later, stats) from either
     NetworkManager or iwconfig.
     '''
-    #NOTE: add IO stats!
-        # Using nmcli device show [ifname]:
-        # Allow required device/interface argument, then:
-        # Allow options for type, state, addresses, 
+    #TODO: Add IO stats!
+        # Use 'nmcli device show [ifname]'
+        # Requires device/interface param
+        # Allow options for type, state, addresses
 
     if nm:
         cmd = await aiosp.create_subprocess_shell(
@@ -233,34 +249,110 @@ async def get_net_stats(
         )
         return ssid
 
+
+# Uptime
+
 async def get_uptime(
-    fmt: str = '%-jd:%-Hh:%-Mm',
-    dynam_fmt = None,
-    *args,
-    **kwargs
+    fnames: Iterable[str],
+    deconstructed: Iterable,
+    fmt: str = "{days}d:{hours}h:{mins}m",
+    # fmt: str = "{days}lookup_table:{hours}h:{mins}m:{secs}s",
+    sep: str = ':',
+    dynamic=True
 ):
-    up_s = await uptime_s()
-    timetuple = await secs_to_struct_t(up_s)
-    return time.strftime(fmt, timetuple)
+    n = await _uptime_s()
+    # n = _uptime_s()
+    lookup_table = await _secs_to_dhms_dict(n, fnames)
+    if sep is None:
+        return fmt.format_map(lookup_table)
 
-async def uptime_s():
-    # return time.time() - psutil.boot_time()
-    return (time.time_ns() // 1_000_000_000) - int(psutil.boot_time())
+    out = await _format_numerical_fields(
+        lookup_table,
+        fmt,
+        sep,
+        fnames,
+        deconstructed,
+        dynamic,
+    )
+    return out
 
-async def secs_to_struct_t(n: int):
-    '''Returns a struct_time object useful for representing elapsed time.'''
-##    '''A generator that counts down from n seconds, yielding the
-##    remaining seconds and a struct_time object to represent them.'''
-    limit = 367 * 24 * 60 * 60
+async def _secs_to_dhms_dict(n, fields):
+    table = {'secs': n}
+    # Get the fields names in the right order:
+    # indexes = tuple(keys.index(f) for f in fields)
+    # granularity = keys[min(indexes)]
+    # reps = max(indexes)
+    reps = max(DURATIONS.index(f) for f in fields)
+    for i in range(reps):
+        fname, prev, mod = DURATION_SWITCH[i]
+        table[fname], table[prev] = divmod(table[prev], mod)
+    return table
 
-    if n > limit:
-        n = limit
-    if n >= 0:
-        mins, secs = divmod(n, 60)
-        hours, mins = divmod(mins, 60)
-        days, hours = divmod(hours, 24)
-        timetuple = (0,0,0,hours,mins,secs,0,days,0)
+async def _format_numerical_fields(
+    lookup_table: dict,
+    fmt: str,
+    sep: str,
 
-        return time.struct_time(timetuple)
-    return 0, time.struct_time((0,) * 9)
+    # setup_uptime() supplies the following two args to avoid having to parse
+    # the format string at each interval.
+
+    # The list of format string field names:
+    fnames: Iterable[str],
+    # The nested tuple of deconstructed format string field data after going
+    # through sep.split() and Formatter().parse():
+    deconstructed: Iterable, 
+
+    hide_zeroes: bool = True
+):
+
+    last_was_nonzero = True
+    buffers = []
+    for i, between_seps in enumerate(deconstructed):
+        section = []
+        
+        for tup in between_seps:
+            buf = ""
+
+            match tup:
+                case [lit, None, None, None]:
+                    # A trailing literal.
+                    # Only append if the previous field was valid.
+                    if last_was_nonzero:
+                        buf += lit
+
+                case [lit, field, spec, conv]:
+                    # A veritable field!
+                    val = lookup_table.get(field)
+
+                    # Should it be displayed?
+                    if hide_zeroes:
+                        if not val:
+                            last_was_nonzero = False
+                            continue
+
+                    # The text right before the field:
+                    if lit is not None:
+                        buf += lit
+                    buf += str(val)
+                    last_was_nonzero = True
+
+                case spam:
+                    raise ValueError(
+                        f"\n"
+                        f"Invalid structure in tuple\n"
+                        f"  {i} {tup}:\n"
+                        f"  {spam!r}"
+                    )
+
+            if buf:
+                section.append(buf)
+        if section:
+            buffers.append(section)
+
+    # Join nested buffers.
+    return sep.join(''.join(b) for b in buffers)
+
+async def _uptime_s():
+    return round(time.time() - psutil.boot_time())
+    # return (time.time_ns() // 1_000_000_000) - int(psutil.boot_time())
 

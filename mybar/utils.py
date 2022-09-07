@@ -1,6 +1,7 @@
 '''Utility functions'''
 
 from typing import Iterable
+from copy import deepcopy
 
 __all__ = ('join_options', 'str_to_bool', 'make_error_message')
 
@@ -25,6 +26,25 @@ def str_to_bool(value: str, /):
     if pattern not in truthy + falsy:
         raise ValueError(f"Invalid argument: {value!r}")
     return (pattern in truthy or not pattern in falsy)
+
+def clean_comment_keys(obj: dict, pattern: str = '//') -> dict:
+    '''Returns a new dict with keys beginning with a comment pattern removed.'''
+    # TODO: Support for obj: List!
+    new = deepcopy(obj)
+    for key, inner in tuple(new.items()):
+        if key.startswith(pattern):
+            new.pop(key)
+        match inner:
+            case str():
+                if inner.startswith(pattern):
+                    new.pop(key)
+            case dict():
+                clean_comment_keys(inner, pattern)
+            case list():
+                for i, foo in enumerate(inner):
+                    if foo.startswith(pattern):
+                        inner.pop(i)
+    return new
 
 def make_error_message(
     label: str,

@@ -1,27 +1,28 @@
 {
-    "separator": "|",
+    "//separator": "|",
     "show_empty_fields": false,
     "refresh_rate": 1.0,
 
     "field_definitions": {
 
-        "datetime": {
+        "//datetime": {
             "icon": "",
             "interval": 0.125,
             "overrides_refresh": true
         },
 
-        "foo": {
+        "//foo": {
             "custom": true,
             "constant_output": "Fooooo",
             "gui_icon": "!!!",
-            "fmt": "((({}!!"
+            "//fmt": "((({}!!"
         }
 
     },
 
     "field_order": [
        
+        "//foo",
         "uptime",
         "cpu_usage",
         "cpu_temp",
