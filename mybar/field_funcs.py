@@ -5,6 +5,7 @@ import time
 from asyncio import subprocess as aiosp
 from datetime import datetime
 from os import uname
+from string import Formatter
 from typing import Callable, Iterable
 
 from .errors import *
@@ -36,13 +37,16 @@ DURATION_SWITCH = [
     ('weeks', 'days', 7),
 ]
 
-DURATIONS = [
-    'secs',
-    'mins',
-    'hours',
-    'days',
-    'weeks',
-]
+ParserLiteral = str|None
+ParserFname = str|None
+ParserFormatSpec = str|None
+ParserConversion = str|None
+FieldStructure_T = tuple[tuple[tuple[
+    ParserLiteral,
+    ParserFname,
+    ParserFormatSpec,
+    ParserConversion
+]]]
 
 
 # Field functions
@@ -253,43 +257,44 @@ async def get_net_stats(
 # Uptime
 
 async def get_uptime(
-    fnames: Iterable[str],
-    deconstructed: Iterable,
-    fmt: str = "{days}d:{hours}h:{mins}m",
-    # fmt: str = "{days}lookup_table:{hours}h:{mins}m:{secs}s",
-    sep: str = ':',
-    dynamic=True
+    #TODO: Raise errors upon invalid field names!
+    *,
+    fmt: str,
+    sep: str = None,
+    dynamic: bool = True,
+    reps: int = 4,
+    fnames: Iterable[str] = None,
+    deconstructed: Iterable = None,
 ):
     n = await _uptime_s()
-    # n = _uptime_s()
-    lookup_table = await _secs_to_dhms_dict(n, fnames)
-    if sep is None:
+    lookup_table = await _secs_to_dhms_dict(n, reps)
+    if not dynamic or sep is None:
         return fmt.format_map(lookup_table)
 
     out = await _format_numerical_fields(
-        lookup_table,
-        fmt,
-        sep,
-        fnames,
-        deconstructed,
-        dynamic,
+        lookup_table=lookup_table,
+        fmt=fmt,
+        sep=sep,
+        # **setupvars
+        fnames=fnames,
+        deconstructed=deconstructed,
+        dynamic=dynamic,
     )
     return out
 
-async def _secs_to_dhms_dict(n, fields):
+async def _secs_to_dhms_dict(n, reps):
     table = {'secs': n}
-    # Get the fields names in the right order:
+    # Get the field names in the right order:
     # indexes = tuple(keys.index(f) for f in fields)
     # granularity = keys[min(indexes)]
     # reps = max(indexes)
-    reps = max(DURATIONS.index(f) for f in fields)
     for i in range(reps):
         fname, prev, mod = DURATION_SWITCH[i]
         table[fname], table[prev] = divmod(table[prev], mod)
     return table
 
 async def _format_numerical_fields(
-    lookup_table: dict,
+    lookup_table: dict[str, int|float],
     fmt: str,
     sep: str,
 
@@ -299,12 +304,13 @@ async def _format_numerical_fields(
     # The list of format string field names:
     fnames: Iterable[str],
     # The nested tuple of deconstructed format string field data after going
-    # through sep.split() and Formatter().parse():
-    deconstructed: Iterable, 
-
-    hide_zeroes: bool = True
-):
-
+    # through sep.split() and string.Formatter().parse():
+    deconstructed: FieldStructure_T,
+    dynamic: bool = True
+) -> str:
+    '''Fornat a dict of numbers according to a format string by parsing
+    fields delineated by a separator.
+    '''
     last_was_nonzero = True
     buffers = []
     for i, between_seps in enumerate(deconstructed):
@@ -325,15 +331,19 @@ async def _format_numerical_fields(
                     val = lookup_table.get(field)
 
                     # Should it be displayed?
-                    if hide_zeroes:
-                        if not val:
-                            last_was_nonzero = False
-                            continue
+                    if not val and dynamic:
+                        last_was_nonzero = False
+                        continue
 
                     # The text right before the field:
                     if lit is not None:
                         buf += lit
-                    buf += str(val)
+
+                    if spec:
+                        buf += format(val, spec)
+                    else:
+                        buf += str(val)
+
                     last_was_nonzero = True
 
                 case spam:

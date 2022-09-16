@@ -1,7 +1,10 @@
+#TODO: Add Bar.fields property
+#TODO: Field.is_running: attr or property that calls threading.Event().is_set()
+#TODO: Implement align_to_seconds!
+#TODO: Implement icon tuples!
+#TODO: DescriptiveTypeName = str for type hints!
 #TODO: Command line args!
 #TODO: Finish Mocp line!
-#TODO: Implement killing threads!
-#TODO: Implement align_to_seconds!
 #TODO: Implement dynamic icons!
 
 
@@ -9,20 +12,17 @@ import asyncio
 import inspect
 import json
 import os
-# import signal
 import sys
 import threading
-import time
 
 from argparse import ArgumentParser
 from string import Formatter
-from types import SimpleNamespace
-from typing import Callable, Coroutine, IO, Iterable
+from time import sleep, monotonic #, time
+from typing import Callable, IO, Iterable
 
 from mybar import field_funcs
 from mybar import setups
 from mybar.errors import *
-# from mybar.field_funcs import *
 from mybar.utils import join_options, str_to_bool, clean_comment_keys
 
 __all__ = (
@@ -53,12 +53,12 @@ class Field:
         'uptime': {
             'name': 'uptime',
             'func': field_funcs.get_uptime,
+            'setup': setups.setup_uptime,
+            'icon': 'Up ',
             'kwargs': {
                 'fmt': '{days}d:{hours}h:{mins}m',
                 'sep': ':'
             },
-            'icon': 'Up ',
-            'setup': setups.setup_uptime,
         },
 
         'cpu_usage': {
@@ -107,8 +107,6 @@ class Field:
         'datetime': {
             'name': 'datetime',
             'func': field_funcs.get_datetime,
-            'interval': 0.125,
-            'overrides_refresh': True
         },
 
     }
@@ -126,13 +124,14 @@ class Field:
         constant_output: str = None,
         run_once: bool = False,
         bar=None,
-        # args = [],
         args = None,
-        # kwargs = {},
         kwargs = None,
+        setup: Callable = None,
+
+
+        # icons: Iterable[str] = None,
         gui_icon: str = None,
         term_icon: str = None,
-        setup: Callable | Coroutine = None,
 
     ):
 
@@ -156,11 +155,9 @@ class Field:
         self.kwargs = {} if kwargs is None else kwargs
 
         if setup is not None:
-            if not (inspect.iscoroutinefunction(setup) or callable(setup)):
+            if not callable(setup):
                 raise TypeError(
-                    f"Parameter 'setup' must be callable or awaitable, "
-                    f"not {type(setup)}"
-                )
+                    f"Parameter 'setup' must be a callable, not {type(setup)}")
         self._setupfunc = setup
         # self._setupvars = {}
 
@@ -194,12 +191,20 @@ class Field:
         self._thread = None
         # self.is_running = False
 
+    def __repr__(self):
+        cls = type(self).__name__
+        name = self.name
+        # fields = self.fields
+        # attrs = join_options(...)
+        return f"{cls}({name=})"
+
     @classmethod
     def from_default(cls,
         name: str,
         params: dict = {},
         source: dict = None
     ):
+        '''Used to create default Fields with custom parameters.'''
         if source is None:
             source = cls._default_fields
 
@@ -212,9 +217,6 @@ class Field:
         spec.update(params)
         return cls(**spec)
 
-    def __repr__(self):
-        return f"{self.__class__.__name__}(name={self.name!r})"
-
     def get_icon(self, default=None):
         if self._bar is None:
             return default
@@ -226,12 +228,6 @@ class Field:
     async def _asyncify(self, *args, **kwargs):
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
-
-    async def setup(self, args, kwargs):
-        '''Initialize static variables used by self._func here once.'''
-        if inspect.iscoroutinefunction(self._setupfunc):
-            return await self._setupfunc(*args, **kwargs)
-        return self._setupfunc(*args, **kwargs)
 
     async def run(self):
         '''Asynchronously run a non-threaded field's callback
@@ -256,27 +252,30 @@ class Field:
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
-        use_format_str = (fmt is not None)
+        using_format_str = (fmt is not None)
         last_val = None
 
+        # Use self.setup() to gather static variables which need to
+        # be evaluated at runtime and passed to self._func.
         if self._setupfunc is not None:
-            kwargs.update(
-                await self.setup(args, kwargs)
-            )
+            try:
+                kwargs.update(
+                    await self.setup(args, kwargs)
+                )
 
-        if self.run_once:
-            if is_async:
-                res = loop.run_until_complete(func(*args, **kwargs))
-            else:
-                res = func(*args, **kwargs)
+            except FailedSetup as e:
+                backup = e.args[0]
+                contents = await self.add_icon(
+                    backup,
+                    icon,
+                    using_format_str,
+                    fmt
+                )
+                field_buffers[field_name] = self.constant_output = contents
+                return
 
-            if use_format_str:
-                contents = fmt.format(res, icon=icon)
-            else:
-                contents = icon + res
-            field_buffers[field_name] = contents
-            return
-
+        # The main loop:
+        start_time = monotonic()
         while running.is_set():
             res = await func(*args, **kwargs)
 
@@ -286,7 +285,7 @@ class Field:
 
             last_val = res
 
-            if use_format_str:
+            if using_format_str:
                 contents = fmt.format(res, icon=icon)
             else:
                 contents = icon + res
@@ -297,7 +296,6 @@ class Field:
             if overrides_refresh:
                 try:
 
-                    # print(f"{(self._bar._loop == asyncio.get_running_loop()) = }")
                     override_queue.put_nowait(
                         (field_name, contents)
                     )
@@ -310,16 +308,28 @@ class Field:
 
                 # Running the bar a second time raises RuntimeError saying its
                 # event loop is closed.
-                # It's not, so we ignore that.
+                # It's usually not, so we ignore that.
                 except RuntimeError:
                     # print("\nGot RuntimeError")
-                    assert self._bar._loop.is_running()
+                    # assert self._bar._loop.is_running()
                     pass
 
             if run_once:
-                break
+                return
 
-            await asyncio.sleep(interval)
+            # "Drift will cause the output of a field with values that
+            # change routinely (such as the time) to update out of sync
+            # with the changes to its value.
+            # Sleep until the next cycle, and compensate for drift
+            # caused by nonzero execution times:
+            await asyncio.sleep(
+                # Time until next refresh:
+                interval - (
+                    # Get the current drift, which can vary:
+                    (monotonic() - start_time)
+                    % interval
+                )
+            )
 
     def run_threaded(self):
         '''Run a blocking function in a thread
@@ -344,7 +354,7 @@ class Field:
 
         icon = self.get_icon(self.default_icon)
         fmt = self.fmt
-        use_format_str = (fmt is not None)
+        using_format_str = (fmt is not None)
         last_val = None
 
         cooldown = bar._thread_cooldown
@@ -353,34 +363,52 @@ class Field:
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
 
+        # Use self.setup() to gather static variables which need to
+        # be evaluated at runtime and passed to self._func.
         if self._setupfunc is not None:
-            kwargs.update(
-                loop.run_until_complete(self.setup(args, kwargs))
-            )
+            try:
+                kwargs.update(
+                    loop.run_until_complete(
+                        self.setup(args, kwargs)
+                    )
+                )
 
-        if self.run_once:
-            if is_async:
-                res = loop.run_until_complete(func(*args, **kwargs))
-            else:
-                res = func(*args, **kwargs)
+            except FailedSetup as e:
+                backup = e.args[0]
+                contents = loop.run_until_complete(
+                    self.add_icon(
+                        backup,
+                        icon,
+                        using_format_str,
+                        fmt
+                    )
+                )
+                field_buffers[field_name] = self.constant_output = contents
+                return
 
-            if use_format_str:
-                contents = fmt.format(res, icon=icon)
-            else:
-                contents = icon + res
-            field_buffers[field_name] = contents
-            return
-
+        # The main loop:
         count = 0
+        start_time = monotonic()
         while running.is_set():
-
-            # Instead of blocking the entire interval, use a quicker cooldown.
+            # Rather than block for the whole interval,
+            # use tiny cooldowns to check if the bar is still running.
             # A shorter cooldown means more chances to check if the bar stops.
-            # A thread, then, cancels cooldown seconds after its function
-            # returns rather than interval seconds.
-            if count != int(interval / cooldown):
+            # Thus, threads usually cancel `cooldown` seconds after self._func
+            # returns when the bar stops rather than after `interval` seconds.
+            if count != round(interval / cooldown):
                 count += 1
-                time.sleep(cooldown)
+                # "Drift will cause the output of a field with values that
+                # change routinely (such as the time) to update out of sync
+                # with the changes to its value.
+                # Sleep until the next cycle, and compensate for drift
+                # caused by nonzero execution times:
+                sleep(
+                    cooldown - (
+                        # Get the current drift, which can vary:
+                        (monotonic() - start_time)
+                        % cooldown
+                    )
+                )
                 continue
 
             if is_async:
@@ -394,7 +422,7 @@ class Field:
 
             last_val = res
 
-            if use_format_str:
+            if using_format_str:
                 contents = fmt.format(res, icon=icon)
             else:
                 contents = icon + res
@@ -415,12 +443,37 @@ class Field:
                     pass
 
             if run_once:
-                break
+                return
 
             count = 0
 
         loop.stop()
         loop.close()
+
+    def _check_bar(self):
+        '''Raises MissingBar if self._bar is None.'''
+        if self._bar is None:
+            raise MissingBar("Fields cannot run until they belong to a Bar.")
+
+    async def setup(self, args, kwargs):
+        '''Initialize static variables used by self._func which would
+        otherwise be evaluated at each iteration.'''
+        if inspect.iscoroutinefunction(self._setupfunc):
+            return await self._setupfunc(*args, **kwargs)
+        return self._setupfunc(*args, **kwargs)
+
+    async def add_icon(self,
+        text: str,
+        icon: str,
+        using_format_str: bool,
+        fmt: str = None
+    ) -> str:
+        '''A helper function to add an icon to the output of a field.'''
+        if using_format_str:
+            contents = fmt.format(text, icon=icon)
+        else:
+            contents = icon + text
+        return contents
 
     async def send_to_thread(self):
         '''Make and start a thread in which to run the field's callback.'''
@@ -430,17 +483,13 @@ class Field:
         )
         self._thread.start()
 
-    def _check_bar(self):
-        '''Raises MissingBar if self._bar is None.'''
-        if self._bar is None:
-            raise MissingBar("Fields cannot run until they belong to a Bar.")
 
 class Bar:
 
     _default_params = {
         'separator': '|',
         'refresh_rate': 1.0,
-        'show_empty_fields': False,
+        'join_empty_fields': False,
 
     }
 
@@ -464,21 +513,22 @@ class Bar:
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
-        show_empty_fields: bool = False,
+        join_empty_fields: bool = False,
         gui_sep: str = None,
         term_sep: str = None,
         override_cooldown: float = 1/60,
         thread_cooldown: float = 1/8
     ):
-
+        # Ensure the output stream has the required methods.
         io_methods = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_methods):
             io_method_calls = [a + '()' for a in io_methods]
             raise InvalidOutputStream(
                 f"Output stream {stream!r} needs "
-                f"{join_options(io_method_calls, final=' and ')} methods.")
+                f"{join_options(io_method_calls, final_sep=' and ')} methods.")
         self._stream = stream
 
+        # Ensure required parameters are defined if no fmt is given:
         if fmt is None:
             if fields is None:
                 raise ValueError(
@@ -492,6 +542,7 @@ class Bar:
                 raise IncompatibleParams(
                     "A separator is required when 'fmt' is None.")
 
+            # Gather a list of field names:
             field_order = [
                 getattr(f, 'name') if isinstance(f, Field)
                 else f
@@ -504,22 +555,24 @@ class Bar:
 
         else:
             field_order = self.parse_fmt(fmt)
-            fields = list(field_order)
+            if fields is None:
+                fields = list(field_order)
 
         self._field_order = field_order
+        self._fields = self.convert_fields(fields)
+        self._buffers = {name: '' for name in self._fields}
+
         self.fmt = fmt
         self.term_sep = term_sep
         self.gui_sep = gui_sep
         self.separator = self.get_separator(separator)
         self.default_sep = separator
 
-        self._fields = self.convert_fields(fields)
-        self._buffers = {name: '' for name in self._fields}
+        # Whether empty fields are joined when fmt is None:
+        # (True shows two separators together for every blank field.)
+        self.join_empty_fields = join_empty_fields
 
-        # Whether empty fields are shown with the rest when fmt is None:
-        self.show_empty_fields = show_empty_fields
-
-        # Set the bar's normal refresh rate, that is, how often it is printed:
+        # Set how often in seconds the bar is normally printed.
         self.refresh_rate = refresh_rate
 
         # Make a queue to which fields with overrides_refresh send updates.
@@ -541,6 +594,16 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
+    def __repr__(self):
+        names = self._field_order
+        fields = join_options(names, final_sep='', quote=True, limit=3)
+        cls = type(self).__name__
+        return f"{cls}(fields=[{fields}])"
+
+    @property
+    def fields(self):
+        return tuple(self._fields.values())
+
     @property
     def in_a_tty(self) -> bool:
         if self._stream is None:
@@ -549,6 +612,8 @@ class Bar:
 
     @property
     def clearline_char(self) -> str:
+        '''Terminal streams print this between refreshes, preventing
+        longer lines from leaving behind characers.'''
         if self._stream is None:
             return None
         clearline = CLEAR_LINE if self._stream.isatty() else ''
@@ -556,67 +621,63 @@ class Bar:
 
     @classmethod
     def from_dict(cls, dct: dict):
-
+        '''Accept a mapping of Bar parameters.'''
         #NOTE: This can raise AttributeError if it encounters a nested list!
         data = clean_comment_keys(dct, '//')
-        field_dicts = data.pop('field_definitions', None)
+        field_defs = data.pop('field_definitions', None)
         bar_params = data
+        field_order = bar_params.pop('field_order', None)
 
-        if (field_order := bar_params.pop('field_order', None)) is None:
-            if (fmt := bar_params.get('fmt')) is None:
+        if (fmt := bar_params.get('fmt')) is None:
+            if field_order is None:
                 raise IncompatibleParams(
-                    "A bar format string 'fmt' is required when field order "
-                    "list 'field_order' is undefined."
+                    "A bar format string 'fmt' is required when field "
+                    "order list 'field_order' is undefined."
                 )
+        else:
             field_order = cls.parse_fmt(fmt)
-
 
         fields = []
         for name in field_order:
-            # Do the best to emulate comments in JSON:
-            if name.startswith('//'):
-                continue
+            params = field_defs.get(name)
+            match params:
 
-            params = field_dicts.get(name)
+                case None:
+                    # The field is strictly default:
+                    field = Field.from_default(name)
+                    if field is None:
+                        raise UndefinedField(f"\n"
+                            f"In 'field_order':\n"
+                            f"  Expected the name of a default field or a "
+                            f"custom field defined in 'field_definitions', "
+                            f"but got {name!r} instead."
+                        )
 
-            if isinstance(params, dict):
-                # Disallow 'name' param if coming from a dict anyway:
-                #TODO: Consider raising an error!
-                params.pop('name', None)
+                case {'custom': True}:
+                    # The field is custom, so it is only defined in
+                    # 'field_definitions' and will not be found as a default.
+                    custom_name = params.pop('name', name)
+                    field = Field(**params, name=custom_name)
 
-            if params is None:
-                # The field is strictly default:
-                field = Field.from_default(name)
-                if field is None:
-                    raise UndefinedField(f"\n"
-                        f"In 'field_order':\n"
-                        f"  Expected the name of a default field or a custom "
-                        f"field defined in 'field_definitions', "
-                        f"but got {name!r} instead."
-                    )
+                case {}:
+                    # The field is a default overridden by the user.
+                    field = Field.from_default(name, params)
+                    if field is None:
+                        raise DefaultNotFound(f"\n"
+                            f"In 'field_definitions':\n"
+                            f"  Expected a default Field name but got {name!r} "
+                            f"instead.\n"
+                            f"  For JSON, remember to specify `\"custom\": true` "
+                            f"in custom field definitions."
+                        )
 
-            elif params.pop('custom', False):
-                # The field is only defined in field_definitions and will not
-                # be found as a default.
-                field = Field(**params, name=name)
-
-            else:
-                # The field is a default overridden by the user:
-                params = field_dicts.get(name)
-                field = Field.from_default(name, params)
-                if field is None:
-                    raise DefaultNotFound(f"\n"
-                        f"In 'field_definitions':\n"
-                        f"  Expected a default Field name but got {name!r} "
-                        f"instead.\n"
-                        f"  Remember to specify `\"custom\": true` "
-                        f"in custom field definitions."
-                    )
+                case _:
+                    print("Got a weird field.")
+                    print(f"{name = }, {params = }")
 
             fields.append(field)
 
-        bar = cls(fields=fields, **bar_params)
-        return bar
+        return cls(fields=fields, **bar_params)
 
     @staticmethod
     def parse_fmt(fmt: str) -> list[str]:
@@ -628,10 +689,10 @@ class Bar:
                 if (name := m[1]) is not None
             ]
         except ValueError:
-            e = BadFormatString(f"Invalid bar format string: {fmt!r}")
-            raise e from None
+            err = f"Invalid bar format string: {fmt!r}"
+            raise BrokenFormatString(err) from None
         if '' in field_names:
-            raise BadFormatString(
+            raise BrokenFormatString(
                 "The bar format string cannot contain "
                 "positional fields ('{}').")
         return field_names
@@ -641,16 +702,17 @@ class Bar:
         and returns a dict mapping field names to Fields.'''
         converted = {}
         for field in fields:
-            if isinstance(field, str):
-                converted[field] = Field.from_default(
-                    name=field,
-                    params={'bar': self}
-                )
-            elif isinstance(field, Field):
-                field._bar = self
-                converted[field.name] = field
-            else:
-                raise InvalidField(f"Invalid field: {field}")
+            match field:
+                case str():
+                    converted[field] = Field.from_default(
+                        name=field,
+                        params={'bar': self}
+                    )
+                case Field():
+                    field._bar = self
+                    converted[field.name] = field
+                case _:
+                    raise InvalidField(f"Invalid field: {field}")
         return converted
 
     def get_separator(self, default=None) -> str:
@@ -662,7 +724,8 @@ class Bar:
         return sep
 
     def run(self, stream: IO = None):
-        '''Run the bar. Block until an exception is raised and exit smoothly.'''
+        '''Run the bar.
+        Block until an exception is raised and exit smoothly.'''
         if stream is not None:
             self._stream = stream
 
@@ -687,25 +750,23 @@ class Bar:
         in parallel.'''
         field_coros = []
         for field in self._fields.values():
-            # Do not run fields which have a constant output;
-            # only set the bar buffer.
-            if field.constant_output is not None:
+            # Do not run fields which have a constant output,
+            # only set their bar buffer.
+            if (output := field.constant_output) is not None:
                 if field.fmt is None:
-                    self._buffers[field.name] = field.constant_output
+                    self._buffers[field.name] = output
                 else:
-                    self._buffers[field.name] = field.fmt.format(
-                        field.constant_output
-                    )
-                continue
+                    self._buffers[field.name] = field.fmt.format(output)
 
-            if field.threaded:
+            elif field.threaded:
                 await field.send_to_thread()
+
             else:
-                field_coros.append((field.run()))
+                field_coros.append(field.run())
 
         await asyncio.gather(
             *field_coros,
-            self._check_queue(),
+            self._handle_overrides(),
             self._continuous_line_printer(),
         )
 
@@ -726,53 +787,69 @@ class Bar:
 
     async def _continuous_line_printer(self, end: str = '\r'):
         '''The bar's primary line-printing mechanism.
-        Fields are responsible for sending updates to the bar's buffers.
+        Fields are responsible for sending data to the bar buffers.
         This only writes using the current buffer contents.'''
-        use_format_str = (self.fmt is not None)
+        # Again, local variables may save time:
         stream = self._stream
-        sep = self.separator
         clearline = self.clearline_char
-        show_empty_fields = self.show_empty_fields
+        using_format_str = (self.fmt is not None)
+        fmt = self.fmt
+        sep = self.separator
+        buffers = self._buffers
+        field_order = self._field_order
+        join_empty_fields = self.join_empty_fields
+        running = self._can_run
+        refresh = self.refresh_rate
 
         if self.in_a_tty:
-            stream.write(CSI + HIDE_CURSOR)
             beginning = clearline + end
+            stream.write(CSI + HIDE_CURSOR)
         else:
             beginning = clearline
 
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
-        start_time = time.monotonic_ns()
-        while self._can_run.is_set():
 
-            if use_format_str:
-                line = self.fmt.format_map(self._buffers)
+        start_time = monotonic()
+        while running.is_set():
+            if using_format_str:
+                line = fmt.format_map(buffers)
             else:
                 line = sep.join(
                     buf
-                    for field in self._field_order
-                        if (buf := self._buffers[field])
-                        or show_empty_fields
+                    for field in field_order
+                        if (buf := buffers[field])
+                        or join_empty_fields
                 )
 
             stream.write(beginning + line + end)
             stream.flush()
 
-            # Syncing the refresh rate to the system clock prevents drifting.
+            # Sleep only until the next possible refresh to keep the
+            # refresh cycle length consistent and prevent drifting.
             await asyncio.sleep(
-                self.refresh_rate - (
-                    (time.monotonic_ns() - start_time)
-                    % self.refresh_rate
+                # Time until next refresh:
+                refresh - (
+                    # Get the current drift, which can vary:
+                    (monotonic() - start_time)
+                    % refresh
                 )
             )
 
-    async def _check_queue(self, end: str = '\r'):
+    async def _handle_overrides(self, end: str = '\r'):
         '''Prints a line when fields with overrides_refresh send new data.'''
-        use_format_str = (self.fmt is not None)
+        # Again, local variables may save time:
         stream = self._stream
-        sep = self.separator
         clearline = self.clearline_char
-        show_empty_fields = self.show_empty_fields
+        using_format_str = (self.fmt is not None)
+        fmt = self.fmt
+        sep = self.separator
+        buffers = self._buffers
+        field_order = self._field_order
+        join_empty_fields = self.join_empty_fields
+        running = self._can_run
+        refresh = self.refresh_rate
+        override_queue = self._override_queue
         cooldown = self._override_cooldown
 
         if self.in_a_tty:
@@ -780,31 +857,30 @@ class Bar:
         else:
             beginning = clearline
 
-        try:
-            while self._can_run.is_set():
+        while running.is_set():
+            try:
+                # Wait until a field that overrides the refresh rate
+                # (with overrides_refresh) sends new data to be printed:
+                field, contents = await override_queue.get()
+            except RuntimeError:
+                # asyncio.queues raises an error when getter.cancel()
+                # is called and the event loop is closed.
+                # It serves no purpose when the bar has just stopped.
+                return
 
-                field, contents = await self._override_queue.get()
+            if using_format_str:
+                line = self.fmt.format_map(buffers)
+            else:
+                line = sep.join(
+                    buf
+                    for field in field_order
+                        if (buf := buffers[field])
+                        or join_empty_fields
+                )
 
-                if use_format_str:
-                    line = self.fmt.format_map(self._buffers)
-                else:
-                    line = sep.join(
-                        buf
-                        for field in self._field_order
-                            if (buf := self._buffers[field])
-                            or show_empty_fields
-                    )
-
-                stream.write(beginning + line + end)
-                stream.flush()
-                await asyncio.sleep(cooldown)
-
-        # SIGINT raises RuntimeError saying the event loop is closed.
-        # It's usually not, so we ignore that.
-        except RuntimeError:
-            # assert self._loop.is_running()
-            pass
-
+            stream.write(beginning + line + end)
+            stream.flush()
+            await asyncio.sleep(cooldown)
 
 class Config:
     def __init__(self, file: os.PathLike = None): # Path = None):
@@ -817,18 +893,33 @@ class Config:
             or CONFIG_FILE
         )
 
-        if not os.path.exists(config_file):
-            self.write_file(config_file)
-        self.file = os.path.expanduser(config_file)
+        absolute = os.path.expanduser(config_file)
+        if not os.path.exists(absolute):
+            self.write_file(absolute)
+        self.file = absolute
 
+        self.data, self.text = self.read_file(absolute)
 
+    def __repr__(self):
+        cls = self.__class__.__name__
+        file = self.file
+        return f"{cls}({file=})"
+
+    def make_bar(self) -> Bar:
+        return Bar.from_dict(self.data)
+
+    def read_file(self, file: os.PathLike = None) -> tuple[dict, str]:
+        if file is None:
+            file = self.file
         with open(self.file, 'r') as f:
-            self.data = json.load(f)
-            self.raw = f.read()
+            data = json.load(f)
+            text = f.read()
+        return data, text
 
     def write_file(self, file: os.PathLike = None, obj: dict = None):
         if file is None:
             file = self.file
+
         # return json.dumps(obj)
         obj = Bar._default_params.copy() if obj is None else obj
 
@@ -837,8 +928,7 @@ class Config:
 
         for name, field in dft_fields.items():
             new = dft_fields[name] = field.copy()
-            new.pop('func', None)
-            new.pop('setup', None)
+            del new['func'], new['setup']
 
         dft_bar['field_definitions'] = dft_fields
         dft_bar['field_order'] = Bar._default_field_order
@@ -847,10 +937,6 @@ class Config:
         # return self.defaults
         with open(os.path.expanduser(file), 'w') as f:
             json.dump(self.defaults, f, indent=4, ) #separators=(',\n', ': '))
-
-
-    def get_bar(self) -> Bar:
-        return Bar.from_dict(self.data)
 
 
 def run():
@@ -879,7 +965,7 @@ def run():
 
     # CFG = Config('bar.json')
     CFG = Config(CONFIG_FILE)
-    bar = CFG.get_bar()
+    bar = CFG.make_bar()
 ##    if not os.path.exists(CONFIG_FILE):
 ##        CFG.write_file()
 

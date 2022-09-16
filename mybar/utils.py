@@ -3,20 +3,24 @@
 from typing import Iterable
 from copy import deepcopy
 
-__all__ = ('join_options', 'str_to_bool', 'make_error_message')
-
 def join_options(
     it: Iterable[str],
     /,
     sep: str = ', ',
-    final: str = ' or ',
+    final_sep: str = 'or ',
     quote: bool = False,
-    oxford: bool = False
+    oxford: bool = False,
+    limit: int = None,
+    overflow: str = '...',
 ):
     if not hasattr(it, '__iter__'):
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
-    opts = tuple(repr(e) if quote else e for e in it)
-    return sep.join(opts[:-1]) + ('', ',')[oxford] + final + opts[-1]
+    opts = [repr(i := str(item)) if quote else i for item in it][:limit]
+    if limit is not None and len(opts) >= limit:
+        opts.append(overflow)
+    else:
+        opts[-1] = final_sep + opts[-1]
+    return sep.join(opts)
 
 def str_to_bool(value: str, /):
     '''Returns `True` or `False` bools for truthy or falsy strings.'''
@@ -27,23 +31,26 @@ def str_to_bool(value: str, /):
         raise ValueError(f"Invalid argument: {value!r}")
     return (pattern in truthy or not pattern in falsy)
 
-def clean_comment_keys(obj: dict, pattern: str = '//') -> dict:
+def clean_comment_keys(
+    obj: dict,
+    pattern: str | tuple[str] = ('//', '/*', '*/')
+) -> dict:
     '''Returns a new dict with keys beginning with a comment pattern removed.'''
     # TODO: Support for obj: List!
     new = deepcopy(obj)
     for key, inner in tuple(new.items()):
         if key.startswith(pattern):
-            new.pop(key)
+            del new[key]
         match inner:
             case str():
                 if inner.startswith(pattern):
-                    new.pop(key)
-            case dict():
-                clean_comment_keys(inner, pattern)
+                    del new[key]
             case list():
                 for i, foo in enumerate(inner):
                     if foo.startswith(pattern):
-                        inner.pop(i)
+                        del inner[i]
+            case {}:
+                clean_comment_keys(inner, pattern)
     return new
 
 def make_error_message(

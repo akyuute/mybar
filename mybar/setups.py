@@ -1,6 +1,17 @@
-from string import Formatter
 import psutil
+from string import Formatter
 
+from mybar.errors import (
+    BrokenFormatString,
+    FailedSetup,
+    IncompatibleParams,
+    UndefinedFormatStringField,
+)
+from mybar.utils import join_options, make_error_message
+
+FormatStr = str
+
+FORMATTER = Formatter()
 
 ##def setup_cpu_usage(
 ##    in_fahrenheit: bool = False,
@@ -58,39 +69,97 @@ async def setup_uptime(
 ):
     setupvars = {}
 
-##    if kwargs is None:
-##        setupvars.update(
-##            fnames=None,
-##            deconstructed=None
-##        )
-##        return
+    fnames = [name for tup in FORMATTER.parse(fmt) if (name := tup[1])]
+    if not fnames:
+        # Running the Field function is pointless if there are no
+        # format string fields and the output is constant.
+        # Exit gracefully using fmt as the value for constant_output:
+        raise FailedSetup(fmt)
 
-    # sep = kwargs.get('sep')
-    if sep is None:
+    durations = (
+        'secs',
+        'mins',
+        'hours',
+        'days',
+        'weeks',
+    )
+
+    for name in fnames:
+        if name not in durations:
+            opts = join_options(durations, quote=True,)
+
+            err = make_error_message(
+                label=f"{fmt=}",
+                blame=(f"{name!r}"),
+                expected=f"one of {opts}",
+                details=[
+                    f"Invalid get_uptime() format string field name: {name!r}"
+                ]
+            )
+                    
+            raise UndefinedFormatStringField('\n' + err)
+
+    reps = max((durations.index(f) for f in fnames), default=0)
+
+    setupvars.update(
+        fnames=fnames,
+        reps=reps
+    )
+
+    if not sep:
         setupvars.update(
             dynamic=False,
         )
         return setupvars
 
-    sections = fmt.split(sep)
+    # Split fmt for parsing, but join any format specs that get broken:
+    sections = []
+    pieces = (p for p in fmt.split(sep))
+
+    try:
+        for piece in pieces:
+            while _is_malformed(piece):
+                # Raise StopIteration if a valid field end is not found:
+                piece = sep.join((piece, next(pieces)))
+            sections.append(piece)
+
+    except StopIteration:
+        err = make_error_message(
+            label=f"{fmt=}",
+            # blame=repr(piece),
+            details=[
+                f"Invalid fmt substring begins near ->"
+                f"{piece!r}"
+                # f"{fmt[len(sep.join(sections)):]!r}:"
+            ]
+        )
+        raise BrokenFormatString('\n' + err) from None
 
     deconstructed = tuple(
-        tuple(Formatter().parse(substr))
-        for substr in sections
+        tuple(FORMATTER.parse(section))
+        for section in sections
     )
 
     fnames = tuple(
         name
-        for thing in deconstructed
-        for tup in thing
-        if (name := tup[1])
+        for section in deconstructed
+        for parsed in section
+        if (name := parsed[1])
     )
+    # print('\n', fnames)
 
-    # return fnames, deconstructed
     setupvars.update(
-        fnames=fnames,
         deconstructed=deconstructed
     )
+    # print("\n", setupvars, "\n")
 
     return setupvars
+
+def _is_malformed(piece: FormatStr):
+    '''Return whether piece is a malformed format string.'''
+    try:
+        tuple(FORMATTER.parse(piece))
+    except ValueError:
+        return True
+    return False
 

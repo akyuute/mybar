@@ -1,0 +1,57 @@
+{
+    "override_cooldown": 0,
+    "separator": "|",
+    "refresh_rate": 1.0,
+    "join_empty_fields": false,
+    "field_definitions": {
+        "hostname": {
+            "interval": 10
+        },
+        "uptime": {
+            "kwargs": {
+                "fmt": "{days}d:{hours}h:{mins}m:{secs}s",
+                "sep": ":"
+            },
+            "icon": "Up "
+        },
+        "cpu_usage": {
+            "interval": 2,
+            "threaded": true
+        },
+        "cpu_temp": {
+            "interval": 2,
+            "threaded": true,
+            "icon": "CPU "
+        },
+        "mem_usage": {
+            "interval": 2,
+            "icon": "Mem "
+        },
+        "disk_usage": {
+            "interval": 4,
+            "icon": "/:"
+        },
+        "battery": {
+            "interval": 1,
+            "overrides_refresh": true,
+            "icon": "Bat "
+        },
+        "net_stats": {
+            "interval": 4
+        },
+        "datetime": {
+            "interval": 1
+        }
+    },
+    "field_order": [
+        "//hostname",
+        "uptime",
+        "cpu_usage",
+        "cpu_temp",
+        "mem_usage",
+        "disk_usage",
+        "battery",
+        "net_stats",
+        "datetime"
+    ]
+}
