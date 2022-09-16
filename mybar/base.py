@@ -886,7 +886,7 @@ class Config:
     def __init__(self, file: os.PathLike = None): # Path = None):
         # Get the config file name if passed as a command line argument
         cli_parser = ArgumentParser()
-        cli_parser.add_argument('--config', nargs='+')
+        cli_parser.add_argument('--config')
         config_file = (
             cli_parser.parse_args(sys.argv[1:]).config
             or file
@@ -928,7 +928,11 @@ class Config:
 
         for name, field in dft_fields.items():
             new = dft_fields[name] = field.copy()
-            del new['func'], new['setup']
+            for param in ('func', 'setup'):
+                try:
+                    del new[param]
+                except KeyError:
+                    pass
 
         dft_bar['field_definitions'] = dft_fields
         dft_bar['field_order'] = Bar._default_field_order

@@ -11,7 +11,7 @@ An asynchronous status bar with an intuitive, highly customizable API.
 __title__ = 'mybar'
 __description__ = "An async status bar with a highly customizable API."
 __url__ = "https://github.com/derek-yeetr/mybar"
-__version__ = '0.1.2'
+__version__ = '0.2'
 __author__ = "derek-yeetr"
 __license__ = 'MIT'
 __copyright__ = 'Copyright (c) 2022 derek-yeetr'
