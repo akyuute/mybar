@@ -1,6 +1,3 @@
-#TODO: Add Bar.fields property
-#TODO: Field.is_running: attr or property that calls threading.Event().is_set()
-#TODO: Implement align_to_seconds!
 #TODO: Implement icon tuples!
 #TODO: DescriptiveTypeName = str for type hints!
 #TODO: Command line args!
@@ -17,13 +14,18 @@ import threading
 
 from argparse import ArgumentParser
 from string import Formatter
-from time import sleep, monotonic #, time
+from time import monotonic, time, sleep
 from typing import Callable, IO, Iterable
 
 from mybar import field_funcs
 from mybar import setups
 from mybar.errors import *
-from mybar.utils import join_options, str_to_bool, clean_comment_keys
+from mybar.utils import (
+    join_options,
+    str_to_bool,
+    clean_comment_keys,
+    make_error_message
+)
 
 __all__ = (
     'Field',
@@ -54,11 +56,12 @@ class Field:
             'name': 'uptime',
             'func': field_funcs.get_uptime,
             'setup': setups.setup_uptime,
-            'icon': 'Up ',
             'kwargs': {
                 'fmt': '{days}d:{hours}h:{mins}m',
                 'sep': ':'
             },
+            'align_to_seconds': True,
+            'icon': 'Up ',
         },
 
         'cpu_usage': {
@@ -93,7 +96,6 @@ class Field:
         'battery': {
             'name': 'battery',
             'func': field_funcs.get_battery_info,
-            'interval': 1,
             'overrides_refresh': True,
             'icon': 'Bat '
         },
@@ -107,6 +109,7 @@ class Field:
         'datetime': {
             'name': 'datetime',
             'func': field_funcs.get_datetime,
+            'align_to_seconds': True,
         },
 
     }
@@ -118,7 +121,7 @@ class Field:
         icon: str = '',
         fmt: str = None,
         interval: float = 1.0,
-        # align_to_seconds: bool = False,
+        align_to_seconds: bool = False,
         overrides_refresh: bool = False,
         threaded: bool = False,
         constant_output: str = None,
@@ -180,7 +183,7 @@ class Field:
             # Wrap a synchronous function call
             self._callback = self._asyncify
 
-        # self.align_to_seconds = align_to_seconds
+        self.align_to_seconds = align_to_seconds
         self._buffer = None
         self.constant_output = constant_output
         self.interval = interval
@@ -210,6 +213,7 @@ class Field:
 
         default: dict = source.get(name)
         if default is None:
+            return default
             raise DefaultNotFound(
                 f"{name!r} is not the name of a default Field.")
 
@@ -273,6 +277,9 @@ class Field:
                 )
                 field_buffers[field_name] = self.constant_output = contents
                 return
+
+        if self.align_to_seconds:
+            await asyncio.sleep(1 - (time() % 1))
 
         # The main loop:
         start_time = monotonic()
@@ -385,6 +392,9 @@ class Field:
                 )
                 field_buffers[field_name] = self.constant_output = contents
                 return
+
+        if self.align_to_seconds:
+            sleep(1 - (time() % 1))
 
         # The main loop:
         count = 0
@@ -646,34 +656,53 @@ class Bar:
                     # The field is strictly default:
                     field = Field.from_default(name)
                     if field is None:
-                        raise UndefinedField(f"\n"
-                            f"In 'field_order':\n"
-                            f"  Expected the name of a default field or a "
-                            f"custom field defined in 'field_definitions', "
-                            f"but got {name!r} instead."
+                        err = make_error_message(
+                            label="'field_order'",
+                            expected=(
+                                f"the name of a default Field or a "
+                                f"custom field defined in 'field_definitions'"
+                            ),
+                            blame=f"{name!r}",
+                            initial_indent=1
                         )
+                        raise UndefinedField(err)
 
                 case {'custom': True}:
                     # The field is custom, so it is only defined in
                     # 'field_definitions' and will not be found as a default.
                     custom_name = params.pop('name', name)
+                    del params['custom']
                     field = Field(**params, name=custom_name)
 
                 case {}:
                     # The field is a default overridden by the user.
                     field = Field.from_default(name, params)
                     if field is None:
-                        raise DefaultNotFound(f"\n"
-                            f"In 'field_definitions':\n"
-                            f"  Expected a default Field name but got {name!r} "
-                            f"instead.\n"
-                            f"  For JSON, remember to specify `\"custom\": true` "
-                            f"in custom field definitions."
+
+                        err = make_error_message(
+                            label="'field_definitions'",
+                            expected="the name of a default Field",
+                            blame=f"{name!r}",
+                            epilogue=(
+                                f"For JSON, remember to specify `\"custom\": true` "
+                                f"in custom field definitions."
+                            ),
+                            initial_indent=1
                         )
+                        raise DefaultNotFound(err)
 
                 case _:
-                    print("Got a weird field.")
-                    print(f"{name = }, {params = }")
+
+                    err = make_error_message(
+                        label="'field_definitions'",
+                        expected="the parameters for a Field object",
+                        blame=f"{params!r}",
+                        details=(
+                            f"Invalid Field specification: {params!r}",
+                        ),
+                        initial_indent=1
+                    )
+                    raise InvalidFieldSpec(err)
 
             fields.append(field)
 
@@ -778,12 +807,7 @@ class Bar:
         self._loop.close()
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
-##                # Optionally kill threads that are still blocking program exit.
-##                if self._kill_threads:
-##                    signal.pthread_kill(field._thread.ident, self._kill_signal)
-##                    print(f"Sent {self._kill_signal} to {field.name}")
                 field._thread.join()
-                # print(f"{field._thread.name}: {field._thread.is_alive() = }")
 
     async def _continuous_line_printer(self, end: str = '\r'):
         '''The bar's primary line-printing mechanism.
@@ -809,6 +833,9 @@ class Bar:
 
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
+
+        # Begin every refresh at the start of a clock second:
+        await asyncio.sleep(1 - (time() % 1))
 
         start_time = monotonic()
         while running.is_set():
@@ -928,7 +955,7 @@ class Config:
 
         for name, field in dft_fields.items():
             new = dft_fields[name] = field.copy()
-            for param in ('func', 'setup'):
+            for param in ('name', 'func', 'setup'):
                 try:
                     del new[param]
                 except KeyError:
@@ -954,24 +981,13 @@ def run():
 ##        term_icon='?'
 ##    )
 
-##    fcounter = Field(name='counter', func=counter, interval=1, args=[COUNT])
-
-##    ftty = Field(
-##        name='isatty',
-##        func=(lambda args=None, kwargs=None: str(bar.in_a_tty)),
-##        # icon='TTY:',
-##        run_once=True,
-##        # interval=0
-##    )
-
-    # bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
+##    bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
 
 
-    # CFG = Config('bar.json')
     CFG = Config(CONFIG_FILE)
-    bar = CFG.make_bar()
 ##    if not os.path.exists(CONFIG_FILE):
 ##        CFG.write_file()
 
+    bar = CFG.make_bar()
     bar.run()
 

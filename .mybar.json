@@ -1,5 +1,4 @@
 {
-    "override_cooldown": 0,
     "separator": "|",
     "refresh_rate": 1.0,
     "join_empty_fields": false,
@@ -9,9 +8,10 @@
         },
         "uptime": {
             "kwargs": {
-                "fmt": "{days}d:{hours}h:{mins}m:{secs}s",
+                "fmt": "{days}d:{hours}h:{mins}m",
                 "sep": ":"
             },
+            "align_to_seconds": true,
             "icon": "Up "
         },
         "cpu_usage": {
@@ -32,7 +32,6 @@
             "icon": "/:"
         },
         "battery": {
-            "interval": 1,
             "overrides_refresh": true,
             "icon": "Bat "
         },
@@ -40,7 +39,7 @@
             "interval": 4
         },
         "datetime": {
-            "interval": 1
+            "align_to_seconds": true
         }
     },
     "field_order": [

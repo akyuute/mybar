@@ -59,10 +59,12 @@ def make_error_message(
     expected: str = None,
     file: str = None,
     line: int = None,
+    epilogue: str = None,
+    details: Iterable[str] = None,
     indent: str = "  ",
-    details: Iterable[str] = None
+    initial_indent: int = 0
 ) -> str:
-    level = 0
+    level = initial_indent
 
     message = []
     if file is not None:
@@ -80,7 +82,12 @@ def make_error_message(
     level += 1
 
     if details is not None:
-        message.append('\n'.join((indent * level + det) for det in details))
+        message.append(
+            '\n'.join(
+                (indent * level + det)
+                for det in details
+            )
+        )
         # message.append(
             # ('\n' + indent * level).join(details)
         # )
@@ -94,6 +101,9 @@ def make_error_message(
         else:
             message.append(f"{indent * level}{blame}")
 
-    err = ('\n').join(message)
+    if epilogue is not None:
+        message.append((indent * level) + epilogue)
+
+    err = '\n' + ('\n').join(message)
     return err
 

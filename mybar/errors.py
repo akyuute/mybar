@@ -3,7 +3,7 @@ class BrokenFormatString(ValueError):
     positional fields ('{}').'''
     pass
 
-class DefaultNotFound(NameError):
+class DefaultNotFound(LookupError):
     '''Raised for references to an undefined default Field or function.'''
     pass
 
@@ -24,6 +24,12 @@ class InvalidArg(ValueError):
 class InvalidField(TypeError):
     '''Raised when a field is either not an instance of Field or a string not
     found in the default fields container.'''
+    pass
+
+class InvalidFieldSpec(TypeError):
+    '''Raised when a Field specification mapping (processed by
+    Bar.from_dict) has the wrong type or an invalid structure.
+    '''
     pass
 
 class InvalidOutputStream(AttributeError):
