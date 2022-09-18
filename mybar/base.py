@@ -1,9 +1,6 @@
-#TODO: Implement icon tuples!
-#TODO: DescriptiveTypeName = str for type hints!
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement dynamic icons!
-
 
 import asyncio
 import inspect
@@ -26,6 +23,20 @@ from mybar.utils import (
     clean_comment_keys,
     make_error_message
 )
+from mybar.custom_types import (
+    BarSpec,
+    FieldSpec,
+    GUI_Icon,
+    TTY_Icon,
+    GUI_Separator,
+    TTY_Separator,
+    FormatStr,
+    ConsoleControlCode,
+    Args,
+    Kwargs,
+)
+
+
 
 __all__ = (
     'Field',
@@ -35,11 +46,10 @@ __all__ = (
 )
 
 CONFIG_FILE = '~/.mybar.json'
-CSI = '\033['  # Unix terminal escape code (control sequence introducer)
-CLEAR_LINE = '\x1b[2K'  # VT100 escape code to clear line
-HIDE_CURSOR = '?25l'
-UNHIDE_CURSOR = '?25h'
-COUNT = [0]
+CSI: ConsoleControlCode = '\033['  # Unix terminal escape code (control sequence introducer)
+CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
+HIDE_CURSOR: ConsoleControlCode = '?25l'
+UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
 
 class Field:
@@ -115,9 +125,9 @@ class Field:
     }
 
     def __init__(self,
-        /,
+        *,
         name: str = None,
-        func: Callable = None,
+        func: Callable[..., str] = None,
         icon: str = '',
         fmt: str = None,
         interval: float = 1.0,
@@ -129,14 +139,11 @@ class Field:
         bar=None,
         args = None,
         kwargs = None,
-        setup: Callable = None,
+        setup: Callable[..., Kwargs] = None,
 
-
-        # icons: Iterable[str] = None,
-        gui_icon: str = None,
-        term_icon: str = None,
-
-    ):
+        # Set this to use different icons for different output streams:
+        icons: tuple[GUI_Icon, TTY_Icon] = None,
+    ) -> None:
 
         if constant_output is None:
             #NOTE: This will change when dynamic icons and fmts are implemented.
@@ -164,18 +171,16 @@ class Field:
         self._setupfunc = setup
         # self._setupvars = {}
 
-        if fmt is None:
-            if all(s is None for s in (gui_icon, term_icon, icon)):
-                raise IncompatibleParams(
-                    "An icon is required when fmt is None.")
+        if icons is None:
+            icons = (icon, icon)
+        self._icons = icons
+        # self._icon = None
+
+        if fmt is None and icons is None:
+            raise IncompatibleParams("An icon is required when fmt is None.")
         self.fmt = fmt
 
         self._bar = bar
-
-        self.term_icon = term_icon
-        self.gui_icon = gui_icon
-        self.default_icon = icon
-        self.icon = self.get_icon(icon)
 
         if inspect.iscoroutinefunction(func) or threaded:
             self._callback = func
@@ -194,17 +199,16 @@ class Field:
         self._thread = None
         # self.is_running = False
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         cls = type(self).__name__
         name = self.name
-        # fields = self.fields
         # attrs = join_options(...)
         return f"{cls}({name=})"
 
     @classmethod
     def from_default(cls,
         name: str,
-        params: dict = {},
+        params: FieldSpec = {},
         source: dict = None
     ):
         '''Used to create default Fields with custom parameters.'''
@@ -221,19 +225,21 @@ class Field:
         spec.update(params)
         return cls(**spec)
 
-    def get_icon(self, default=None):
+    @property
+    def icon(self) -> str:
+        '''The field icon as determined by the output stream of its bar.
+        It defaults to the TTY icon (self._icons[1]) if no bar is set.
+        '''
+        # return self._icon
         if self._bar is None:
-            return default
-        icon = self.term_icon if self._bar._stream.isatty() else self.gui_icon
-        if icon is None:
-            icon = default
-        return icon
+            return self._icons[1]  # Default to using the terminal icon.
+        return self._icons[self._bar._stream.isatty()]
 
-    async def _asyncify(self, *args, **kwargs):
+    async def _asyncify(self, *args, **kwargs) -> str:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
 
-    async def run(self):
+    async def run(self) -> None:
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
         self._check_bar()
@@ -254,7 +260,7 @@ class Field:
         args = self.args
         kwargs = self.kwargs
 
-        icon = self.get_icon(self.default_icon)
+        icon = self.icon
         fmt = self.fmt
         using_format_str = (fmt is not None)
         last_val = None
@@ -338,7 +344,7 @@ class Field:
                 )
             )
 
-    def run_threaded(self):
+    def run_threaded(self) -> None:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
@@ -359,7 +365,7 @@ class Field:
         args = self.args
         kwargs = self.kwargs
 
-        icon = self.get_icon(self.default_icon)
+        icon = self.icon
         fmt = self.fmt
         using_format_str = (fmt is not None)
         last_val = None
@@ -460,12 +466,12 @@ class Field:
         loop.stop()
         loop.close()
 
-    def _check_bar(self):
+    def _check_bar(self) -> None:
         '''Raises MissingBar if self._bar is None.'''
         if self._bar is None:
             raise MissingBar("Fields cannot run until they belong to a Bar.")
 
-    async def setup(self, args, kwargs):
+    async def setup(self, args: Args, kwargs: Kwargs) -> dict:
         '''Initialize static variables used by self._func which would
         otherwise be evaluated at each iteration.'''
         if inspect.iscoroutinefunction(self._setupfunc):
@@ -485,7 +491,7 @@ class Field:
             contents = icon + text
         return contents
 
-    async def send_to_thread(self):
+    async def send_to_thread(self) -> None:
         '''Make and start a thread in which to run the field's callback.'''
         self._thread = threading.Thread(
             target=self.run_threaded,
@@ -515,21 +521,21 @@ class Bar:
         'datetime',
     ]
 
-
     def __init__(self,
-        *,
         fields: Iterable[Field|str] = None,
+        *,
         fmt: str = None,
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
         join_empty_fields: bool = False,
-        gui_sep: str = None,
-        term_sep: str = None,
         override_cooldown: float = 1/60,
-        thread_cooldown: float = 1/8
-    ):
-        # Ensure the output stream has the required methods.
+        thread_cooldown: float = 1/8,
+
+        # Set this to use different seps for different output streams:
+        separators: tuple[GUI_Separator, TTY_Separator] = None,
+    ) -> None:
+        # Ensure the output stream has the required methods:
         io_methods = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_methods):
             io_method_calls = [a + '()' for a in io_methods]
@@ -548,7 +554,7 @@ class Bar:
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The 'fields' argument must be iterable.")
 
-            if all(s is None for s in (gui_sep, term_sep, separator)):
+            if separator is None and separators is None:
                 raise IncompatibleParams(
                     "A separator is required when 'fmt' is None.")
 
@@ -573,10 +579,11 @@ class Bar:
         self._buffers = {name: '' for name in self._fields}
 
         self.fmt = fmt
-        self.term_sep = term_sep
-        self.gui_sep = gui_sep
-        self.separator = self.get_separator(separator)
-        self.default_sep = separator
+
+        if separators is None:
+            separators = (separator, separator)
+        self._separators = separators
+        # self._separator = None
 
         # Whether empty fields are joined when fmt is None:
         # (True shows two separators together for every blank field.)
@@ -604,30 +611,44 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         names = self._field_order
         fields = join_options(names, final_sep='', quote=True, limit=3)
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
     @property
-    def fields(self):
+    def fields(self) -> tuple[Field]:
+        '''A tuple of the bar's Field objects.'''
         return tuple(self._fields.values())
 
     @property
     def in_a_tty(self) -> bool:
+        '''True if the bar was run from a terminal, otherwise False.'''
         if self._stream is None:
             return False
         return self._stream.isatty()
 
     @property
     def clearline_char(self) -> str:
-        '''Terminal streams print this between refreshes, preventing
-        longer lines from leaving behind characers.'''
+        '''A special character printed to TTY streams between refreshes.
+        Its purpose is to clear characters left behind by longer lines.
+        '''
         if self._stream is None:
             return None
         clearline = CLEAR_LINE if self._stream.isatty() else ''
         return clearline
+
+    @property
+    def separator(self) -> str:
+        '''The field separator as determined by the output stream.
+        It defaults to the TTY sep (self._separators[1]) if no stream is set.
+        '''
+        # return self._separator
+        if self._stream is None:
+            # Default to using the terminal separator:
+            return self._separators[1]
+        return self._separators[self._stream.isatty()]
 
     @classmethod
     def from_dict(cls, dct: dict):
@@ -709,7 +730,7 @@ class Bar:
         return cls(fields=fields, **bar_params)
 
     @staticmethod
-    def parse_fmt(fmt: str) -> list[str]:
+    def parse_fmt(fmt: FormatStr) -> list[str]:
         '''Returns a list of field names that should act as a field order.'''
         try:
             field_names = [
@@ -726,7 +747,7 @@ class Bar:
                 "positional fields ('{}').")
         return field_names
 
-    def convert_fields(self, fields: Iterable[str] = None) -> dict[str, Field]:
+    def convert_fields(self, fields: Iterable[str]) -> dict[str, Field]:
         '''Converts strings in a list of fields to corresponding default Fields
         and returns a dict mapping field names to Fields.'''
         converted = {}
@@ -744,15 +765,7 @@ class Bar:
                     raise InvalidField(f"Invalid field: {field}")
         return converted
 
-    def get_separator(self, default=None) -> str:
-        if self._stream is None:
-            return default
-        sep = self.term_sep if self._stream.isatty() else self.gui_sep
-        if sep is None:
-            sep = default
-        return sep
-
-    def run(self, stream: IO = None):
+    def run(self, stream: IO = None) -> None:
         '''Run the bar.
         Block until an exception is raised and exit smoothly.'''
         if stream is not None:
@@ -774,7 +787,7 @@ class Bar:
                 self._stream.write(CSI + UNHIDE_CURSOR)
             self._shutdown()
 
-    async def _startup(self):
+    async def _startup(self) -> None:
         '''Schedule field coroutines, threads and the line printer to be run
         in parallel.'''
         field_coros = []
@@ -799,7 +812,7 @@ class Bar:
             self._continuous_line_printer(),
         )
 
-    def _shutdown(self):
+    def _shutdown(self) -> None:
         '''Notify fields that the bar has stopped,
         close the event loop and join threads.'''
         self._can_run.clear()
@@ -809,7 +822,7 @@ class Bar:
             if field.threaded and field._thread is not None:
                 field._thread.join()
 
-    async def _continuous_line_printer(self, end: str = '\r'):
+    async def _continuous_line_printer(self, end: str = '\r') -> None:
         '''The bar's primary line-printing mechanism.
         Fields are responsible for sending data to the bar buffers.
         This only writes using the current buffer contents.'''
@@ -863,7 +876,7 @@ class Bar:
                 )
             )
 
-    async def _handle_overrides(self, end: str = '\r'):
+    async def _handle_overrides(self, end: str = '\r') -> None:
         '''Prints a line when fields with overrides_refresh send new data.'''
         # Again, local variables may save time:
         stream = self._stream
@@ -910,7 +923,7 @@ class Bar:
             await asyncio.sleep(cooldown)
 
 class Config:
-    def __init__(self, file: os.PathLike = None): # Path = None):
+    def __init__(self, file: os.PathLike = None) -> None:
         # Get the config file name if passed as a command line argument
         cli_parser = ArgumentParser()
         cli_parser.add_argument('--config')
@@ -927,7 +940,7 @@ class Config:
 
         self.data, self.text = self.read_file(absolute)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         cls = self.__class__.__name__
         file = self.file
         return f"{cls}({file=})"
@@ -935,7 +948,7 @@ class Config:
     def make_bar(self) -> Bar:
         return Bar.from_dict(self.data)
 
-    def read_file(self, file: os.PathLike = None) -> tuple[dict, str]:
+    def read_file(self, file: os.PathLike = None) -> tuple[BarSpec, str]:
         if file is None:
             file = self.file
         with open(self.file, 'r') as f:
@@ -943,7 +956,10 @@ class Config:
             text = f.read()
         return data, text
 
-    def write_file(self, file: os.PathLike = None, obj: dict = None):
+    def write_file(self,
+        file: os.PathLike = None,
+        obj: BarSpec = None
+    ) -> None:
         if file is None:
             file = self.file
 
@@ -970,19 +986,9 @@ class Config:
             json.dump(self.defaults, f, indent=4, ) #separators=(',\n', ': '))
 
 
-def run():
-
-##    fdate = Field(
-##        # fmt="<3 {icon}{}!",
-##        name='datetime',
-##        func=field_funcs.get_datetime,
-##        interval=1/8,
-##        overrides_refresh=True,
-##        term_icon='?'
-##    )
-
-##    bar = Bar(fields='uptime cpu_usage cpu_temp mem_usage datetime datetime datetime disk_usage battery net_stats datetime'.split())
-
+def run() -> None:
+    '''Generate a bar from the default config file and run it in STDOUT.
+    '''
 
     CFG = Config(CONFIG_FILE)
 ##    if not os.path.exists(CONFIG_FILE):
