@@ -220,22 +220,10 @@ async def get_net_stats(
     '''Returns active network name (and later, stats) from either
     NetworkManager or iwconfig.
     '''
-    #TODO: Add IO stats!
-        # Use 'nmcli device show [ifname]'
-        # Requires device/interface param
-        # Allow options for type, state, addresses
-
     # If the user has NetworkManager, get the active connections:
     if nm:
 
         # if nm_filt:
-##            if len(nm_filt) > 1:
-##                raise ValueError("nm_filt must contain only one element.")
-##            NM_CONNECTION_ID_SPECIFIERS = ('id', 'uuid', 'path', 'apath')
-##            if nm_filt[0] not in NM_CONNECTION_ID_SPECIFIERS:
-##                opts = join_options(NM_CONNECTION_ID_SPECIFIERS, quote=True)
-##                raise ValueError(
-##                    f"nm_filt key must be one of {opts}, not {nm_filt[0]!r}")
             # cmd = f"nmcli --terse connection show {shlex.join(nm_filt)}"
             # print(cmd)
         # else:
@@ -266,16 +254,7 @@ async def get_net_stats(
         # By default, nmcli sorts connections by type:
         #   ethernet, wifi, tun, ...
         # We only need the top result.
-
-##        for con in conns:
-##            match con:
-##                        # The command output duplicates all backslashes
-##                        # to escape them and adds more before colons.
-##                        # Take special care to remove extra \'s but also
-##                        # preserve \'s and colons in the original name:
-
         match conns[0]:
-
             case (name, uuid, typ, device):
                 profile = {
                     # The command output duplicates all backslashes to
