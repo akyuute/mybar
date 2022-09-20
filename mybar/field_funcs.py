@@ -1,17 +1,23 @@
 import psutil
 import re
+import shlex
 import time
 
 from asyncio import subprocess as aiosp
 from datetime import datetime
 from os import uname
 from string import Formatter
-from typing import Callable, Iterable
 
-from .errors import *
+from typing import Callable, Iterable
+from mybar.custom_types import (
+    FormatStr,
+    NmConnIDSpecifier,
+    Value
+)
+
+from mybar.errors import *
 
 __all__ = (
-    'counter',
     'get_datetime',
     'get_hostname',
     'get_uptime',
@@ -24,7 +30,7 @@ __all__ = (
     'get_audio_volume'
 )
 
-UNITS = {
+POWERS_OF_1K = {
     'G': 3,
     'M': 2,
     'K': 1
@@ -50,11 +56,6 @@ FieldStructure_T = tuple[tuple[tuple[
 
 
 # Field functions
-
-async def counter(cnt, *args, **kwargs):
-    '''Your average garden variety counter.'''
-    cnt[0] += 1
-    return str(cnt[0])
 
 async def get_audio_volume(fmt="{:02.0f}{state}", *args, **kwargs):
     '''Currently awaiting a more practical implementation that supports
@@ -150,11 +151,11 @@ async def get_disk_usage(
     Measure can be 'total', 'used', 'free', or 'percent'.
     Units can be 'G', 'M', or 'K'.'''
 
-    if unit not in UNITS:
+    if unit not in POWERS_OF_1K:
         raise InvalidArg(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
-            f"{join_options(UNITS, quote=True)}."
+            f"{join_options(POWERS_OF_1K, quote=True)}."
         )
 
     disk = psutil.disk_usage(path)
@@ -166,7 +167,7 @@ async def get_disk_usage(
             f"{join_options(statistic._fields, quote=True)}"
         )
 
-    converted = statistic / 1024**UNITS[unit]
+    converted = statistic / 1024**POWERS_OF_1K[unit]
     usage = fmt.format(converted, prec, unit)
     return usage
 
@@ -184,11 +185,11 @@ async def get_mem_usage(
 ):
     '''Returns total RAM used including buffers and cache in GiB.'''
 
-    if unit not in UNITS:
+    if unit not in POWERS_OF_1K:
         raise InvalidArg(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
-            f"{join_options(UNITS, quote=True)}."
+            f"{join_options(POWERS_OF_1K, quote=True)}."
         )
 
     memory = psutil.virtual_memory()
@@ -201,15 +202,18 @@ async def get_mem_usage(
             f"{join_options(memory._fields, quote=True)}."
         )
 
-    converted = statistic / 1024**UNITS[unit]
+    converted = statistic / 1024 ** POWERS_OF_1K[unit]
     mem = fmt.format(converted, prec, unit)
     return mem
 
 async def get_net_stats(
     # device: str = None,
-    # stats: bool = False,
-    # stats: Iterable[str] = None,
     nm: bool = True,
+    # nm_filt: Sequence[str, str] = None,
+    # nm_filt: NmConnectionFilterSpecifier = None,
+    # nm_filt: Sequence[NmConnIDSpec, Value] = None,
+    fmt: FormatStr = "{name}",
+    default: str = "",
     *args,
     **kwargs
 ):
@@ -221,22 +225,72 @@ async def get_net_stats(
         # Requires device/interface param
         # Allow options for type, state, addresses
 
+    # If the user has NetworkManager, get the active connections:
     if nm:
-        cmd = await aiosp.create_subprocess_shell(
-            "nmcli con show --active",
-            stdout=aiosp.PIPE
-        )
-        out, err = await cmd.communicate()
-        if_list = out.decode().splitlines()
 
-        # NOTE: This compresses whitespace:
-        conns = (reversed(c.split()) for c in if_list)
-        active_conns = (
-            ' '.join(name)
-            for device, typ, uuid, *name in conns
-            if typ == 'wifi'
+        # if nm_filt:
+##            if len(nm_filt) > 1:
+##                raise ValueError("nm_filt must contain only one element.")
+##            NM_CONNECTION_ID_SPECIFIERS = ('id', 'uuid', 'path', 'apath')
+##            if nm_filt[0] not in NM_CONNECTION_ID_SPECIFIERS:
+##                opts = join_options(NM_CONNECTION_ID_SPECIFIERS, quote=True)
+##                raise ValueError(
+##                    f"nm_filt key must be one of {opts}, not {nm_filt[0]!r}")
+            # cmd = f"nmcli --terse connection show {shlex.join(nm_filt)}"
+            # print(cmd)
+        # else:
+            # cmd = "nmcli --terse connection show --active"
+
+        # Use --terse for easier parsing:
+        cmd = "nmcli --terse connection show --active"
+
+        proc = await aiosp.create_subprocess_shell(
+            cmd,
+            stdout=aiosp.PIPE,
+            stderr=aiosp.PIPE
         )
-        return next(active_conns, "")
+        out, err = await proc.communicate()
+        results = out.decode().splitlines()
+
+        conns = tuple(
+            # Split in reverse to avoid butchering names with colons:
+            c.rsplit(':', 3)
+            for c in results
+        )
+
+        # Don't bother parsing an empty tuple:
+        if not conns:
+            keynames = ('name', 'uuid', 'typ', 'device')
+            return fmt.format_map({key: default for key in keynames})
+
+        # By default, nmcli sorts connections by type:
+        #   ethernet, wifi, tun, ...
+        # We only need the top result.
+
+##        for con in conns:
+##            match con:
+##                        # The command output duplicates all backslashes
+##                        # to escape them and adds more before colons.
+##                        # Take special care to remove extra \'s but also
+##                        # preserve \'s and colons in the original name:
+
+        match conns[0]:
+
+            case (name, uuid, typ, device):
+                profile = {
+                    # The command output duplicates all backslashes to
+                    # escape them and adds more before colons in names.
+                    # Take special care to preserve literal \ and : in
+                    # original names while removing extra backslashes:
+                    'name': name.replace('\\\\', '\\').replace('\\:', ':'),
+                    'uuid': uuid,
+                    'type': typ,
+                    'device': device,
+                }
+                return fmt.format_map(profile)
+
+            case _:
+                return ""
 
     else:
         cmd = await aiosp.create_subprocess_shell(

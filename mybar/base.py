@@ -8,21 +8,22 @@ import json
 import os
 import sys
 import threading
-
 from argparse import ArgumentParser
 from string import Formatter
 from time import monotonic, time, sleep
-from typing import Callable, IO, Iterable
 
 from mybar import field_funcs
 from mybar import setups
 from mybar.errors import *
+
 from mybar.utils import (
     join_options,
     str_to_bool,
     clean_comment_keys,
     make_error_message
 )
+
+from typing import Callable, IO, Iterable
 from mybar.custom_types import (
     BarSpec,
     FieldSpec,
@@ -35,7 +36,6 @@ from mybar.custom_types import (
     Args,
     Kwargs,
 )
-
 
 
 __all__ = (

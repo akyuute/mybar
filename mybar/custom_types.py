@@ -12,3 +12,7 @@ ConsoleControlCode = str
 Args = list
 Kwargs = dict
 
+NmConnIDSpecifier = str
+NM_CONNECTION_ID_SPECIFIERS = ('id', 'uuid', 'path', 'apath')
+Value = str
+# NmConnectionFilterSpec = tuple[NmConnectionIDSpecifier, Value]
