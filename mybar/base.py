@@ -5,6 +5,7 @@
 import asyncio
 import inspect
 import json
+import logging
 import os
 import sys
 import threading
@@ -50,6 +51,16 @@ CSI: ConsoleControlCode = '\033['  # Unix terminal escape code (control sequence
 CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
+
+logging.basicConfig(
+    level='DEBUG',
+    filename=os.path.expanduser('~/.mybar.log'),
+    filemode='w',
+    datefmt='%Y-%m-%d_%H:%M:%S',
+    format='[{asctime}] ({levelname}:{name}) {message}',
+    style='{',
+)
+logger = logging.getLogger(__name__)
 
 
 class Field:
@@ -119,6 +130,9 @@ class Field:
         'datetime': {
             'name': 'datetime',
             'func': field_funcs.get_datetime,
+            'kwargs': {
+                'fmt': "%Y-%m-%d %H:%M:%S"
+            },
             'align_to_seconds': True,
         },
 
@@ -285,6 +299,20 @@ class Field:
                 return
 
         if self.align_to_seconds:
+            # Run once so there's something to display at the start:
+            res = await func(*args, **kwargs)
+            last_val = res
+
+            if using_format_str:
+                contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
+            field_buffers[field_name] = contents
+
+            if run_once:
+                return
+
+            # Sleep until the beginning of the next second:
             await asyncio.sleep(1 - (time() % 1))
 
         # The main loop:
@@ -330,7 +358,7 @@ class Field:
             if run_once:
                 return
 
-            # "Drift will cause the output of a field with values that
+            # "Drift" will cause the output of a field with values that
             # change routinely (such as the time) to update out of sync
             # with the changes to its value.
             # Sleep until the next cycle, and compensate for drift
@@ -400,6 +428,23 @@ class Field:
                 return
 
         if self.align_to_seconds:
+            # Run once so there's something to display at the start:
+            if is_async:
+                res = loop.run_until_complete(func(*args, **kwargs))
+            else:
+                res = func(*args, **kwargs)
+            last_val = res
+
+            if using_format_str:
+                contents = fmt.format(res, icon=icon)
+            else:
+                contents = icon + res
+            field_buffers[field_name] = contents
+
+            if run_once:
+                return
+
+            # Sleep until the beginning of the next second:
             sleep(1 - (time() % 1))
 
         # The main loop:
@@ -413,7 +458,7 @@ class Field:
             # returns when the bar stops rather than after `interval` seconds.
             if count != round(interval / cooldown):
                 count += 1
-                # "Drift will cause the output of a field with values that
+                # "Drift" will cause the output of a field with values that
                 # change routinely (such as the time) to update out of sync
                 # with the changes to its value.
                 # Sleep until the next cycle, and compensate for drift

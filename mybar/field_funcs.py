@@ -299,7 +299,8 @@ async def get_uptime(
     fnames: Iterable[str] = None,
     deconstructed: Iterable = None,
 ):
-    n = await _uptime_s()
+    # n = time.time() - psutil.boot_time()
+    n = int(time.time() - psutil.boot_time())
     lookup_table = await _secs_to_dhms_dict(n, reps)
     if not dynamic or sep is None:
         return fmt.format_map(lookup_table)
@@ -394,8 +395,4 @@ async def _format_numerical_fields(
 
     # Join nested buffers.
     return sep.join(''.join(b) for b in buffers)
-
-async def _uptime_s():
-    return round(time.time() - psutil.boot_time())
-    # return (time.time_ns() // 1_000_000_000) - int(psutil.boot_time())
 
