@@ -262,7 +262,6 @@ class Field:
         # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
         running = bar._can_run
-        run_once = self.run_once
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
         # self.is_running = True
@@ -298,22 +297,23 @@ class Field:
                 field_buffers[field_name] = self.constant_output = contents
                 return
 
+        # Run once so there's something to display at the start:
+        res = await func(*args, **kwargs)
+        last_val = res
+
+        if using_format_str:
+            contents = fmt.format(res, icon=icon)
+        else:
+            contents = icon + res
+        field_buffers[field_name] = contents
+
+        if bar.run_once or self.run_once:
+            return
+
         if self.align_to_seconds:
-            # Run once so there's something to display at the start:
-            res = await func(*args, **kwargs)
-            last_val = res
-
-            if using_format_str:
-                contents = fmt.format(res, icon=icon)
-            else:
-                contents = icon + res
-            field_buffers[field_name] = contents
-
-            if run_once:
-                return
-
             # Sleep until the beginning of the next second:
             await asyncio.sleep(1 - (time() % 1))
+
 
         # The main loop:
         start_time = monotonic()
@@ -355,9 +355,6 @@ class Field:
                     # assert self._bar._loop.is_running()
                     pass
 
-            if run_once:
-                return
-
             # "Drift" will cause the output of a field with values that
             # change routinely (such as the time) to update out of sync
             # with the changes to its value.
@@ -381,7 +378,6 @@ class Field:
         # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
         running = bar._can_run
-        run_once = self.run_once
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
         # self.is_running = True
@@ -427,23 +423,23 @@ class Field:
                 field_buffers[field_name] = self.constant_output = contents
                 return
 
+        # Run once so there's something to display at the start:
+        if is_async:
+            res = loop.run_until_complete(func(*args, **kwargs))
+        else:
+            res = func(*args, **kwargs)
+        last_val = res
+
+        if using_format_str:
+            contents = fmt.format(res, icon=icon)
+        else:
+            contents = icon + res
+        field_buffers[field_name] = contents
+
+        if bar.run_once or self.run_once:
+            return
+
         if self.align_to_seconds:
-            # Run once so there's something to display at the start:
-            if is_async:
-                res = loop.run_until_complete(func(*args, **kwargs))
-            else:
-                res = func(*args, **kwargs)
-            last_val = res
-
-            if using_format_str:
-                contents = fmt.format(res, icon=icon)
-            else:
-                contents = icon + res
-            field_buffers[field_name] = contents
-
-            if run_once:
-                return
-
             # Sleep until the beginning of the next second:
             sleep(1 - (time() % 1))
 
@@ -502,9 +498,6 @@ class Field:
                     # handles the current override.
                     # If not, the line will update at the next refresh cycle.
                     pass
-
-            if run_once:
-                return
 
             count = 0
 
@@ -573,6 +566,8 @@ class Bar:
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
+        run_once: bool = False,
+        align_to_seconds: bool = True,
         join_empty_fields: bool = False,
         override_cooldown: float = 1/60,
         thread_cooldown: float = 1/8,
@@ -637,6 +632,12 @@ class Bar:
         # Set how often in seconds the bar is normally printed.
         self.refresh_rate = refresh_rate
 
+        # Whether the bar should exit after printing once:
+        self.run_once = run_once
+
+        # Whether the bar should start at the top of a clock second:
+        self.align_to_seconds = align_to_seconds
+
         # Make a queue to which fields with overrides_refresh send updates.
         # Process only one item per refresh cycle to reduce flickering in a GUI.
         self._override_queue = asyncio.Queue(maxsize=1)
@@ -650,7 +651,7 @@ class Bar:
         # (A shorter cooldown means faster exits):
         self._thread_cooldown = thread_cooldown
 
-        # Setting this Event cancels all fields:
+        # Calling run() sets this Event. Unsetting it stops all fields:
         self._can_run = threading.Event()
 
         # The bar's async event loop:
@@ -827,9 +828,6 @@ class Bar:
             pass
 
         finally:
-            if self.in_a_tty:
-                self._stream.write('\n')
-                self._stream.write(CSI + UNHIDE_CURSOR)
             self._shutdown()
 
     async def _startup(self) -> None:
@@ -851,10 +849,15 @@ class Bar:
             else:
                 field_coros.append(field.run())
 
+        if self.run_once:
+            maybe_gather = ()
+        else:
+            maybe_gather = (self._handle_overrides(),)
+
         await asyncio.gather(
             *field_coros,
-            self._handle_overrides(),
             self._continuous_line_printer(),
+            *maybe_gather
         )
 
     def _shutdown(self) -> None:
@@ -866,6 +869,9 @@ class Bar:
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
                 field._thread.join()
+        if self.in_a_tty:
+            self._stream.write('\n')
+            self._stream.write(CSI + UNHIDE_CURSOR)
 
     async def _continuous_line_printer(self, end: str = '\r') -> None:
         '''The bar's primary line-printing mechanism.
@@ -881,6 +887,7 @@ class Bar:
         field_order = self._field_order
         join_empty_fields = self.join_empty_fields
         running = self._can_run
+        run_once = self.run_once
         refresh = self.refresh_rate
 
         if self.in_a_tty:
@@ -892,8 +899,9 @@ class Bar:
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
 
-        # Begin every refresh at the start of a clock second:
-        await asyncio.sleep(1 - (time() % 1))
+        if self.align_to_seconds and not run_once:
+            # Begin every refresh at the start of a clock second:
+            await asyncio.sleep(1 - (time() % 1))
 
         start_time = monotonic()
         while running.is_set():
@@ -909,6 +917,9 @@ class Bar:
 
             stream.write(beginning + line + end)
             stream.flush()
+
+            if run_once:
+                return
 
             # Sleep only until the next possible refresh to keep the
             # refresh cycle length consistent and prevent drifting.
