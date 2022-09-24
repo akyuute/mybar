@@ -355,17 +355,16 @@ class Field:
                     # assert self._bar._loop.is_running()
                     pass
 
-            # "Drift" will cause the output of a field with values that
+            # Latency will cause the output of a field with values that
             # change routinely (such as the time) to update out of sync
             # with the changes to its value.
-            # Sleep until the next cycle, and compensate for drift
+            # Sleep until the next cycle, and compensate for latency
             # caused by nonzero execution times:
             await asyncio.sleep(
                 # Time until next refresh:
                 interval - (
-                    # Get the current drift, which can vary:
-                    (monotonic() - start_time)
-                    % interval
+                    # Get the current latency, which can vary:
+                    (monotonic() - start_time) % interval
                 )
             )
 
@@ -454,16 +453,15 @@ class Field:
             # returns when the bar stops rather than after `interval` seconds.
             if count != round(interval / cooldown):
                 count += 1
-                # "Drift" will cause the output of a field with values that
+                # Latency will cause the output of a field with values that
                 # change routinely (such as the time) to update out of sync
                 # with the changes to its value.
-                # Sleep until the next cycle, and compensate for drift
+                # Sleep until the next cycle, and compensate for latency
                 # caused by nonzero execution times:
                 sleep(
                     cooldown - (
-                        # Get the current drift, which can vary:
-                        (monotonic() - start_time)
-                        % cooldown
+                        # Get the current latency, which can vary:
+                        (monotonic() - start_time) % cooldown
                     )
                 )
                 continue
@@ -926,9 +924,8 @@ class Bar:
             await asyncio.sleep(
                 # Time until next refresh:
                 refresh - (
-                    # Get the current drift, which can vary:
-                    (monotonic() - start_time)
-                    % refresh
+                    # Get the current latency, which can vary:
+                    (monotonic() - start_time) % refresh
                 )
             )
 
