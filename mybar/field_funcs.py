@@ -1,22 +1,3 @@
-import psutil
-import re
-import shlex
-import time
-
-from asyncio import subprocess as aiosp
-from datetime import datetime
-from os import uname
-from string import Formatter
-
-from typing import Callable, Iterable
-from mybar.custom_types import (
-    FormatStr,
-    NmConnIDSpecifier,
-    Value
-)
-
-from mybar.errors import *
-
 __all__ = (
     'get_datetime',
     'get_hostname',
@@ -30,6 +11,41 @@ __all__ = (
     'get_audio_volume'
 )
 
+
+import psutil
+import re
+import shlex
+import time
+
+from asyncio import subprocess as aiosp
+from datetime import datetime
+from os import uname
+from string import Formatter
+
+from mybar.errors import *
+
+
+# Typing
+from collections.abc import Callable, Iterable
+from typing import Literal
+
+FormatStr = str
+
+ParserLiteral = str|None
+ParserFname = str|None
+ParserFormatSpec = str|None
+ParserConversion = str|None
+FieldStructure_T = tuple[tuple[tuple[
+    ParserLiteral,
+    ParserFname,
+    ParserFormatSpec,
+    ParserConversion
+]]]
+
+NmConnIDSpecifier = Literal['id', 'uuid', 'path', 'apath']
+NmConnFilterSpec = Iterable[NmConnIDSpecifier]
+
+
 POWERS_OF_1K = {
     'G': 3,
     'M': 2,
@@ -42,17 +58,6 @@ DURATION_SWITCH = [
     ('days', 'hours', 24),
     ('weeks', 'days', 7),
 ]
-
-ParserLiteral = str|None
-ParserFname = str|None
-ParserFormatSpec = str|None
-ParserConversion = str|None
-FieldStructure_T = tuple[tuple[tuple[
-    ParserLiteral,
-    ParserFname,
-    ParserFormatSpec,
-    ParserConversion
-]]]
 
 
 # Field functions
@@ -206,12 +211,11 @@ async def get_mem_usage(
     mem = fmt.format(converted, prec, unit)
     return mem
 
+#NOTE: This is most optimal as a threaded function.
 async def get_net_stats(
     # device: str = None,
     nm: bool = True,
-    # nm_filt: Sequence[str, str] = None,
-    # nm_filt: NmConnectionFilterSpecifier = None,
-    # nm_filt: Sequence[NmConnIDSpec, Value] = None,
+    nm_filt: NmConnFilterSpec = None,
     fmt: FormatStr = "{name}",
     default: str = "",
     *args,
@@ -223,14 +227,11 @@ async def get_net_stats(
     # If the user has NetworkManager, get the active connections:
     if nm:
 
-        # if nm_filt:
-            # cmd = f"nmcli --terse connection show {shlex.join(nm_filt)}"
-            # print(cmd)
-        # else:
-            # cmd = "nmcli --terse connection show --active"
-
-        # Use --terse for easier parsing:
-        cmd = "nmcli --terse connection show --active"
+        if nm_filt:
+            # We use --terse for easier parsing.
+            cmd = f"nmcli --terse connection show {shlex.join(nm_filt)}"
+        else:
+            cmd = "nmcli --terse connection show --active"
 
         proc = await aiosp.create_subprocess_shell(
             cmd,
