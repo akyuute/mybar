@@ -1,7 +1,9 @@
 '''Utility functions'''
 
-from typing import Iterable
 from copy import deepcopy
+
+from collections.abc import Callable, Iterable
+from typing import Any
 
 def join_options(
     it: Iterable[str],
@@ -31,55 +33,110 @@ def str_to_bool(value: str, /):
         raise ValueError(f"Invalid argument: {value!r}")
     return (pattern in truthy or not pattern in falsy)
 
-def clean_comment_keys(
-    obj: dict,
-    pattern: str | tuple[str] = ('//', '/*', '*/')
-) -> dict:
-    '''Returns a new dict with keys beginning with a comment pattern removed.'''
-    # TODO: Support for obj: List!
-    new = deepcopy(obj)
-    for key, inner in tuple(new.items()):
-        if key.startswith(pattern):
-            del new[key]
-        match inner:
-            case str():
-                if inner.startswith(pattern):
-                    del new[key]
-            case list():
-                for i, foo in enumerate(inner):
-                    if foo.startswith(pattern):
-                        del inner[i]
-            case {}:
-                clean_comment_keys(inner, pattern)
+def recursive_scrub(
+    obj: Iterable,
+    /,
+    test: Callable[[Any], bool],
+    inplace: bool = False,
+) -> Iterable:
+    '''Scrub an iterable of any elements that pass a callable predicate.
+
+    By default, return a scrubbed copy of the original object.
+    For dicts, remove whole items whose keys pass the predicate.
+    Remove elements recursively.
+    '''
+    new = obj
+    if not inplace:
+        new = deepcopy(obj)
+
+    def clean(o):
+        if isinstance(o, list):
+            i = 0
+            while i < len(o):
+                elem = o[i]
+                if test(elem):
+                    del o[i]
+                    continue
+                else:
+                    clean(elem)
+                i += 1
+
+        elif isinstance(o, dict):
+            for key, val in tuple(o.items()):
+                if test(key):
+                    del o[key]
+                # elif test(val):
+                    # del o[key]
+                else:
+                    clean(val)
+
+        elif test(o):
+            del o
+
+    clean(new)
     return new
 
+def scrub_comments(
+    obj: Iterable,
+    /,
+    pattern: str | tuple[str] = '//',
+    inplace: bool = False
+) -> Iterable:
+    '''Scrub an iterable of any elements that begin with a substring.
+
+    By default, return a scrubbed copy of the original object.
+    For dicts, remove whole items whose keys match the pattern.
+    Remove elements recursively.
+    '''
+    predicate = (lambda o: True if (
+        isinstance(o, str) and o.startswith(pattern)
+        ) else False
+    )
+    return recursive_scrub(obj, test=predicate, inplace=inplace)
+
 def make_error_message(
-    label: str,
-    blame = None,
+    cls: Exception,
+    blame: Any = None,
     expected: str = None,
+    details: Iterable[str] = None,
+    whilst: str = None,
     file: str = None,
     line: int = None,
     epilogue: str = None,
-    details: Iterable[str] = None,
     indent: str = "  ",
-    initial_indent: int = 0
-) -> str:
-    level = initial_indent
+    indent_level: int = 0
+) -> Exception:
+    '''Dynamically build an error message from various bits of context.
+
+    Return an exception with the message passed as args.
+    '''
+    level = indent_level
 
     message = []
     if file is not None:
-        message.append(f"In config file {file!r}")
+        message.append(f"In file {file!r}")
         if line is not None:
             message[-1] += f" (line {line})"
         message[-1] += ":"
         level += 1
 
-    elif line is not None:
+    if line is not None:
         message.append(f"(line {line}):")
         level += 1
 
-    message.append(f"{indent * level}While parsing {label}:")
+    if whilst is not None:
+        message.append(f"{indent * level}While {whilst}:")
+
     level += 1
+
+    if blame is not None:
+        if expected is not None:
+            message.append(
+                f"{indent * level}Expected {expected}, "
+                f"but got {blame} instead."
+            )
+        else:
+            message.append(f"{indent * level}{blame}")
 
     if details is not None:
         message.append(
@@ -92,18 +149,9 @@ def make_error_message(
             # ('\n' + indent * level).join(details)
         # )
 
-    if blame is not None:
-        if expected is not None:
-            message.append(
-                f"{indent * level}Expected {expected}, "
-                f"but got {blame} instead."
-            )
-        else:
-            message.append(f"{indent * level}{blame}")
-
     if epilogue is not None:
-        message.append((indent * level) + epilogue)
+        message.append(level * indent + epilogue)
 
     err = '\n' + ('\n').join(message)
-    return err
+    return cls(err)
 
