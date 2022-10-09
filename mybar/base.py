@@ -2,42 +2,6 @@
 #TODO: Finish Mocp line!
 #TODO: Implement dynamic icons!
 
-import asyncio
-import inspect
-import json
-import logging
-import os
-import sys
-import threading
-from argparse import ArgumentParser
-from string import Formatter
-from time import monotonic, time, sleep
-
-from mybar import field_funcs
-from mybar import setups
-from mybar.errors import *
-
-from mybar.utils import (
-    join_options,
-    str_to_bool,
-    clean_comment_keys,
-    make_error_message
-)
-
-from typing import Callable, IO, Iterable
-from mybar.custom_types import (
-    BarSpec,
-    FieldSpec,
-    GUI_Icon,
-    TTY_Icon,
-    GUI_Separator,
-    TTY_Separator,
-    FormatStr,
-    ConsoleControlCode,
-    Args,
-    Kwargs,
-)
-
 
 __all__ = (
     'Field',
@@ -46,8 +10,53 @@ __all__ = (
     'run',
 )
 
+
+import asyncio
+import inspect
+import json
+import logging
+import os
+import sys
+import threading
+import time
+from argparse import ArgumentParser
+from string import Formatter
+
+from mybar import field_funcs
+from mybar import setups
+from mybar.errors import *
+
+from mybar.utils import (
+    join_options,
+    str_to_bool,
+    scrub_comments,
+    make_error_message
+)
+
+
+# Typing
+from collections.abc import Callable, Iterable
+from typing import IO
+
+BarSpec = dict
+FieldSpec = dict
+
+PTY_Icon = str
+TTY_Icon = str
+PTY_Separator = str
+TTY_Separator = str
+
+ConsoleControlCode = str
+FormatStr = str
+
+Args = list
+Kwargs = dict
+
+
 CONFIG_FILE = '~/.mybar.json'
-CSI: ConsoleControlCode = '\033['  # Unix terminal escape code (control sequence introducer)
+
+# Unix terminal escape code (control sequence introducer):
+CSI: ConsoleControlCode = '\033['
 CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
@@ -62,6 +71,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+from datetime import datetime
+def fast_dt(fmt: str = "%Y-%m-%d %H:%M:%S", *args, **kwargs):
+    return datetime.now().strftime(fmt)
 
 class Field:
 
@@ -130,6 +143,7 @@ class Field:
         'datetime': {
             'name': 'datetime',
             'func': field_funcs.get_datetime,
+            # 'func': fast_dt,
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
@@ -148,15 +162,18 @@ class Field:
         align_to_seconds: bool = False,
         overrides_refresh: bool = False,
         threaded: bool = False,
+
+        wrap: bool = True,
+
         constant_output: str = None,
         run_once: bool = False,
-        bar=None,
+        bar: 'Bar' = None,
         args = None,
         kwargs = None,
         setup: Callable[..., Kwargs] = None,
 
         # Set this to use different icons for different output streams:
-        icons: tuple[GUI_Icon, TTY_Icon] = None,
+        icons: tuple[PTY_Icon, TTY_Icon] = None,
     ) -> None:
 
         if constant_output is None:
@@ -178,10 +195,9 @@ class Field:
         self.args = () if args is None else args
         self.kwargs = {} if kwargs is None else kwargs
 
-        if setup is not None:
-            if not callable(setup):
-                raise TypeError(
-                    f"Parameter 'setup' must be a callable, not {type(setup)}")
+        if setup is not None and not callable(setup):
+            raise TypeError(
+                f"Parameter 'setup' must be a callable, not {type(setup)}")
         self._setupfunc = setup
         # self._setupvars = {}
 
@@ -197,10 +213,16 @@ class Field:
         self._bar = bar
 
         if inspect.iscoroutinefunction(func) or threaded:
+            # self._is_async = True
             self._callback = func
+##        elif wrap:
         else:
-            # Wrap a synchronous function call
+            # Wrap a synchronous function call:
+            # self._is_async = True
             self._callback = self._asyncify
+##        else:
+##            self._is_async = False
+##            self._callback = func
 
         self.align_to_seconds = align_to_seconds
         self._buffer = None
@@ -232,7 +254,7 @@ class Field:
         default: dict = source.get(name)
         if default is None:
             return default
-            raise DefaultNotFound(
+            raise DefaultFieldNotFound(
                 f"{name!r} is not the name of a default Field.")
 
         spec = {**default}
@@ -269,6 +291,7 @@ class Field:
         field_name = self.name
         field_buffers = bar._buffers
         interval = self.interval
+        clock = time.monotonic
         func = self._callback
         args = self.args
         kwargs = self.kwargs
@@ -277,6 +300,10 @@ class Field:
         fmt = self.fmt
         using_format_str = (fmt is not None)
         last_val = None
+
+##        # If the field's callback is synchronous,  
+##        is_async = inspect.iscoroutinefunction(func)
+##        is_async = self._is_async
 
         # Use self.setup() to gather static variables which need to
         # be evaluated at runtime and passed to self._func.
@@ -301,6 +328,13 @@ class Field:
         res = await func(*args, **kwargs)
         last_val = res
 
+        # Run once so there's something to display at the start:
+##        if is_async:
+##            res = await func(*args, **kwargs)
+##        else:
+##            res = func(*args, **kwargs)
+##        last_val = res
+
         if using_format_str:
             contents = fmt.format(res, icon=icon)
         else:
@@ -311,18 +345,64 @@ class Field:
             return
 
         if self.align_to_seconds:
-            # Sleep until the beginning of the next second:
-            await asyncio.sleep(1 - (time() % 1))
+            # Sleep until the beginning of the next second.
+            clock = time.time
+            await asyncio.sleep(1 - (clock() % 1))
+            # now = clock()
 
+            # Sketchy, hopefully temporary fix for idle post-await 1-4ms:
+            # while (time.time() % 1) > 0.001:
+                # await asyncio.sleep(0)
+
+            # dur = 1 - (now % 1)
+            # await asyncio.sleep(dur)
+            # start_time = clock()
+            #logger.debug(f"{start_time = }")
+            #logger.debug(f"{now = }, {dur = }, {start_time}")
 
         # The main loop:
-        start_time = monotonic()
+        start_time = clock()
         while running.is_set():
+
+            # start = time.monotonic()
+            # logger.debug(f"Running {field_name}")
+
             res = await func(*args, **kwargs)
 
+##            if is_async:
+##                res = await func(*args, **kwargs)
+##            else:
+##                res = func(*args, **kwargs)
+
+            # now = clock()
+            await asyncio.sleep(
+                # Time until next refresh:
+                interval - (
+                    # Get the current latency, which can vary:
+                    (now := clock()) % interval
+                    # (now - start_time) % interval
+                )
+            )
+            #logger.debug(f"{now = }")
+
+
             if res == last_val:
-                await asyncio.sleep(interval)
+                # await asyncio.sleep(interval)
+##                await asyncio.sleep(
+##                    # Time until next refresh:
+##                    interval - (
+##                        # Get the current latency, which can vary:
+##                        (clock() - start_time) % interval
+##                    )
+##                )
+
+                # # logger.debug(f"{field_name}: {time.monotonic() - start}")
+                # logger.debug(f"{field_name} exec time: {(time.monotonic() - start)}")
+
                 continue
+
+            # # logger.debug(f"{field_name}: {time.monotonic() - start}")
+            # logger.debug(f"{field_name} exec time: {(time.monotonic() - start)}")
 
             last_val = res
 
@@ -360,13 +440,19 @@ class Field:
             # with the changes to its value.
             # Sleep until the next cycle, and compensate for latency
             # caused by nonzero execution times:
-            await asyncio.sleep(
-                # Time until next refresh:
-                interval - (
-                    # Get the current latency, which can vary:
-                    (monotonic() - start_time) % interval
-                )
-            )
+
+##            await asyncio.sleep(
+##                # Time until next refresh:
+##                interval - (
+##                    # Get the current latency, which can vary:
+##                    (clock() - start_time) % interval
+##                )
+##            )
+
+##            logger.debug(
+##                f"{field_name} time after sleep since last refresh: "
+##                f"{(time.monotonic() - last_time)}")
+##            last_time = time.monotonic()
 
     def run_threaded(self) -> None:
         '''Run a blocking function in a thread
@@ -384,6 +470,7 @@ class Field:
         field_name = self.name
         field_buffers = bar._buffers
         interval = self.interval
+        clock = time.monotonic
         func = self._callback
         args = self.args
         kwargs = self.kwargs
@@ -395,7 +482,8 @@ class Field:
 
         cooldown = bar._thread_cooldown
 
-        # If the field's callback is asynchronous, run it in an event loop.
+##        # If the field's callback is asynchronous, run it in an event loop.
+##        # is_async = self._is_async
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
 
@@ -439,13 +527,24 @@ class Field:
             return
 
         if self.align_to_seconds:
-            # Sleep until the beginning of the next second:
-            sleep(1 - (time() % 1))
+            # Sleep until the beginning of the next second.
+            clock = time.time
+            time.sleep(1 - (clock() % 1))
+            # dur = 1 - (now % 1)
+            # await asyncio.sleep(dur)
+            # start_time = clock()
+            #logger.debug(f"{start_time = }")
+            #logger.debug(f"{now = }, {dur = }, {start_time}")
 
+        start_time = clock()
+        logger.debug(f"{field_name = }, {start_time = }")
         # The main loop:
         count = 0
-        start_time = monotonic()
+        # start_time = clock()
         while running.is_set():
+
+            # start = time.monotonic()
+
             # Rather than block for the whole interval,
             # use tiny cooldowns to check if the bar is still running.
             # A shorter cooldown means more chances to check if the bar stops.
@@ -458,10 +557,10 @@ class Field:
                 # with the changes to its value.
                 # Sleep until the next cycle, and compensate for latency
                 # caused by nonzero execution times:
-                sleep(
+                time.sleep(
                     cooldown - (
                         # Get the current latency, which can vary:
-                        (monotonic() - start_time) % cooldown
+                        (clock() - start_time) % cooldown
                     )
                 )
                 continue
@@ -474,7 +573,6 @@ class Field:
             if res == last_val:
                 count = 0
                 continue
-
             last_val = res
 
             if using_format_str:
@@ -482,6 +580,8 @@ class Field:
             else:
                 contents = icon + res
             field_buffers[field_name] = contents
+
+            # logger.debug(f"{field_name}: {time.monotonic() - start}")
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
@@ -571,7 +671,7 @@ class Bar:
         thread_cooldown: float = 1/8,
 
         # Set this to use different seps for different output streams:
-        separators: tuple[GUI_Separator, TTY_Separator] = None,
+        separators: tuple[PTY_Separator, TTY_Separator] = None,
     ) -> None:
         # Ensure the output stream has the required methods:
         io_methods = ('write', 'flush', 'isatty')
@@ -637,7 +737,7 @@ class Bar:
         self.align_to_seconds = align_to_seconds
 
         # Make a queue to which fields with overrides_refresh send updates.
-        # Process only one item per refresh cycle to reduce flickering in a GUI.
+        # Process only one item per refresh cycle to reduce flickering in a PTY.
         self._override_queue = asyncio.Queue(maxsize=1)
         # How long should the queue checker sleep before processing a new item?
         # (A longer cooldown means less flickering):
@@ -698,7 +798,7 @@ class Bar:
     def from_dict(cls, dct: dict):
         '''Accept a mapping of Bar parameters.'''
         #NOTE: This can raise AttributeError if it encounters a nested list!
-        data = clean_comment_keys(dct, '//')
+        data = scrub_comments(dct, '//')
         field_defs = data.pop('field_definitions', None)
         bar_params = data
         field_order = bar_params.pop('field_order', None)
@@ -721,16 +821,17 @@ class Bar:
                     # The field is strictly default:
                     field = Field.from_default(name)
                     if field is None:
-                        err = make_error_message(
-                            label="'field_order'",
+                        exc = make_error_message(
+                            UndefinedField,
+                            whilst="parsing 'field_order'",
+                            blame=f"{name!r}",
                             expected=(
                                 f"the name of a default Field or a "
                                 f"custom field defined in 'field_definitions'"
                             ),
-                            blame=f"{name!r}",
-                            initial_indent=1
+                            indent_level=1
                         )
-                        raise UndefinedField(err)
+                        raise exc
 
                 case {'custom': True}:
                     # The field is custom, so it is only defined in
@@ -744,30 +845,33 @@ class Bar:
                     field = Field.from_default(name, params)
                     if field is None:
 
-                        err = make_error_message(
-                            label="'field_definitions'",
-                            expected="the name of a default Field",
+                        exc = make_error_message(
+                            DefaultFieldNotFound,
+                            whilst="parsing 'field_definitions'",
                             blame=f"{name!r}",
+                            expected="the name of a default Field",
                             epilogue=(
-                                f"For JSON, remember to specify `\"custom\": true` "
-                                f"in custom field definitions."
+                                f"(In config files, remember to set "
+                                f"custom = true "
+                                f"for custom field definitions.)"
                             ),
-                            initial_indent=1
+                            indent_level=1
                         )
-                        raise DefaultNotFound(err)
+                        raise exc
 
                 case _:
 
-                    err = make_error_message(
-                        label="'field_definitions'",
-                        expected="the parameters for a Field object",
-                        blame=f"{params!r}",
+                    exc = make_error_message(
+                        InvalidFieldSpec,
+                        whilst="parsing 'field_definitions'",
+                        # blame=f"{params!r}",
+                        # expected="the parameters for a Field object",
                         details=(
                             f"Invalid Field specification: {params!r}",
                         ),
-                        initial_indent=1
+                        indent_level=1
                     )
-                    raise InvalidFieldSpec(err)
+                    raise exc
 
             fields.append(field)
 
@@ -848,15 +952,49 @@ class Bar:
                 field_coros.append(field.run())
 
         if self.run_once:
-            maybe_gather = ()
-        else:
-            maybe_gather = (self._handle_overrides(),)
+            await asyncio.gather(*field_coros)
+            self._print_one_line(self._make_one_line())
 
-        await asyncio.gather(
-            *field_coros,
-            self._continuous_line_printer(),
-            *maybe_gather
-        )
+        else:
+            await asyncio.gather(
+                *field_coros,
+                self._handle_overrides(),
+                self._continuous_line_printer()
+            )
+
+    def _make_one_line(self) -> str:
+        '''Make a line using the bar's field buffers.
+        This method is not meant to be called from within a loop.
+        '''
+        if self.fmt is not None:
+            line = self.fmt.format_map(buffers)
+        else:
+            line = self.separator.join(
+                buf
+                for field in self._field_order
+                    if (buf := self._buffers[field])
+                    or self.join_empty_fields
+            )
+        return line
+
+    def _print_one_line(self, line: str, stream: IO = None, end='\r') -> None:
+        '''Print a line to the buffer stream only once.
+        This method is not meant to be called from within a loop.
+        '''
+        if stream is None:
+            stream = self._stream
+
+        if self.in_a_tty:
+            beginning = self.clearline_char + end
+            stream.write(CSI + HIDE_CURSOR)
+        else:
+            beginning = self.clearline_char
+
+        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        stream.flush()
+
+        stream.write(beginning + line + end)
+        stream.flush()
 
     def _shutdown(self) -> None:
         '''Notify fields that the bar has stopped,
@@ -885,8 +1023,8 @@ class Bar:
         field_order = self._field_order
         join_empty_fields = self.join_empty_fields
         running = self._can_run
-        run_once = self.run_once
         refresh = self.refresh_rate
+        clock = time.monotonic
 
         if self.in_a_tty:
             beginning = clearline + end
@@ -897,12 +1035,17 @@ class Bar:
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
 
-        if self.align_to_seconds and not run_once:
+        if self.align_to_seconds:
             # Begin every refresh at the start of a clock second:
-            await asyncio.sleep(1 - (time() % 1))
+            clock = time.time
+            await asyncio.sleep(1 - (clock() % 1))
 
-        start_time = monotonic()
+        start_time = clock()
+        # last_time = time.monotonic()
         while running.is_set():
+
+            # start = time.monotonic()
+
             if using_format_str:
                 line = fmt.format_map(buffers)
             else:
@@ -916,8 +1059,12 @@ class Bar:
             stream.write(beginning + line + end)
             stream.flush()
 
-            if run_once:
-                return
+            #logger.debug(f"Printer exec time: {(time.monotonic() - start)}")
+##            logger.debug(
+##                f"Printer time after sleep since last refresh: "
+##                f"{0 - 0+ (time.monotonic() - last_time)}")
+##            last_time = time.monotonic()
+
 
             # Sleep only until the next possible refresh to keep the
             # refresh cycle length consistent and prevent drifting.
@@ -925,9 +1072,15 @@ class Bar:
                 # Time until next refresh:
                 refresh - (
                     # Get the current latency, which can vary:
-                    (monotonic() - start_time) % refresh
+                    # (clock() - start_time) % start_time
+                    (clock() - start_time) % refresh
                 )
             )
+
+##            logger.debug(
+##                f"Printer time after sleep since last refresh: "
+##                f"{0 - 0+ (time.monotonic() - last_time)}")
+##            last_time = time.monotonic()
 
     async def _handle_overrides(self, end: str = '\r') -> None:
         '''Prints a line when fields with overrides_refresh send new data.'''
@@ -951,6 +1104,9 @@ class Bar:
             beginning = clearline
 
         while running.is_set():
+
+            # start = time.monotonic()
+
             try:
                 # Wait until a field that overrides the refresh rate
                 # (with overrides_refresh) sends new data to be printed:
@@ -973,6 +1129,9 @@ class Bar:
 
             stream.write(beginning + line + end)
             stream.flush()
+
+            # logger.debug(f"Handler: {time.monotonic() - start}")
+
             await asyncio.sleep(cooldown)
 
 class Config:

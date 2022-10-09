@@ -3,8 +3,8 @@ class BrokenFormatString(ValueError):
     positional fields ('{}').'''
     pass
 
-class DefaultNotFound(LookupError):
-    '''Raised for references to an undefined default Field or function.'''
+class DefaultFieldNotFound(LookupError):
+    '''Raised for references to an undefined default Field.'''
     pass
 
 class FailedSetup(Exception):
