@@ -72,10 +72,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-from datetime import datetime
-def fast_dt(fmt: str = "%Y-%m-%d %H:%M:%S", *args, **kwargs):
-    return datetime.now().strftime(fmt)
-
 class Field:
 
     _default_fields = {
@@ -143,7 +139,6 @@ class Field:
         'datetime': {
             'name': 'datetime',
             'func': field_funcs.get_datetime,
-            # 'func': fast_dt,
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
@@ -162,9 +157,7 @@ class Field:
         align_to_seconds: bool = False,
         overrides_refresh: bool = False,
         threaded: bool = False,
-
-        wrap: bool = True,
-
+        # wrap: bool = True,
         constant_output: str = None,
         run_once: bool = False,
         bar: 'Bar' = None,
@@ -204,7 +197,6 @@ class Field:
         if icons is None:
             icons = (icon, icon)
         self._icons = icons
-        # self._icon = None
 
         if fmt is None and icons is None:
             raise IncompatibleParams("An icon is required when fmt is None.")
@@ -213,16 +205,10 @@ class Field:
         self._bar = bar
 
         if inspect.iscoroutinefunction(func) or threaded:
-            # self._is_async = True
             self._callback = func
-##        elif wrap:
         else:
             # Wrap a synchronous function call:
-            # self._is_async = True
             self._callback = self._asyncify
-##        else:
-##            self._is_async = False
-##            self._callback = func
 
         self.align_to_seconds = align_to_seconds
         self._buffer = None
@@ -266,7 +252,6 @@ class Field:
         '''The field icon as determined by the output stream of its bar.
         It defaults to the TTY icon (self._icons[1]) if no bar is set.
         '''
-        # return self._icon
         if self._bar is None:
             return self._icons[1]  # Default to using the terminal icon.
         return self._icons[self._bar._stream.isatty()]
@@ -275,7 +260,19 @@ class Field:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
 
+    def _format_contents(self,
+        text: str,
+        icon: str,
+        fmt: FormatStr
+    ) -> str:
+        '''A helper function that formats field contents.'''
+        if fmt is None:
+            return icon + text
+        else:
+            return fmt.format(text, icon=icon)
+
     async def run(self) -> None:
+    # async def run(self, *, once: bool = False) -> None:
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
         self._check_bar()
@@ -283,7 +280,7 @@ class Field:
         # Defining local variables imperceptibly improves performance.
         # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
-        running = bar._can_run
+        running = bar._can_run.is_set
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
         # self.is_running = True
@@ -301,11 +298,7 @@ class Field:
         using_format_str = (fmt is not None)
         last_val = None
 
-##        # If the field's callback is synchronous,  
-##        is_async = inspect.iscoroutinefunction(func)
-##        is_async = self._is_async
-
-        # Use self.setup() to gather static variables which need to
+        # Use self.setup() to gather any static variables which need to
         # be evaluated at runtime and passed to self._func.
         if self._setupfunc is not None:
             try:
@@ -315,30 +308,14 @@ class Field:
 
             except FailedSetup as e:
                 backup = e.args[0]
-                contents = await self.add_icon(
-                    backup,
-                    icon,
-                    using_format_str,
-                    fmt
-                )
+                contents = self._format_contents(backup, icon, fmt)
                 field_buffers[field_name] = self.constant_output = contents
                 return
 
-        # Run once so there's something to display at the start:
-        res = await func(*args, **kwargs)
-        last_val = res
-
-        # Run once so there's something to display at the start:
-##        if is_async:
-##            res = await func(*args, **kwargs)
-##        else:
-##            res = func(*args, **kwargs)
-##        last_val = res
-
-        if using_format_str:
-            contents = fmt.format(res, icon=icon)
-        else:
-            contents = icon + res
+        # Run at least once at the start to ensure the bar is not empty:
+        result = await func(*args, **kwargs)
+        last_val = result
+        contents = self._format_contents(result, icon, fmt)
         field_buffers[field_name] = contents
 
         if bar.run_once or self.run_once:
@@ -348,78 +325,43 @@ class Field:
             # Sleep until the beginning of the next second.
             clock = time.time
             await asyncio.sleep(1 - (clock() % 1))
-            # now = clock()
-
-            # Sketchy, hopefully temporary fix for idle post-await 1-4ms:
-            # while (time.time() % 1) > 0.001:
-                # await asyncio.sleep(0)
-
-            # dur = 1 - (now % 1)
-            # await asyncio.sleep(dur)
-            # start_time = clock()
-            #logger.debug(f"{start_time = }")
-            #logger.debug(f"{now = }, {dur = }, {start_time}")
 
         # The main loop:
         start_time = clock()
-        while running.is_set():
+        while running():
+            result = await func(*args, **kwargs)
 
-            # start = time.monotonic()
-            # logger.debug(f"Running {field_name}")
+            # Latency from nonzero execution times causes drift, where
+            # sleeps become out-of-sync and the bar skips field updates.
+            # This is especially noticeable in fields that update
+            # routinely, such as the time.
 
-            res = await func(*args, **kwargs)
-
-##            if is_async:
-##                res = await func(*args, **kwargs)
-##            else:
-##                res = func(*args, **kwargs)
-
-            # now = clock()
+            # To negate drift, when sleeping until the beginning of the
+            # next cycle, we must also compensate for latency.
             await asyncio.sleep(
                 # Time until next refresh:
                 interval - (
                     # Get the current latency, which can vary:
-                    (now := clock()) % interval
-                    # (now - start_time) % interval
+                    clock() % interval
                 )
             )
-            #logger.debug(f"{now = }")
 
-
-            if res == last_val:
-                # await asyncio.sleep(interval)
-##                await asyncio.sleep(
-##                    # Time until next refresh:
-##                    interval - (
-##                        # Get the current latency, which can vary:
-##                        (clock() - start_time) % interval
-##                    )
-##                )
-
-                # # logger.debug(f"{field_name}: {time.monotonic() - start}")
-                # logger.debug(f"{field_name} exec time: {(time.monotonic() - start)}")
-
+            if result == last_val:
                 continue
-
-            # # logger.debug(f"{field_name}: {time.monotonic() - start}")
-            # logger.debug(f"{field_name} exec time: {(time.monotonic() - start)}")
-
-            last_val = res
+            last_val = result
 
             if using_format_str:
-                contents = fmt.format(res, icon=icon)
+                contents = fmt.format(result, icon=icon)
             else:
-                contents = icon + res
+                contents = icon + result
             field_buffers[field_name] = contents
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
             if overrides_refresh:
                 try:
+                    override_queue.put_nowait((field_name, contents))
 
-                    override_queue.put_nowait(
-                        (field_name, contents)
-                    )
                 except asyncio.QueueFull:
                     # Since the bar buffer was just updated, do nothing if the
                     # queue is full. The update may still show while the queue
@@ -429,32 +371,11 @@ class Field:
 
                 # Running the bar a second time raises RuntimeError saying its
                 # event loop is closed.
-                # It's usually not, so we ignore that.
                 except RuntimeError:
-                    # print("\nGot RuntimeError")
-                    # assert self._bar._loop.is_running()
-                    pass
-
-            # Latency will cause the output of a field with values that
-            # change routinely (such as the time) to update out of sync
-            # with the changes to its value.
-            # Sleep until the next cycle, and compensate for latency
-            # caused by nonzero execution times:
-
-##            await asyncio.sleep(
-##                # Time until next refresh:
-##                interval - (
-##                    # Get the current latency, which can vary:
-##                    (clock() - start_time) % interval
-##                )
-##            )
-
-##            logger.debug(
-##                f"{field_name} time after sleep since last refresh: "
-##                f"{(time.monotonic() - last_time)}")
-##            last_time = time.monotonic()
+                    return
 
     def run_threaded(self) -> None:
+    # def run_threaded(self, *, once: bool = False) -> None:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
@@ -462,7 +383,7 @@ class Field:
         # Defining local variables imperceptibly improves performance.
         # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
-        running = bar._can_run
+        running = bar._can_run.is_set
         override_queue = bar._override_queue
         overrides_refresh = self.overrides_refresh
         # self.is_running = True
@@ -482,8 +403,7 @@ class Field:
 
         cooldown = bar._thread_cooldown
 
-##        # If the field's callback is asynchronous, run it in an event loop.
-##        # is_async = self._is_async
+        # If the field's callback is asynchronous, run it in an event loop.
         is_async = inspect.iscoroutinefunction(func)
         loop = asyncio.new_event_loop()
 
@@ -499,97 +419,81 @@ class Field:
 
             except FailedSetup as e:
                 backup = e.args[0]
-                contents = loop.run_until_complete(
-                    self.add_icon(
-                        backup,
-                        icon,
-                        using_format_str,
-                        fmt
-                    )
-                )
+                contents = self._format_contents(backup, icon, fmt)
                 field_buffers[field_name] = self.constant_output = contents
                 return
 
-        # Run once so there's something to display at the start:
+        # Run at least once at the start to ensure the bar is not empty:
         if is_async:
-            res = loop.run_until_complete(func(*args, **kwargs))
+            result = loop.run_until_complete(func(*args, **kwargs))
         else:
-            res = func(*args, **kwargs)
-        last_val = res
-
-        if using_format_str:
-            contents = fmt.format(res, icon=icon)
-        else:
-            contents = icon + res
+            result = func(*args, **kwargs)
+        last_val = result
+        contents = self._format_contents(result, icon, fmt)
         field_buffers[field_name] = contents
 
         if bar.run_once or self.run_once:
             return
 
+        count = 0
+        counts_left = round(interval / cooldown)
+
         if self.align_to_seconds:
             # Sleep until the beginning of the next second.
             clock = time.time
             time.sleep(1 - (clock() % 1))
-            # dur = 1 - (now % 1)
-            # await asyncio.sleep(dur)
-            # start_time = clock()
-            #logger.debug(f"{start_time = }")
-            #logger.debug(f"{now = }, {dur = }, {start_time}")
 
         start_time = clock()
-        logger.debug(f"{field_name = }, {start_time = }")
         # The main loop:
-        count = 0
-        # start_time = clock()
-        while running.is_set():
-
-            # start = time.monotonic()
+        while running():
 
             # Rather than block for the whole interval,
             # use tiny cooldowns to check if the bar is still running.
             # A shorter cooldown means more chances to check if the bar stops.
-            # Thus, threads usually cancel `cooldown` seconds after self._func
+            # Thus, threads usually cancel `cooldown` seconds after `func`
             # returns when the bar stops rather than after `interval` seconds.
-            if count != round(interval / cooldown):
+            if count < counts_left:
                 count += 1
-                # Latency will cause the output of a field with values that
-                # change routinely (such as the time) to update out of sync
-                # with the changes to its value.
-                # Sleep until the next cycle, and compensate for latency
-                # caused by nonzero execution times:
+
+                # Latency from nonzero execution times causes drift,
+                # where sleeps become out-of-sync and the bar skips
+                # field updates.
+                # This is especially noticeable in fields that update
+                # routinely, such as the time.
+
+                # To negate drift, when sleeping until the beginning of
+                # the next cycle, we must also compensate for latency.
                 time.sleep(
                     cooldown - (
                         # Get the current latency, which can vary:
-                        (clock() - start_time) % cooldown
+                        clock() % cooldown
                     )
                 )
                 continue
 
-            if is_async:
-                res = loop.run_until_complete(func(*args, **kwargs))
-            else:
-                res = func(*args, **kwargs)
+            count = 0
 
-            if res == last_val:
-                count = 0
+            if is_async:
+                result = loop.run_until_complete(func(*args, **kwargs))
+            else:
+                result = func(*args, **kwargs)
+
+            if result == last_val:
                 continue
-            last_val = res
+            last_val = result
 
             if using_format_str:
-                contents = fmt.format(res, icon=icon)
+                contents = fmt.format(result, icon=icon)
             else:
-                contents = icon + res
+                contents = icon + result
             field_buffers[field_name] = contents
-
-            # logger.debug(f"{field_name}: {time.monotonic() - start}")
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
             if overrides_refresh:
                 try:
-                    override_queue.put_nowait(
-                        (field_name, contents)
-                    )
+                    override_queue.put_nowait((field_name, contents))
+
                 except asyncio.QueueFull:
                     # Since the bar buffer was just updated, do nothing if the
                     # queue is full. The update may still show while the queue
@@ -597,7 +501,11 @@ class Field:
                     # If not, the line will update at the next refresh cycle.
                     pass
 
-            count = 0
+                # Running the bar a second time raises RuntimeError saying its
+                # event loop is closed.
+                except RuntimeError:
+                    return
+
 
         loop.stop()
         loop.close()
@@ -613,19 +521,6 @@ class Field:
         if inspect.iscoroutinefunction(self._setupfunc):
             return await self._setupfunc(*args, **kwargs)
         return self._setupfunc(*args, **kwargs)
-
-    async def add_icon(self,
-        text: str,
-        icon: str,
-        using_format_str: bool,
-        fmt: str = None
-    ) -> str:
-        '''A helper function to add an icon to the output of a field.'''
-        if using_format_str:
-            contents = fmt.format(text, icon=icon)
-        else:
-            contents = icon + text
-        return contents
 
     async def send_to_thread(self) -> None:
         '''Make and start a thread in which to run the field's callback.'''
@@ -913,7 +808,7 @@ class Bar:
                     raise InvalidField(f"Invalid field: {field}")
         return converted
 
-    def run(self, stream: IO = None) -> None:
+    def run(self, stream: IO = None, once: bool = False) -> None:
         '''Run the bar.
         Block until an exception is raised and exit smoothly.'''
         if stream is not None:
@@ -932,9 +827,14 @@ class Bar:
         finally:
             self._shutdown()
 
+
+    # async def _startup(self, once: bool) -> None:
     async def _startup(self) -> None:
         '''Schedule field coroutines, threads and the line printer to be run
         in parallel.'''
+
+        self._active_queue_get_coro = None
+
         field_coros = []
         for field in self._fields.values():
             # Do not run fields which have a constant output,
@@ -943,7 +843,7 @@ class Bar:
                 if field.fmt is None:
                     self._buffers[field.name] = output
                 else:
-                    self._buffers[field.name] = field.fmt.format(output)
+                    self._buffers[field.name] = field._format_contents()
 
             elif field.threaded:
                 await field.send_to_thread()
@@ -1000,6 +900,12 @@ class Bar:
         '''Notify fields that the bar has stopped,
         close the event loop and join threads.'''
         self._can_run.clear()
+
+##        # Cancel the queue.get coroutine somehow...
+##        if self._active_queue_get_coro is not None:
+##            self._active_queue_get_coro.close()
+##        # self._override_queue._getters.clear()
+
         self._loop.stop()
         self._loop.close()
         for field in self._fields.values():
@@ -1022,7 +928,7 @@ class Bar:
         buffers = self._buffers
         field_order = self._field_order
         join_empty_fields = self.join_empty_fields
-        running = self._can_run
+        running = self._can_run.is_set
         refresh = self.refresh_rate
         clock = time.monotonic
 
@@ -1035,17 +941,26 @@ class Bar:
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
 
+        # Print something right away just so that the bar is not empty:
+        if using_format_str:
+            line = fmt.format_map(buffers)
+        else:
+            line = sep.join(
+                buf
+                for field in field_order
+                    if (buf := buffers[field])
+                    or join_empty_fields
+            )
+        stream.write(beginning + line + end)
+        stream.flush()
+
         if self.align_to_seconds:
             # Begin every refresh at the start of a clock second:
             clock = time.time
             await asyncio.sleep(1 - (clock() % 1))
 
         start_time = clock()
-        # last_time = time.monotonic()
-        while running.is_set():
-
-            # start = time.monotonic()
-
+        while running():
             if using_format_str:
                 line = fmt.format_map(buffers)
             else:
@@ -1059,28 +974,15 @@ class Bar:
             stream.write(beginning + line + end)
             stream.flush()
 
-            #logger.debug(f"Printer exec time: {(time.monotonic() - start)}")
-##            logger.debug(
-##                f"Printer time after sleep since last refresh: "
-##                f"{0 - 0+ (time.monotonic() - last_time)}")
-##            last_time = time.monotonic()
-
-
             # Sleep only until the next possible refresh to keep the
             # refresh cycle length consistent and prevent drifting.
             await asyncio.sleep(
                 # Time until next refresh:
                 refresh - (
                     # Get the current latency, which can vary:
-                    # (clock() - start_time) % start_time
                     (clock() - start_time) % refresh
                 )
             )
-
-##            logger.debug(
-##                f"Printer time after sleep since last refresh: "
-##                f"{0 - 0+ (time.monotonic() - last_time)}")
-##            last_time = time.monotonic()
 
     async def _handle_overrides(self, end: str = '\r') -> None:
         '''Prints a line when fields with overrides_refresh send new data.'''
@@ -1093,7 +995,7 @@ class Bar:
         buffers = self._buffers
         field_order = self._field_order
         join_empty_fields = self.join_empty_fields
-        running = self._can_run
+        running = self._can_run.is_set
         refresh = self.refresh_rate
         override_queue = self._override_queue
         cooldown = self._override_cooldown
@@ -1103,14 +1005,15 @@ class Bar:
         else:
             beginning = clearline
 
-        while running.is_set():
-
-            # start = time.monotonic()
-
+        while running():
             try:
-                # Wait until a field that overrides the refresh rate
-                # (with overrides_refresh) sends new data to be printed:
+                # Wait until a field with overrides_refresh sends new
+                # data to be printed:
+
+##                self._active_queue_get_coro = coro = (override_queue.get())
+##                field, contents = await coro
                 field, contents = await override_queue.get()
+
             except RuntimeError:
                 # asyncio.queues raises an error when getter.cancel()
                 # is called and the event loop is closed.
@@ -1129,9 +1032,6 @@ class Bar:
 
             stream.write(beginning + line + end)
             stream.flush()
-
-            # logger.debug(f"Handler: {time.monotonic() - start}")
-
             await asyncio.sleep(cooldown)
 
 class Config:
@@ -1207,5 +1107,10 @@ def run() -> None:
 ##        CFG.write_file()
 
     bar = CFG.make_bar()
+##    START = time.time()
+##    refresh_test = Field(bar=bar, name='refresh_test', func=(lambda: str((time.time() - START)%1)), interval=0.1, threaded=True)
+##    bar._fields['refresh_test'] = foo
+##    bar._field_order.append('refresh_test')
+
     bar.run()
 
