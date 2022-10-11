@@ -141,6 +141,14 @@ async def get_cpu_usage(
     return fmt.format(psutil.cpu_percent(interval))
 
 async def get_datetime(fmt: str = "%Y-%m-%d %H:%M:%S", *args, **kwargs):
+    '''Return the current time as formatted with `fmt`.'''
+    return datetime.now().strftime(fmt)
+
+def precision_datetime(fmt: str = "%Y-%m-%d %H:%M:%S.%f", *args, **kwargs):
+    '''Return the current time as formatted with `fmt`.
+    Being synchronous, a threaded Field can run this with
+    align_to_seconds and see less than a millisecond of offset.
+    '''
     return datetime.now().strftime(fmt)
 
 async def get_disk_usage(
