@@ -901,10 +901,10 @@ class Bar:
         close the event loop and join threads.'''
         self._can_run.clear()
 
-##        # Cancel the queue.get coroutine somehow...
-##        if self._active_queue_get_coro is not None:
-##            self._active_queue_get_coro.close()
-##        # self._override_queue._getters.clear()
+        # Cancel the current _override_queue.get coroutine.
+        # It silently raises RuntimeError when the loop closes.
+        if self._active_queue_get_coro is not None:
+            self._active_queue_get_coro.close()
 
         self._loop.stop()
         self._loop.close()
@@ -1010,9 +1010,9 @@ class Bar:
                 # Wait until a field with overrides_refresh sends new
                 # data to be printed:
 
-##                self._active_queue_get_coro = coro = (override_queue.get())
-##                field, contents = await coro
-                field, contents = await override_queue.get()
+                self._active_queue_get_coro = coro = (override_queue.get())
+                field, contents = await coro
+                # field, contents = await override_queue.get()
 
             except RuntimeError:
                 # asyncio.queues raises an error when getter.cancel()
