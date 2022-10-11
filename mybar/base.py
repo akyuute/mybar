@@ -35,7 +35,7 @@ from mybar.utils import (
 
 
 # Typing
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import IO
 
 BarSpec = dict
@@ -126,7 +126,6 @@ class Field:
         'battery': {
             'name': 'battery',
             'func': field_funcs.get_battery_info,
-            'overrides_refresh': True,
             'icon': 'Bat '
         },
 
@@ -142,7 +141,7 @@ class Field:
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
-            'align_to_seconds': True,
+            'align_to_seconds': True
         },
 
     }
@@ -166,7 +165,7 @@ class Field:
         setup: Callable[..., Kwargs] = None,
 
         # Set this to use different icons for different output streams:
-        icons: tuple[PTY_Icon, TTY_Icon] = None,
+        icons: Sequence[PTY_Icon, TTY_Icon] = None,
     ) -> None:
 
         if constant_output is None:
@@ -271,8 +270,7 @@ class Field:
         else:
             return fmt.format(text, icon=icon)
 
-    async def run(self) -> None:
-    # async def run(self, *, once: bool = False) -> None:
+    async def run(self, once: bool = False) -> None:
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
         self._check_bar()
@@ -318,7 +316,7 @@ class Field:
         contents = self._format_contents(result, icon, fmt)
         field_buffers[field_name] = contents
 
-        if bar.run_once or self.run_once:
+        if once:
             return
 
         if self.align_to_seconds:
@@ -374,8 +372,8 @@ class Field:
                 except RuntimeError:
                     return
 
-    def run_threaded(self) -> None:
-    # def run_threaded(self, *, once: bool = False) -> None:
+    # def run_threaded(self) -> None:
+    def run_threaded(self, once: bool = False) -> None:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
@@ -432,7 +430,7 @@ class Field:
         contents = self._format_contents(result, icon, fmt)
         field_buffers[field_name] = contents
 
-        if bar.run_once or self.run_once:
+        if once:
             return
 
         count = 0
@@ -522,11 +520,12 @@ class Field:
             return await self._setupfunc(*args, **kwargs)
         return self._setupfunc(*args, **kwargs)
 
-    async def send_to_thread(self) -> None:
+    async def send_to_thread(self, run_once: bool = True) -> None:
         '''Make and start a thread in which to run the field's callback.'''
         self._thread = threading.Thread(
             target=self.run_threaded,
-            name=self.name
+            name=self.name,
+            args=(run_once,)
         )
         self._thread.start()
 
@@ -566,7 +565,7 @@ class Bar:
         thread_cooldown: float = 1/8,
 
         # Set this to use different seps for different output streams:
-        separators: tuple[PTY_Separator, TTY_Separator] = None,
+        separators: Sequence[PTY_Separator, TTY_Separator] = None,
     ) -> None:
         # Ensure the output stream has the required methods:
         io_methods = ('write', 'flush', 'isatty')
@@ -808,18 +807,20 @@ class Bar:
                     raise InvalidField(f"Invalid field: {field}")
         return converted
 
-    def run(self, stream: IO = None, once: bool = False) -> None:
+    def run(self, stream: IO = None, once: bool = None) -> None:
         '''Run the bar.
         Block until an exception is raised and exit smoothly.'''
         if stream is not None:
             self._stream = stream
+        if once is not None:
+            self.run_once = once
 
         # Allow the bar to run repeatedly in the same interpreter.
         if self._loop.is_closed():
             self._loop = asyncio.new_event_loop()
         try:
             self._can_run.set()
-            self._loop.run_until_complete(self._startup())
+            self._loop.run_until_complete(self._startup(self.run_once))
 
         except KeyboardInterrupt:
             pass
@@ -828,37 +829,42 @@ class Bar:
             self._shutdown()
 
 
-    # async def _startup(self, once: bool) -> None:
-    async def _startup(self) -> None:
+    async def _startup(self, run_once: bool) -> None:
         '''Schedule field coroutines, threads and the line printer to be run
         in parallel.'''
-
         self._active_queue_get_coro = None
 
-        field_coros = []
+        overriding = False
+        gathered = []
+
         for field in self._fields.values():
-            # Do not run fields which have a constant output,
+            if field.overrides_refresh:
+                overriding = True
+
+            # Do not run fields which have a constant output;
             # only set their bar buffer.
-            if (output := field.constant_output) is not None:
-                if field.fmt is None:
-                    self._buffers[field.name] = output
-                else:
-                    self._buffers[field.name] = field._format_contents()
+            if field.constant_output is not None:
+                self._buffers[field.name] = field._format_contents(
+                    field.constant_output,
+                    field.icon,
+                    field.fmt
+                )
 
             elif field.threaded:
-                await field.send_to_thread()
+                await field.send_to_thread(run_once)
 
             else:
-                field_coros.append(field.run())
+                gathered.append(field.run(run_once))
 
-        if self.run_once:
-            await asyncio.gather(*field_coros)
+        if run_once:
+            await asyncio.gather(*gathered)
             self._print_one_line(self._make_one_line())
 
         else:
+            if overriding:
+                gathered.append(self._handle_overrides())
             await asyncio.gather(
-                *field_coros,
-                self._handle_overrides(),
+                *gathered,
                 self._continuous_line_printer()
             )
 
@@ -877,7 +883,11 @@ class Bar:
             )
         return line
 
-    def _print_one_line(self, line: str, stream: IO = None, end='\r') -> None:
+    def _print_one_line(self,
+        line: str,
+        stream: IO = None,
+        end: str = '\r'
+    ) -> None:
         '''Print a line to the buffer stream only once.
         This method is not meant to be called from within a loop.
         '''
