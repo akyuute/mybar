@@ -1,3 +1,5 @@
+#TODO: Re-DRY everything (inline later if appropriate)
+#TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement dynamic icons!
@@ -61,11 +63,12 @@ CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
+DEBUG = False
 logging.basicConfig(
     level='DEBUG',
     filename=os.path.expanduser('~/.mybar.log'),
     filemode='w',
-    datefmt='%Y-%m-%d_%H:%M:%S',
+    datefmt='%Y-%m-%d_%H:%M:%S.%f',
     format='[{asctime}] ({levelname}:{name}) {message}',
     style='{',
 )
@@ -98,15 +101,15 @@ class Field:
             'name': 'cpu_usage',
             'func': field_funcs.get_cpu_usage,
             'interval': 2,
-            'threaded': True
+            'threaded': True,
+            'icon': 'CPU ',
         },
 
         'cpu_temp': {
             'name': 'cpu_temp',
             'func': field_funcs.get_cpu_temp,
             'interval': 2,
-            'threaded': True,
-            'icon': 'CPU ',
+            'threaded': True
         },
 
         'mem_usage': {
@@ -137,6 +140,7 @@ class Field:
 
         'datetime': {
             'name': 'datetime',
+            # 'func': field_funcs.precision_datetime,
             'func': field_funcs.get_datetime,
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
@@ -259,11 +263,8 @@ class Field:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
 
-    def _format_contents(self,
-        text: str,
-        icon: str,
-        fmt: FormatStr
-    ) -> str:
+    @staticmethod
+    def _format_contents(text: str, icon: str, fmt: FormatStr) -> str:
         '''A helper function that formats field contents.'''
         if fmt is None:
             return icon + text
@@ -287,6 +288,7 @@ class Field:
         field_buffers = bar._buffers
         interval = self.interval
         clock = time.monotonic
+
         func = self._callback
         args = self.args
         kwargs = self.kwargs
@@ -316,19 +318,18 @@ class Field:
         contents = self._format_contents(result, icon, fmt)
         field_buffers[field_name] = contents
 
-        if once:
+        if self.run_once or once:
             return
 
         if self.align_to_seconds:
             # Sleep until the beginning of the next second.
             clock = time.time
             await asyncio.sleep(1 - (clock() % 1))
+        start_time = clock()
 
         # The main loop:
-        start_time = clock()
         while running():
             result = await func(*args, **kwargs)
-
             # Latency from nonzero execution times causes drift, where
             # sleeps become out-of-sync and the bar skips field updates.
             # This is especially noticeable in fields that update
@@ -341,8 +342,12 @@ class Field:
                 interval - (
                     # Get the current latency, which can vary:
                     clock() % interval
+                    # (clock() - start_time) % interval  # Preserve offset
                 )
             )
+
+            # if DEBUG:
+                # logger.debug(f"{field_name}: New refresh cycle at {clock() - start_time}")
 
             if result == last_val:
                 continue
@@ -367,12 +372,6 @@ class Field:
                     # If not, the line will update at the next refresh cycle.
                     pass
 
-                # Running the bar a second time raises RuntimeError saying its
-                # event loop is closed.
-                except RuntimeError:
-                    return
-
-    # def run_threaded(self) -> None:
     def run_threaded(self, once: bool = False) -> None:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
@@ -390,6 +389,8 @@ class Field:
         field_buffers = bar._buffers
         interval = self.interval
         clock = time.monotonic
+        step = bar._thread_cooldown
+
         func = self._callback
         args = self.args
         kwargs = self.kwargs
@@ -398,8 +399,6 @@ class Field:
         fmt = self.fmt
         using_format_str = (fmt is not None)
         last_val = None
-
-        cooldown = bar._thread_cooldown
 
         # If the field's callback is asynchronous, run it in an event loop.
         is_async = inspect.iscoroutinefunction(func)
@@ -430,27 +429,31 @@ class Field:
         contents = self._format_contents(result, icon, fmt)
         field_buffers[field_name] = contents
 
-        if once:
+        if self.run_once or once:
             return
 
         count = 0
-        counts_left = round(interval / cooldown)
+        needed = round(interval / step)
+        # if DEBUG:
+            # logger.debug(f"{field_name}: {needed = }")
 
         if self.align_to_seconds:
             # Sleep until the beginning of the next second.
             clock = time.time
             time.sleep(1 - (clock() % 1))
-
         start_time = clock()
+
         # The main loop:
         while running():
-
             # Rather than block for the whole interval,
-            # use tiny cooldowns to check if the bar is still running.
-            # A shorter cooldown means more chances to check if the bar stops.
-            # Thus, threads usually cancel `cooldown` seconds after `func`
+            # use tiny steps to check if the bar is still running.
+            # A shorter step means more chances to check if the bar stops.
+            # Thus, threads usually cancel `step` seconds after `func`
             # returns when the bar stops rather than after `interval` seconds.
-            if count < counts_left:
+
+            # if DEBUG:
+                # logger.debug(f"{field_name}: {count = }")
+            if count < needed:
                 count += 1
 
                 # Latency from nonzero execution times causes drift,
@@ -462,12 +465,16 @@ class Field:
                 # To negate drift, when sleeping until the beginning of
                 # the next cycle, we must also compensate for latency.
                 time.sleep(
-                    cooldown - (
+                    step - (
                         # Get the current latency, which can vary:
-                        clock() % cooldown
+                        clock() % step
+                        # (clock() - start_time) % step  # Preserve offset
                     )
                 )
                 continue
+
+            # if DEBUG:
+                # logger.debug(f"{field_name}: New refresh cycle at {clock() - start_time}")
 
             count = 0
 
@@ -489,21 +496,21 @@ class Field:
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
             if overrides_refresh:
+                # if DEBUG:
+                    # logger.debug(f"{field_name}: Sending update @ {clock() - start_time}")
                 try:
-                    override_queue.put_nowait((field_name, contents))
+                    override_queue._loop.call_soon_threadsafe(
+                        override_queue.put_nowait, (field_name, contents)
+                    )
 
                 except asyncio.QueueFull:
+                    # if DEBUG:
+                        # logger.debug(f"{field_name}: Failed update: QueueFull")
                     # Since the bar buffer was just updated, do nothing if the
                     # queue is full. The update may still show while the queue
                     # handles the current override.
                     # If not, the line will update at the next refresh cycle.
                     pass
-
-                # Running the bar a second time raises RuntimeError saying its
-                # event loop is closed.
-                except RuntimeError:
-                    return
-
 
         loop.stop()
         loop.close()
@@ -535,8 +542,6 @@ class Bar:
     _default_params = {
         'separator': '|',
         'refresh_rate': 1.0,
-        'join_empty_fields': False,
-
     }
 
     _default_field_order = [
@@ -758,8 +763,6 @@ class Bar:
                     exc = make_error_message(
                         InvalidFieldSpec,
                         whilst="parsing 'field_definitions'",
-                        # blame=f"{params!r}",
-                        # expected="the parameters for a Field object",
                         details=(
                             f"Invalid Field specification: {params!r}",
                         ),
@@ -910,17 +913,10 @@ class Bar:
         '''Notify fields that the bar has stopped,
         close the event loop and join threads.'''
         self._can_run.clear()
-
-        # Cancel the current _override_queue.get coroutine.
-        # It silently raises RuntimeError when the loop closes.
-        if self._active_queue_get_coro is not None:
-            self._active_queue_get_coro.close()
-
-        self._loop.stop()
-        self._loop.close()
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
                 field._thread.join()
+
         if self.in_a_tty:
             self._stream.write('\n')
             self._stream.write(CSI + UNHIDE_CURSOR)
@@ -990,7 +986,8 @@ class Bar:
                 # Time until next refresh:
                 refresh - (
                     # Get the current latency, which can vary:
-                    (clock() - start_time) % refresh
+                    # clock() % refresh
+                    (clock() - start_time) % refresh  # Preserve offset
                 )
             )
 
@@ -1015,19 +1012,21 @@ class Bar:
         else:
             beginning = clearline
 
+        start_time = time.time()
         while running():
+
             try:
                 # Wait until a field with overrides_refresh sends new
                 # data to be printed:
+                field, contents = await override_queue.get()
+                # if DEBUG:
+                    # logger.debug(f"handler: {field} {time.time() - start_time}")
 
-                self._active_queue_get_coro = coro = (override_queue.get())
-                field, contents = await coro
-                # field, contents = await override_queue.get()
-
-            except RuntimeError:
-                # asyncio.queues raises an error when getter.cancel()
-                # is called and the event loop is closed.
-                # It serves no purpose when the bar has just stopped.
+            except RuntimeError as exc:
+                # asyncio raises RuntimeError if the event loop closes
+                # while queue.get() is waiting for a value.
+                # if DEBUG:
+                    # logger.debug(exc.args[0])
                 return
 
             if using_format_str:
@@ -1042,6 +1041,8 @@ class Bar:
 
             stream.write(beginning + line + end)
             stream.flush()
+            # if DEBUG:
+                # logger.debug(f"handler: sleeping for {cooldown}")
             await asyncio.sleep(cooldown)
 
 class Config:
