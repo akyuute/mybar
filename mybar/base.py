@@ -1,3 +1,4 @@
+#TODO: Import TypeAlias; annotate all globals!
 #TODO: Re-DRY everything (inline later if appropriate)
 #TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Command line args!
@@ -14,7 +15,6 @@ __all__ = (
 
 
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -207,7 +207,7 @@ class Field:
 
         self._bar = bar
 
-        if inspect.iscoroutinefunction(func) or threaded:
+        if asyncio.iscoroutinefunction(func) or threaded:
             self._callback = func
         else:
             # Wrap a synchronous function call:
@@ -264,7 +264,7 @@ class Field:
         return self._func(*args, **kwargs)
 
     @staticmethod
-    def _format_contents(text: str, icon: str, fmt: FormatStr) -> str:
+    def _format_contents(text: str, icon: str, fmt: FormatStr = None) -> str:
         '''A helper function that formats field contents.'''
         if fmt is None:
             return icon + text
@@ -283,19 +283,29 @@ class Field:
         using_format_str = (self.fmt is not None)
         last_val = None
 
-        # Use self.setup() to gather any static variables which need to
-        # be evaluated at runtime and passed to self._func.
+        # Use the pre-defined _setupfunc() to gather constant variables
+        # for func() which might only be evaluated at runtime:
         if self._setupfunc is not None:
             try:
-                self.kwargs.update(
-                    await self.setup(self.args, self.kwargs)
-                )
+                if asyncio.iscoroutinefunction(self._setupfunc):
+                    setupvars = (
+                        await self._setupfunc(*self.args, **self.kwargs)
+                    )
+                else:
+                    setupvars = self._setupfunc(*self.args, **self.kwargs)
 
+            # If _setupfunc raises FailedSetup with a backup value,
+            # use it as the field's new constant_output and update the
+            # bar buffer:
             except FailedSetup as e:
                 backup = e.args[0]
                 contents = self._format_contents(backup, self.icon, self.fmt)
-                bar._buffers[self.name] = self.constant_output = contents
+                self.constant_output = contents
+                bar._buffers[self.name] = str(contents)
                 return
+
+            # On success, give new values to kwargs to pass to func().
+            self.kwargs.update(setupvars)
 
         # Run at least once at the start to ensure the bar is not empty:
         result = await func(*self.args, **self.kwargs)
@@ -372,24 +382,33 @@ class Field:
 
         # If the field's callback is asynchronous,
         # it must be run in a new event loop.
-        is_async = inspect.iscoroutinefunction(func)
+        is_async = asyncio.iscoroutinefunction(func)
         local_loop = asyncio.new_event_loop()
 
-        # Use self.setup() to gather static variables which need to
-        # be evaluated at runtime and passed to self._func.
+
+        # Use the pre-defined _setupfunc() to gather constant variables
+        # for func() which might only be evaluated at runtime:
         if self._setupfunc is not None:
             try:
-                self.kwargs.update(
-                    local_loop.run_until_complete(
-                        self.setup(self.args, self.kwargs)
+                if asyncio.iscoroutinefunction(self._setupfunc):
+                    setupvars = local_loop.run_until_complete(
+                        self._setupfunc(*self.args, **self.kwargs)
                     )
-                )
+                else:
+                    setupvars = self._setupfunc(*self.args, **self.kwargs)
 
+            # If _setupfunc raises FailedSetup with a backup value,
+            # use it as the field's new constant_output and update the
+            # bar buffer:
             except FailedSetup as e:
                 backup = e.args[0]
                 contents = self._format_contents(backup, self.icon, self.fmt)
-                bar._buffers[self.name] = self.constant_output = contents
+                self.constant_output = contents
+                bar._buffers[self.name] = str(contents)
                 return
+
+            # On success, give new values to kwargs to pass to func().
+            self.kwargs.update(setupvars)
 
         # Run at least once at the start to ensure the bar is not empty:
         if is_async:
@@ -494,13 +513,6 @@ class Field:
         '''Raises MissingBar if self._bar is None.'''
         if self._bar is None:
             raise MissingBar("Fields cannot run until they belong to a Bar.")
-
-    async def setup(self, args: Args, kwargs: Kwargs) -> dict:
-        '''Initialize static variables used by self._func which would
-        otherwise be evaluated at each iteration.'''
-        if inspect.iscoroutinefunction(self._setupfunc):
-            return await self._setupfunc(*args, **kwargs)
-        return self._setupfunc(*args, **kwargs)
 
     async def send_to_thread(self, run_once: bool = True) -> None:
         '''Make and start a thread in which to run the field's callback.'''
