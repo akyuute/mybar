@@ -275,48 +275,33 @@ class Field:
         '''Asynchronously run a non-threaded field's callback
         and send updates to the bar.'''
         self._check_bar()
-
-        # Defining local variables imperceptibly improves performance.
-        # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
-        running = bar._can_run.is_set
-        override_queue = bar._override_queue
-        overrides_refresh = self.overrides_refresh
-        # self.is_running = True
-
-        field_name = self.name
-        field_buffers = bar._buffers
-        interval = self.interval
-        clock = time.monotonic
+        running = self._bar._can_run.is_set
 
         func = self._callback
-        args = self.args
-        kwargs = self.kwargs
-
-        icon = self.icon
-        fmt = self.fmt
-        using_format_str = (fmt is not None)
+        clock = time.monotonic
+        using_format_str = (self.fmt is not None)
         last_val = None
 
         # Use self.setup() to gather any static variables which need to
         # be evaluated at runtime and passed to self._func.
         if self._setupfunc is not None:
             try:
-                kwargs.update(
-                    await self.setup(args, kwargs)
+                self.kwargs.update(
+                    await self.setup(self.args, self.kwargs)
                 )
 
             except FailedSetup as e:
                 backup = e.args[0]
-                contents = self._format_contents(backup, icon, fmt)
-                field_buffers[field_name] = self.constant_output = contents
+                contents = self._format_contents(backup, self.icon, self.fmt)
+                bar._buffers[self.name] = self.constant_output = contents
                 return
 
         # Run at least once at the start to ensure the bar is not empty:
-        result = await func(*args, **kwargs)
+        result = await func(*self.args, **self.kwargs)
         last_val = result
-        contents = self._format_contents(result, icon, fmt)
-        field_buffers[field_name] = contents
+        contents = self._format_contents(result, self.icon, self.fmt)
+        bar._buffers[self.name] = contents
 
         if self.run_once or once:
             return
@@ -329,7 +314,7 @@ class Field:
 
         # The main loop:
         while running():
-            result = await func(*args, **kwargs)
+            result = await func(*self.args, **self.kwargs)
             # Latency from nonzero execution times causes drift, where
             # sleeps become out-of-sync and the bar skips field updates.
             # This is especially noticeable in fields that update
@@ -339,31 +324,31 @@ class Field:
             # next cycle, we must also compensate for latency.
             await asyncio.sleep(
                 # Time until next refresh:
-                interval - (
+                self.interval - (
                     # Get the current latency, which can vary:
-                    clock() % interval
-                    # (clock() - start_time) % interval  # Preserve offset
+                    clock() % self.interval
+                    # (clock() - start_time) % self.interval  # Preserve offset
                 )
             )
 
             # if DEBUG:
-                # logger.debug(f"{field_name}: New refresh cycle at {clock() - start_time}")
+                # logger.debug(f"{self.name}: New refresh cycle at {clock() - start_time}")
 
             if result == last_val:
                 continue
             last_val = result
 
             if using_format_str:
-                contents = fmt.format(result, icon=icon)
+                contents = self.fmt.format(result, icon=self.icon)
             else:
-                contents = icon + result
-            field_buffers[field_name] = contents
+                contents = self.icon + result
+            bar._buffers[self.name] = contents
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
-            if overrides_refresh:
+            if self.overrides_refresh:
                 try:
-                    override_queue.put_nowait((field_name, contents))
+                    bar._override_queue.put_nowait((self.name, contents))
 
                 except asyncio.QueueFull:
                     # Since the bar buffer was just updated, do nothing if the
@@ -376,66 +361,54 @@ class Field:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
-
-        # Defining local variables imperceptibly improves performance.
-        # (Fewer LOAD_ATTRs, more LOAD_FASTs.)
         bar = self._bar
-        running = bar._can_run.is_set
-        override_queue = bar._override_queue
-        overrides_refresh = self.overrides_refresh
-        # self.is_running = True
+        running = self._bar._can_run.is_set
 
-        field_name = self.name
-        field_buffers = bar._buffers
-        interval = self.interval
         clock = time.monotonic
         step = bar._thread_cooldown
-
         func = self._callback
-        args = self.args
-        kwargs = self.kwargs
-
-        icon = self.icon
-        fmt = self.fmt
-        using_format_str = (fmt is not None)
+        using_format_str = (self.fmt is not None)
         last_val = None
 
-        # If the field's callback is asynchronous, run it in an event loop.
+        # If the field's callback is asynchronous,
+        # it must be run in a new event loop.
         is_async = inspect.iscoroutinefunction(func)
-        loop = asyncio.new_event_loop()
+        local_loop = asyncio.new_event_loop()
 
         # Use self.setup() to gather static variables which need to
         # be evaluated at runtime and passed to self._func.
         if self._setupfunc is not None:
             try:
-                kwargs.update(
-                    loop.run_until_complete(
-                        self.setup(args, kwargs)
+                self.kwargs.update(
+                    local_loop.run_until_complete(
+                        self.setup(self.args, self.kwargs)
                     )
                 )
 
             except FailedSetup as e:
                 backup = e.args[0]
-                contents = self._format_contents(backup, icon, fmt)
-                field_buffers[field_name] = self.constant_output = contents
+                contents = self._format_contents(backup, self.icon, self.fmt)
+                bar._buffers[self.name] = self.constant_output = contents
                 return
 
         # Run at least once at the start to ensure the bar is not empty:
         if is_async:
-            result = loop.run_until_complete(func(*args, **kwargs))
+            result = local_loop.run_until_complete(
+                func(*self.args, **self.kwargs)
+            )
         else:
-            result = func(*args, **kwargs)
+            result = func(*self.args, **self.kwargs)
         last_val = result
-        contents = self._format_contents(result, icon, fmt)
-        field_buffers[field_name] = contents
+        contents = self._format_contents(result, self.icon, self.fmt)
+        bar._buffers[self.name] = contents
 
         if self.run_once or once:
             return
 
         count = 0
-        needed = round(interval / step)
+        needed = round(self.interval / step)
         # if DEBUG:
-            # logger.debug(f"{field_name}: {needed = }")
+            # logger.debug(f"{self.name}: {needed = }")
 
         if self.align_to_seconds:
             # Sleep until the beginning of the next second.
@@ -452,7 +425,7 @@ class Field:
             # returns when the bar stops rather than after `interval` seconds.
 
             # if DEBUG:
-                # logger.debug(f"{field_name}: {count = }")
+                # logger.debug(f"{self.name}: {count = }")
             if count < needed:
                 count += 1
 
@@ -474,46 +447,48 @@ class Field:
                 continue
 
             # if DEBUG:
-                # logger.debug(f"{field_name}: New refresh cycle at {clock() - start_time}")
+                # logger.debug(f"{self.name}: New refresh cycle at {clock() - start_time}")
 
             count = 0
 
             if is_async:
-                result = loop.run_until_complete(func(*args, **kwargs))
+                result = local_loop.run_until_complete(
+                    func(*self.args, **self.kwargs)
+                )
             else:
-                result = func(*args, **kwargs)
+                result = func(*self.args, **self.kwargs)
 
             if result == last_val:
                 continue
             last_val = result
 
             if using_format_str:
-                contents = fmt.format(result, icon=icon)
+                contents = self.fmt.format(result, icon=self.icon)
             else:
-                contents = icon + result
-            field_buffers[field_name] = contents
+                contents = self.icon + result
+            bar._buffers[self.name] = contents
 
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
-            if overrides_refresh:
+            if self.overrides_refresh:
                 # if DEBUG:
-                    # logger.debug(f"{field_name}: Sending update @ {clock() - start_time}")
+                    # logger.debug(f"{self.name}: Sending update @ {clock() - start_time}")
                 try:
-                    override_queue._loop.call_soon_threadsafe(
-                        override_queue.put_nowait, (field_name, contents)
+                    bar._override_queue._loop.call_soon_threadsafe(
+                        bar._override_queue.put_nowait, (self.name, contents)
                     )
 
                 except asyncio.QueueFull:
                     # if DEBUG:
-                        # logger.debug(f"{field_name}: Failed update: QueueFull")
+                        # logger.debug(f"{self.name}: Failed update: QueueFull")
                     # Since the bar buffer was just updated, do nothing if the
                     # queue is full. The update may still show while the queue
                     # handles the current override.
                     # If not, the line will update at the next refresh cycle.
                     pass
 
-        loop.stop()
-        loop.close()
+        local_loop.stop()
+        local_loop.close()
 
     def _check_bar(self) -> None:
         '''Raises MissingBar if self._bar is None.'''
@@ -877,7 +852,7 @@ class Bar:
         This method is not meant to be called from within a loop.
         '''
         if self.fmt is not None:
-            line = self.fmt.format_map(buffers)
+            line = self.fmt.format_map(self._buffers)
         else:
             line = self.separator.join(
                 buf
@@ -927,39 +902,31 @@ class Bar:
         Fields are responsible for sending data to the bar buffers.
         This only writes using the current buffer contents.'''
         # Again, local variables may save time:
-        stream = self._stream
-        clearline = self.clearline_char
         using_format_str = (self.fmt is not None)
-        fmt = self.fmt
-        sep = self.separator
-        buffers = self._buffers
-        field_order = self._field_order
-        join_empty_fields = self.join_empty_fields
         running = self._can_run.is_set
-        refresh = self.refresh_rate
         clock = time.monotonic
 
         if self.in_a_tty:
-            beginning = clearline + end
-            stream.write(CSI + HIDE_CURSOR)
+            beginning = self.clearline_char + end
+            self._stream.write(CSI + HIDE_CURSOR)
         else:
-            beginning = clearline
+            beginning = self.clearline_char
 
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
-        stream.flush()
+        self._stream.flush()
 
         # Print something right away just so that the bar is not empty:
         if using_format_str:
-            line = fmt.format_map(buffers)
+            line = self.fmt.format_map(self._buffers)
         else:
-            line = sep.join(
+            line = self.separator.join(
                 buf
-                for field in field_order
-                    if (buf := buffers[field])
-                    or join_empty_fields
+                for field in self._field_order
+                    if (buf := self._buffers[field])
+                    or self.join_empty_fields
             )
-        stream.write(beginning + line + end)
-        stream.flush()
+        self._stream.write(beginning + line + end)
+        self._stream.flush()
 
         if self.align_to_seconds:
             # Begin every refresh at the start of a clock second:
@@ -969,49 +936,40 @@ class Bar:
         start_time = clock()
         while running():
             if using_format_str:
-                line = fmt.format_map(buffers)
+                line = self.fmt.format_map(self._buffers)
             else:
-                line = sep.join(
+                line = self.separator.join(
                     buf
-                    for field in field_order
-                        if (buf := buffers[field])
-                        or join_empty_fields
+                    for field in self._field_order
+                        if (buf := self._buffers[field])
+                        or self.join_empty_fields
                 )
 
-            stream.write(beginning + line + end)
-            stream.flush()
+            self._stream.write(beginning + line + end)
+            self._stream.flush()
 
             # Sleep only until the next possible refresh to keep the
             # refresh cycle length consistent and prevent drifting.
             await asyncio.sleep(
                 # Time until next refresh:
-                refresh - (
+                self.refresh_rate - (
                     # Get the current latency, which can vary:
-                    # clock() % refresh
-                    (clock() - start_time) % refresh  # Preserve offset
+                    # clock() % self.refresh_rate
+                    (clock() - start_time) % self.refresh_rate  # Preserve offset
                 )
             )
 
     async def _handle_overrides(self, end: str = '\r') -> None:
         '''Prints a line when fields with overrides_refresh send new data.'''
         # Again, local variables may save time:
-        stream = self._stream
-        clearline = self.clearline_char
+        bar = self._bar
         using_format_str = (self.fmt is not None)
-        fmt = self.fmt
-        sep = self.separator
-        buffers = self._buffers
-        field_order = self._field_order
-        join_empty_fields = self.join_empty_fields
         running = self._can_run.is_set
-        refresh = self.refresh_rate
-        override_queue = self._override_queue
-        cooldown = self._override_cooldown
 
         if self.in_a_tty:
-            beginning = clearline + end
+            beginning = clearline_char + end
         else:
-            beginning = clearline
+            beginning = clearline_char
 
         start_time = time.time()
         while running():
@@ -1019,7 +977,7 @@ class Bar:
             try:
                 # Wait until a field with overrides_refresh sends new
                 # data to be printed:
-                field, contents = await override_queue.get()
+                field, contents = await bar._override_queue.get()
                 # if DEBUG:
                     # logger.debug(f"handler: {field} {time.time() - start_time}")
 
@@ -1031,20 +989,20 @@ class Bar:
                 return
 
             if using_format_str:
-                line = self.fmt.format_map(buffers)
+                line = self.fmt.format_map(self._buffers)
             else:
-                line = sep.join(
+                line = self.separator.join(
                     buf
-                    for field in field_order
-                        if (buf := buffers[field])
-                        or join_empty_fields
+                    for field in self._field_order
+                        if (buf := self._buffers[field])
+                        or self.join_empty_fields
                 )
 
-            stream.write(beginning + line + end)
-            stream.flush()
+            self._stream.write(beginning + line + end)
+            self._stream.flush()
             # if DEBUG:
-                # logger.debug(f"handler: sleeping for {cooldown}")
-            await asyncio.sleep(cooldown)
+                # logger.debug(f"handler: sleeping for {self._override_cooldown}")
+            await asyncio.sleep(self._override_cooldown)
 
 class Config:
     def __init__(self, file: os.PathLike = None) -> None:
