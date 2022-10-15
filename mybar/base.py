@@ -1,4 +1,3 @@
-#TODO: Import TypeAlias; annotate all globals!
 #TODO: Re-DRY everything (inline later if appropriate)
 #TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Command line args!
@@ -38,24 +37,24 @@ from mybar.utils import (
 
 # Typing
 from collections.abc import Callable, Iterable, Sequence
-from typing import IO
+from typing import IO, TypeAlias
 
-BarSpec = dict
-FieldSpec = dict
+BarSpec: TypeAlias = dict
+FieldSpec: TypeAlias = dict
 
-PTY_Icon = str
-TTY_Icon = str
-PTY_Separator = str
-TTY_Separator = str
+PTY_Icon: TypeAlias = str
+TTY_Icon: TypeAlias = str
+PTY_Separator: TypeAlias = str
+TTY_Separator: TypeAlias = str
 
-ConsoleControlCode = str
-FormatStr = str
+ConsoleControlCode: TypeAlias = str
+FormatStr: TypeAlias = str
 
-Args = list
-Kwargs = dict
+Args: TypeAlias = list
+Kwargs: TypeAlias = dict
 
 
-CONFIG_FILE = '~/.mybar.json'
+CONFIG_FILE: str = '~/.mybar.json'
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
@@ -63,7 +62,7 @@ CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
-DEBUG = False
+DEBUG: bool = False
 logging.basicConfig(
     level='DEBUG',
     filename=os.path.expanduser('~/.mybar.log'),
