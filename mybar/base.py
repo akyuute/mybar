@@ -694,10 +694,11 @@ class Bar:
         return self._separators[self._stream.isatty()]
 
     @classmethod
-    def from_dict(cls, dct: dict):
-        '''Accept a mapping of Bar parameters.'''
-        #NOTE: This can raise AttributeError if it encounters a nested list!
-        data = scrub_comments(dct, '//')
+    def from_dict(cls, dct: dict, ignore_with: str = ('//',)):
+        '''Accept a mapping of Bar parameters.
+        Ignore keys and list elements starting with '//' by default.
+        '''
+        data = dct if ignore_with is None else scrub_comments(dct, ignore_with)
         field_defs = data.pop('field_definitions', None)
         bar_params = data
         field_order = bar_params.pop('field_order', None)
