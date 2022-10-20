@@ -20,7 +20,6 @@ import sys
 import threading
 import time
 from argparse import ArgumentParser
-from copy import deepcopy
 from string import Formatter
 
 from mybar import field_funcs
@@ -683,11 +682,7 @@ class Bar:
         '''Accept a mapping of Bar parameters.
         Ignore keys and list elements starting with '//' by default.
         '''
-        if ignore_with is None:
-            data = deepcopy(dct)
-        else:
-            data = scrub_comments(dct, ignore_with)
-
+        data = dct if ignore_with is None else scrub_comments(dct, ignore_with)
         field_defs = data.pop('field_definitions', None)
         bar_params = data
         field_order = bar_params.pop('field_order', None)
