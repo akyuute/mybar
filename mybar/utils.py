@@ -96,13 +96,13 @@ def scrub_comments(
 
 def make_error_message(
     cls: Exception,
+    whilst: str = None,
     blame: Any = None,
     expected: str = None,
     details: Iterable[str] = None,
-    whilst: str = None,
+    epilogue: str = None,
     file: str = None,
     line: int = None,
-    epilogue: str = None,
     indent: str = "  ",
     indent_level: int = 0
 ) -> Exception:
@@ -132,8 +132,8 @@ def make_error_message(
     if blame is not None:
         if expected is not None:
             message.append(
-                f"{indent * level}Expected {expected}, "
-                f"but got {blame} instead."
+                f"{indent * level}Expected {expected!r}, "
+                f"but got {blame!r} instead."
             )
         else:
             message.append(f"{indent * level}{blame}")
@@ -150,7 +150,8 @@ def make_error_message(
         # )
 
     if epilogue is not None:
-        message.append(level * indent + epilogue)
+        # message.append(level * indent + epilogue)
+        message.append(epilogue)
 
     err = '\n' + ('\n').join(message)
     return cls(err)

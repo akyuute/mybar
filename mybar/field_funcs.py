@@ -23,6 +23,7 @@ from os import uname
 from string import Formatter
 
 from mybar.errors import *
+from mybar.utils import join_options
 
 
 # Typing
@@ -165,21 +166,21 @@ async def get_disk_usage(
     Units can be 'G', 'M', or 'K'.'''
 
     if unit not in POWERS_OF_1K:
-        raise InvalidArg(
+        raise InvalidArgError(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
             f"{join_options(POWERS_OF_1K, quote=True)}."
         )
 
     disk = psutil.disk_usage(path)
-    statistic = getattr(disk, measure, None)
-    if statistic is None:
-        raise InvalidArg(
+    if measure not in disk._fields:
+        raise InvalidArgError(
             f"Invalid measure on this operating system: {measure!r}.\n"
             f"measure must be one of "
-            f"{join_options(statistic._fields, quote=True)}"
+            f"{join_options(disk._fields, quote=True)}"
         )
 
+    statistic = getattr(disk, measure, None)
     converted = statistic / 1024**POWERS_OF_1K[unit]
     usage = fmt.format(converted, prec, unit)
     return usage
@@ -199,22 +200,22 @@ async def get_mem_usage(
     '''Returns total RAM used including buffers and cache in GiB.'''
 
     if unit not in POWERS_OF_1K:
-        raise InvalidArg(
+        raise InvalidArgError(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
             f"{join_options(POWERS_OF_1K, quote=True)}."
         )
 
     memory = psutil.virtual_memory()
-    statistic = getattr(memory, measure, None)
 
-    if statistic is None:
-        raise InvalidArg(
+    if measure not in memory._fields:
+        raise InvalidArgError(
             f"Invalid measure on this operating system: {measure!r}\n"
             f"'measure' must be one of "
             f"{join_options(memory._fields, quote=True)}."
         )
 
+    statistic = getattr(memory, measure, None)
     converted = statistic / 1024 ** POWERS_OF_1K[unit]
     mem = fmt.format(converted, prec, unit)
     return mem

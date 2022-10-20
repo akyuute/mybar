@@ -2,10 +2,10 @@ import psutil
 from string import Formatter
 
 from mybar.errors import (
-    BrokenFormatString,
+    BrokenFormatStringError,
     FailedSetup,
-    IncompatibleParams,
-    UndefinedFormatStringField,
+    IncompatibleArgsError,
+    InvalidFormatStringFieldError,
 )
 from mybar.utils import join_options, make_error_message
 
@@ -40,7 +40,7 @@ FORMATTER = Formatter()
 ##    setupvars = {}
 ##
 ##    if unit not in UNITS:
-##        raise InvalidArg(
+##        raise InvalidArgError(
 ##            f"Invalid unit: {unit!r}\n"
 ##            f"'unit' must be one of "
 ##            f"{join_options(UNITS, quote=True)}."
@@ -49,7 +49,7 @@ FORMATTER = Formatter()
 ##    disk = psutil.disk_usage(path)
 ##    statistic = getattr(disk, measure, None)
 ##    if statistic is None:
-##        raise InvalidArg(
+##        raise InvalidArgError(
 ##            f"Invalid measure on this operating system: {measure!r}.\n"
 ##            f"measure must be one of "
 ##            f"{join_options(statistic._fields, quote=True)}"
@@ -88,16 +88,17 @@ async def setup_uptime(
         if name not in durations:
             opts = join_options(durations, quote=True,)
 
-            err = make_error_message(
-                label=f"{fmt=}",
-                blame=(f"{name!r}"),
+            exc = make_error_message(
+                InvalidFormatStringFieldError,
+                whilst="parsing get_uptime() format string",
+                blame=name,
                 expected=f"one of {opts}",
                 details=[
                     f"Invalid get_uptime() format string field name: {name!r}"
                 ]
             )
                     
-            raise UndefinedFormatStringField('\n' + err)
+            raise exc
 
     reps = max((durations.index(f) for f in fnames), default=0)
 
@@ -124,16 +125,16 @@ async def setup_uptime(
             sections.append(piece)
 
     except StopIteration:
-        err = make_error_message(
-            label=f"{fmt=}",
+        exc = make_error_message(
+            BrokenFormatStringError,
+            whilst="parsing get_uptime() format string {fmt!r}",
             # blame=repr(piece),
             details=[
-                f"Invalid fmt substring begins near ->"
-                f"{piece!r}"
+                f"Invalid fmt substring begins near ->{piece!r}"
                 # f"{fmt[len(sep.join(sections)):]!r}:"
             ]
         )
-        raise BrokenFormatString('\n' + err) from None
+        raise exc from None
 
     deconstructed = tuple(
         tuple(FORMATTER.parse(section))

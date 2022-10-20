@@ -1,4 +1,3 @@
-#TODO: Re-DRY everything (inline later if appropriate)
 #TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Command line args!
 #TODO: Finish Mocp line!
@@ -174,13 +173,14 @@ class Field:
         if constant_output is None:
             #NOTE: This will change when dynamic icons and fmts are implemented.
             if func is None:
-                raise IncompatibleParams(
+                raise IncompatibleArgsError(
                     f"Either a function that returns a string or "
                     f"a constant output string is required."
                 )
             if not callable(func):
                 raise TypeError(
-                    f"Type of 'func' must be callable, not {type(func)}")
+                    f"Type of 'func' must be callable, not {type(func)}"
+                )
 
         if name is None and callable(func):
             name = func.__name__
@@ -192,7 +192,8 @@ class Field:
 
         if setup is not None and not callable(setup):
             raise TypeError(
-                f"Parameter 'setup' must be a callable, not {type(setup)}")
+                f"Parameter 'setup' must be a callable, not {type(setup)}"
+            )
         self._setupfunc = setup
         # self._setupvars = {}
 
@@ -201,7 +202,9 @@ class Field:
         self._icons = icons
 
         if fmt is None and icons is None:
-            raise IncompatibleParams("An icon is required when fmt is None.")
+            raise IncompatibleArgsError(
+                "An icon is required when fmt is None."
+            )
         self.fmt = fmt
 
         self._bar = bar
@@ -242,8 +245,9 @@ class Field:
         default: dict = source.get(name)
         if default is None:
             return default
-            raise DefaultFieldNotFound(
-                f"{name!r} is not the name of a default Field.")
+            raise DefaultFieldNotFoundError(
+                f"{name!r} is not the name of a default Field."
+            )
 
         spec = {**default}
         spec.update(params)
@@ -275,6 +279,16 @@ class Field:
         and send updates to the bar.'''
         self._check_bar()
         bar = self._bar
+        # Do not run fields which have a constant output;
+        # only set their bar buffer.
+        if self.constant_output is not None:
+            bar._buffers[self.name] = self._format_contents(
+                self.constant_output,
+                self.icon,
+                self.fmt
+            )
+            return
+
         running = self._bar._can_run.is_set
 
         func = self._callback
@@ -371,6 +385,16 @@ class Field:
         and send its updates to the bar.'''
         self._check_bar()
         bar = self._bar
+        # Do not run fields which have a constant output;
+        # only set their bar buffer.
+        if self.constant_output is not None:
+            bar._buffers[self.name] = self._format_contents(
+                self.constant_output,
+                self.icon,
+                self.fmt
+            )
+            return
+
         running = self._bar._can_run.is_set
 
         clock = time.monotonic
@@ -400,6 +424,7 @@ class Field:
             # use it as the field's new constant_output and update the
             # bar buffer:
             except FailedSetup as e:
+                # self._handle_failed_setup(e)
                 backup = e.args[0]
                 contents = self._format_contents(backup, self.icon, self.fmt)
                 self.constant_output = contents
@@ -509,9 +534,11 @@ class Field:
         local_loop.close()
 
     def _check_bar(self) -> None:
-        '''Raises MissingBar if self._bar is None.'''
+        '''Raises MissingBarError if self._bar is None.'''
         if self._bar is None:
-            raise MissingBar("Fields cannot run until they belong to a Bar.")
+            raise MissingBarError(
+                "Fields cannot run until they belong to a Bar."
+            )
 
     async def send_to_thread(self, run_once: bool = True) -> None:
         '''Make and start a thread in which to run the field's callback.'''
@@ -562,9 +589,10 @@ class Bar:
         io_methods = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_methods):
             io_method_calls = [a + '()' for a in io_methods]
-            raise InvalidOutputStream(
-                f"Output stream {stream!r} needs "
-                f"{join_options(io_method_calls, final_sep=' and ')} methods.")
+            joined = join_options(io_method_calls, final_sep=' and ')
+            raise InvalidOutputStreamError(
+                f"Output stream {stream!r} needs {joined} methods."
+            )
         self._stream = stream
 
         # Ensure required parameters are defined if no fmt is given:
@@ -572,14 +600,16 @@ class Bar:
             if fields is None:
                 raise ValueError(
                     f"Either a list of Fields 'fields' "
-                    f"or a format string 'fmt' is required.")
+                    f"or a format string 'fmt' is required."
+                )
 
             if not hasattr(fields, '__iter__'):
                 raise ValueError("The 'fields' argument must be iterable.")
 
             if separator is None and separators is None:
-                raise IncompatibleParams(
-                    "A separator is required when 'fmt' is None.")
+                raise IncompatibleArgsError(
+                    "A separator is required when 'fmt' is None."
+                )
 
             # Gather a list of field names:
             field_order = [
@@ -590,7 +620,8 @@ class Bar:
 
         elif not isinstance(fmt, str):
             raise TypeError(
-                f"Format string 'fmt' must be a string, not {type(fmt)}")
+                f"Format string 'fmt' must be a string, not {type(fmt)}"
+            )
 
         else:
             field_order = self.parse_fmt(fmt)
@@ -646,39 +677,6 @@ class Bar:
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
-    @property
-    def fields(self) -> tuple[Field]:
-        '''A tuple of the bar's Field objects.'''
-        return tuple(self._fields.values())
-
-    @property
-    def in_a_tty(self) -> bool:
-        '''True if the bar was run from a terminal, otherwise False.'''
-        if self._stream is None:
-            return False
-        return self._stream.isatty()
-
-    @property
-    def clearline_char(self) -> str:
-        '''A special character printed to TTY streams between refreshes.
-        Its purpose is to clear characters left behind by longer lines.
-        '''
-        if self._stream is None:
-            return None
-        clearline = CLEAR_LINE if self._stream.isatty() else ''
-        return clearline
-
-    @property
-    def separator(self) -> str:
-        '''The field separator as determined by the output stream.
-        It defaults to the TTY sep (self._separators[1]) if no stream is set.
-        '''
-        # return self._separator
-        if self._stream is None:
-            # Default to using the terminal separator:
-            return self._separators[1]
-        return self._separators[self._stream.isatty()]
-
     @classmethod
     def from_dict(cls, dct: dict, ignore_with: str = ('//',)):
         '''Accept a mapping of Bar parameters.
@@ -691,7 +689,7 @@ class Bar:
 
         if (fmt := bar_params.get('fmt')) is None:
             if field_order is None:
-                raise IncompatibleParams(
+                raise IncompatibleArgsError(
                     "A bar format string 'fmt' is required when field "
                     "order list 'field_order' is undefined."
                 )
@@ -708,7 +706,7 @@ class Bar:
                     field = Field.from_default(name)
                     if field is None:
                         exc = make_error_message(
-                            UndefinedField,
+                            UndefinedFieldError,
                             whilst="parsing 'field_order'",
                             blame=f"{name!r}",
                             expected=(
@@ -732,7 +730,7 @@ class Bar:
                     if field is None:
 
                         exc = make_error_message(
-                            DefaultFieldNotFound,
+                            DefaultFieldNotFoundError,
                             whilst="parsing 'field_definitions'",
                             blame=f"{name!r}",
                             expected="the name of a default Field",
@@ -748,7 +746,7 @@ class Bar:
                 case _:
 
                     exc = make_error_message(
-                        InvalidFieldSpec,
+                        InvalidFieldSpecError,
                         whilst="parsing 'field_definitions'",
                         details=(
                             f"Invalid Field specification: {params!r}",
@@ -761,6 +759,38 @@ class Bar:
 
         return cls(fields=fields, **bar_params)
 
+    @property
+    def clearline_char(self) -> str:
+        '''A special character printed to TTY streams between refreshes.
+        Its purpose is to clear characters left behind by longer lines.
+        '''
+        if self._stream is None:
+            return None
+        clearline = CLEAR_LINE if self._stream.isatty() else ''
+        return clearline
+
+    @property
+    def fields(self) -> tuple[Field]:
+        '''A tuple of the bar's Field objects.'''
+        return tuple(self._fields.values())
+
+    @property
+    def in_a_tty(self) -> bool:
+        '''True if the bar was run from a terminal, otherwise False.'''
+        if self._stream is None:
+            return False
+        return self._stream.isatty()
+
+    @property
+    def separator(self) -> str:
+        '''The field separator as determined by the output stream.
+        It defaults to the TTY sep (self._separators[1]) if no stream is set.
+        '''
+        if self._stream is None:
+            # Default to using the terminal separator:
+            return self._separators[1]
+        return self._separators[self._stream.isatty()]
+
     @staticmethod
     def parse_fmt(fmt: FormatStr) -> list[str]:
         '''Returns a list of field names that should act as a field order.'''
@@ -772,11 +802,11 @@ class Bar:
             ]
         except ValueError:
             err = f"Invalid bar format string: {fmt!r}"
-            raise BrokenFormatString(err) from None
+            raise BrokenFormatStringError(err) from None
         if '' in field_names:
-            raise BrokenFormatString(
-                "The bar format string cannot contain "
-                "positional fields ('{}').")
+            raise BrokenFormatStringError(
+                "Bar format strings cannot contain positional fields ('{}')."
+            )
         return field_names
 
     def convert_fields(self, fields: Iterable[str]) -> dict[str, Field]:
@@ -794,10 +824,10 @@ class Bar:
                     field._bar = self
                     converted[field.name] = field
                 case _:
-                    raise InvalidField(f"Invalid field: {field}")
+                    raise InvalidFieldError(f"Invalid field: {field}")
         return converted
 
-    def run(self, stream: IO = None, once: bool = None) -> None:
+    def run(self, *, stream: IO = None, once: bool = None) -> None:
         '''Run the bar.
         Block until an exception is raised and exit smoothly.'''
         if stream is not None:
@@ -831,16 +861,7 @@ class Bar:
             if field.overrides_refresh:
                 overriding = True
 
-            # Do not run fields which have a constant output;
-            # only set their bar buffer.
-            if field.constant_output is not None:
-                self._buffers[field.name] = field._format_contents(
-                    field.constant_output,
-                    field.icon,
-                    field.fmt
-                )
-
-            elif field.threaded:
+            if field.threaded:
                 await field.send_to_thread(run_once)
 
             else:
@@ -858,47 +879,8 @@ class Bar:
                 self._continuous_line_printer()
             )
 
-    def _make_one_line(self) -> str:
-        '''Make a line using the bar's field buffers.
-        This method is not meant to be called from within a loop.
-        '''
-        if self.fmt is not None:
-            line = self.fmt.format_map(self._buffers)
-        else:
-            line = self.separator.join(
-                buf
-                for field in self._field_order
-                    if (buf := self._buffers[field])
-                    or self.join_empty_fields
-            )
-        return line
-
-    def _print_one_line(self,
-        line: str,
-        stream: IO = None,
-        end: str = '\r'
-    ) -> None:
-        '''Print a line to the buffer stream only once.
-        This method is not meant to be called from within a loop.
-        '''
-        if stream is None:
-            stream = self._stream
-
-        if self.in_a_tty:
-            beginning = self.clearline_char + end
-            stream.write(CSI + HIDE_CURSOR)
-        else:
-            beginning = self.clearline_char
-
-        # Flushing the buffer before writing to it fixes poor i3bar alignment.
-        stream.flush()
-
-        stream.write(beginning + line + end)
-        stream.flush()
-
     def _shutdown(self) -> None:
-        '''Notify fields that the bar has stopped,
-        close the event loop and join threads.'''
+        '''Notify fields that the bar has stopped and join threads.'''
         self._can_run.clear()
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
@@ -1014,6 +996,44 @@ class Bar:
             # if DEBUG:
                 # logger.debug(f"handler: sleeping for {self._override_cooldown}")
             await asyncio.sleep(self._override_cooldown)
+
+    def _make_one_line(self) -> str:
+        '''Make a line using the bar's field buffers.
+        This method is not meant to be called from within a loop.
+        '''
+        if self.fmt is not None:
+            line = self.fmt.format_map(self._buffers)
+        else:
+            line = self.separator.join(
+                buf
+                for field in self._field_order
+                    if (buf := self._buffers[field])
+                    or self.join_empty_fields
+            )
+        return line
+
+    def _print_one_line(self,
+        line: str,
+        stream: IO = None,
+        end: str = '\r'
+    ) -> None:
+        '''Print a line to the buffer stream only once.
+        This method is not meant to be called from within a loop.
+        '''
+        if stream is None:
+            stream = self._stream
+
+        if self.in_a_tty:
+            beginning = self.clearline_char + end
+            stream.write(CSI + HIDE_CURSOR)
+        else:
+            beginning = self.clearline_char
+
+        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        stream.flush()
+
+        stream.write(beginning + line + end)
+        stream.flush()
 
 class Config:
     def __init__(self, file: os.PathLike = None) -> None:
