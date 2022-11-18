@@ -96,7 +96,7 @@ def scrub_comments(
 
 def make_error_message(
     cls: Exception,
-    whilst: str = None,
+    doing_what: str = None,
     blame: Any = None,
     expected: str = None,
     details: Iterable[str] = None,
@@ -124,8 +124,8 @@ def make_error_message(
         message.append(f"(line {line}):")
         level += 1
 
-    if whilst is not None:
-        message.append(f"{indent * level}While {whilst}:")
+    if doing_what is not None:
+        message.append(f"{indent * level}While {doing_what}:")
 
     level += 1
 

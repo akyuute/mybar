@@ -712,7 +712,7 @@ class Bar:
                     if field is None:
                         exc = make_error_message(
                             UndefinedFieldError,
-                            whilst="parsing 'field_order'",
+                            doing_what="parsing 'field_order'",
                             blame=f"{name!r}",
                             expected=(
                                 f"the name of a default Field or a "
@@ -736,7 +736,7 @@ class Bar:
 
                         exc = make_error_message(
                             DefaultFieldNotFoundError,
-                            whilst="parsing 'field_definitions'",
+                            doing_what="parsing 'field_definitions'",
                             blame=f"{name!r}",
                             expected="the name of a default Field",
                             epilogue=(
@@ -752,7 +752,7 @@ class Bar:
 
                     exc = make_error_message(
                         InvalidFieldSpecError,
-                        whilst="parsing 'field_definitions'",
+                        doing_what="parsing 'field_definitions'",
                         details=(
                             f"Invalid Field specification: {params!r}",
                         ),

@@ -90,7 +90,7 @@ async def setup_uptime(
 
             exc = make_error_message(
                 InvalidFormatStringFieldError,
-                whilst="parsing get_uptime() format string",
+                doing_what="parsing get_uptime() format string",
                 blame=name,
                 expected=f"one of {opts}",
                 details=[
@@ -127,7 +127,7 @@ async def setup_uptime(
     except StopIteration:
         exc = make_error_message(
             BrokenFormatStringError,
-            whilst="parsing get_uptime() format string {fmt!r}",
+            doing_what="parsing get_uptime() format string {fmt!r}",
             # blame=repr(piece),
             details=[
                 f"Invalid fmt substring begins near ->{piece!r}"
