@@ -160,6 +160,7 @@ class Field:
         overrides_refresh: bool = False,
         threaded: bool = False,
         # wrap: bool = True,
+        always_show_icon: bool = False,
         constant_output: str = None,
         run_once: bool = False,
         bar: 'Bar' = None,
@@ -217,6 +218,7 @@ class Field:
             self._callback = self._asyncify
 
         self.align_to_seconds = align_to_seconds
+        self.always_show_icon = always_show_icon
         self._buffer = None
         self.constant_output = constant_output
         self.interval = interval
@@ -268,10 +270,18 @@ class Field:
         return self._func(*args, **kwargs)
 
     @staticmethod
-    def _format_contents(text: str, icon: str, fmt: FormatStr = None) -> str:
+    def _format_contents(
+        text: str,
+        icon: str,
+        fmt: FormatStr = None,
+        always_show_icon: bool = False
+    ) -> str:
         '''A helper function that formats field contents.'''
         if fmt is None:
-            return icon + text
+            if always_show_icon or text:
+                return icon + text
+            else:
+                return text
         else:
             return fmt.format(text, icon=icon)
 
@@ -286,7 +296,8 @@ class Field:
             bar._buffers[self.name] = self._format_contents(
                 self.constant_output,
                 self.icon,
-                self.fmt
+                self.fmt,
+                self.always_show_icon
             )
             return
 
@@ -313,7 +324,12 @@ class Field:
             # bar buffer:
             except FailedSetup as e:
                 backup = e.args[0]
-                contents = self._format_contents(backup, self.icon, self.fmt)
+                contents = self._format_contents(
+                    backup,
+                    self.icon,
+                    self.fmt,
+                    self.always_show_icon
+                )
                 self.constant_output = contents
                 bar._buffers[self.name] = str(contents)
                 return
@@ -324,7 +340,12 @@ class Field:
         # Run at least once at the start to ensure the bar is not empty:
         result = await func(*self.args, **self.kwargs)
         last_val = result
-        contents = self._format_contents(result, self.icon, self.fmt)
+        contents = self._format_contents(
+            result,
+            self.icon,
+            self.fmt,
+            self.always_show_icon
+        )
         bar._buffers[self.name] = contents
 
         if self.run_once or once:
@@ -365,7 +386,11 @@ class Field:
             if using_format_str:
                 contents = self.fmt.format(result, icon=self.icon)
             else:
-                contents = self.icon + result
+                if self.always_show_icon or result:
+                    contents = self.icon + result
+                else:
+                    contents = result
+
             bar._buffers[self.name] = contents
 
             # Send new field contents to the bar's override queue and print a
@@ -392,7 +417,8 @@ class Field:
             bar._buffers[self.name] = self._format_contents(
                 self.constant_output,
                 self.icon,
-                self.fmt
+                self.fmt,
+                self.always_show_icon
             )
             return
 
@@ -427,7 +453,12 @@ class Field:
             except FailedSetup as e:
                 # self._handle_failed_setup(e)
                 backup = e.args[0]
-                contents = self._format_contents(backup, self.icon, self.fmt)
+                contents = self._format_contents(
+                    backup,
+                    self.icon,
+                    self.fmt,
+                    self.always_show_icon
+                )
                 self.constant_output = contents
                 bar._buffers[self.name] = str(contents)
                 return
@@ -443,7 +474,12 @@ class Field:
         else:
             result = func(*self.args, **self.kwargs)
         last_val = result
-        contents = self._format_contents(result, self.icon, self.fmt)
+        contents = self._format_contents(
+            result,
+            self.icon,
+            self.fmt,
+            self.always_show_icon
+        )
         bar._buffers[self.name] = contents
 
         if self.run_once or once:
@@ -509,7 +545,11 @@ class Field:
             if using_format_str:
                 contents = self.fmt.format(result, icon=self.icon)
             else:
-                contents = self.icon + result
+                if self.always_show_icon or result:
+                    contents = self.icon + result
+                else:
+                    contents = result
+
             bar._buffers[self.name] = contents
 
             # Send new field contents to the bar's override queue and print a
