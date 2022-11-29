@@ -1095,6 +1095,10 @@ class Bar:
         stream.write(beginning + line + end)
         stream.flush()
 
+class AskWritingToRequestedFile(Exception):
+    def __init__(self, requested_file: os.PathLike) -> None:
+        self.requested_file = requested_file
+
 class Config:
     def __init__(self,
         file: os.PathLike = None,
@@ -1109,9 +1113,13 @@ class Config:
             config_file = file or CONFIG_FILE
         file_provided = True
 
-        absolute = os.path.expanduser(config_file)
-        if not os.path.exists(absolute) and not file_provided:
-            self.write_file(absolute)
+        absolute = os.path.abspath(os.path.expanduser(config_file))
+        if not os.path.exists(absolute):
+            if file_provided:
+                raise AskWritingToRequestedFile(absolute)
+            else:
+                self.write_file(absolute)
+
         self.file = absolute
         self.data, self.text = self.read_file(absolute)
 
@@ -1138,20 +1146,24 @@ class Config:
             text = f.read()
         return data, text
 
-    def write_file(self,
-        file: os.PathLike = None,
-        obj: BarParamSpec = None,
+    @staticmethod
+    def write_file(
+        #self,
+        file: os.PathLike ,#= None,
+        obj: ConfigSpec ,#= None,
         defaults: BarParamSpec = None
     ) -> None:
         '''
         '''
-        if file is None:
-            file = self.file
-        if obj is None:
-            obj = self.bar_spec
+##        if file is None:
+##            file = self.file
+##        if obj is None:
+##            obj = self.bar_spec
         if defaults is None:
             defaults = Bar._default_params.copy()
 
+        obj = obj.copy()
+        obj.pop('config_file', None)
         obj = defaults | obj
 
         dft_fields = Field._default_fields.copy()
@@ -1166,9 +1178,8 @@ class Config:
 
         obj['field_definitions'] = dft_fields
 
-        # return self.defaults
         with open(os.path.expanduser(file), 'w') as f:
-            json.dump(self.defaults, f, indent=4, ) #separators=(',\n', ': '))
+            json.dump(obj, f, indent=4, ) #separators=(',\n', ': '))
 
 
 def run() -> None:
