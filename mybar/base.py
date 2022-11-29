@@ -35,13 +35,17 @@ from mybar.utils import (
 )
 
 
-# Typing
+### Typing ###
 from collections.abc import Callable, Iterable, Sequence
 from typing import IO, TypeAlias
 
-BarSpec: TypeAlias = dict
-FieldSpec: TypeAlias = dict
+BarParamSpec: TypeAlias = dict[str]
+ConfigSpec: TypeAlias = dict[str]
+FieldParamSpec: TypeAlias = dict[str]
+FieldName: TypeAlias = str
+JSONText: TypeAlias = str
 
+Icon: TypeAlias = str
 PTY_Icon: TypeAlias = str
 TTY_Icon: TypeAlias = str
 PTY_Separator: TypeAlias = str
@@ -54,6 +58,7 @@ Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
 
+### Constants ###
 CONFIG_FILE: str = '~/.mybar.json'
 
 # Unix terminal escape code (control sequence introducer):
@@ -238,7 +243,7 @@ class Field:
     @classmethod
     def from_default(cls,
         name: str,
-        params: FieldSpec = {},
+        params: FieldParamSpec = {},
         source: dict = None
     ):
         '''Used to create default Fields with custom parameters.'''
@@ -593,11 +598,6 @@ class Field:
 
 class Bar:
 
-    _default_params = {
-        'separator': '|',
-        'refresh_rate': 1.0,
-    }
-
     _default_field_order = [
         'hostname',
         'uptime',
@@ -609,6 +609,12 @@ class Bar:
         'net_stats',
         'datetime',
     ]
+
+    _default_params = {
+        'separator': '|',
+        'refresh_rate': 1.0,
+        'field_order': list(_default_field_order)
+    }
 
     def __init__(self,
         fields: Iterable[Field|str] = None,
@@ -719,7 +725,10 @@ class Bar:
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_dict(cls, dct: dict, ignore_with: str | tuple[str] = '//'):
+    def from_dict(cls,
+        dct: BarParamSpec,
+        ignore_with: str | tuple[str] | None = '//'
+    ):
         '''Accept a mapping of Bar parameters.
         Ignore keys and list elements starting with '//' by default.
         '''
@@ -728,9 +737,10 @@ class Bar:
         else:
             data = scrub_comments(dct, ignore_with)
 
-        field_defs = data.pop('field_definitions', None)
-        bar_params = data
+        bar_params = cls._default_params | data
+        field_defs = bar_params.pop('field_definitions', {})
         field_order = bar_params.pop('field_order', None)
+        field_icons = bar_params.pop('field_icons', {})
 
         if (fmt := bar_params.get('fmt')) is None:
             if field_order is None:
@@ -743,9 +753,9 @@ class Bar:
 
         fields = []
         for name in field_order:
-            params = field_defs.get(name)
-            match params:
+            field_params = field_defs.get(name)
 
+            match field_params:
                 case None:
                     # The field is strictly default:
                     field = Field.from_default(name)
@@ -765,15 +775,20 @@ class Bar:
                 case {'custom': True}:
                     # The field is custom, so it is only defined in
                     # 'field_definitions' and will not be found as a default.
-                    custom_name = params.pop('name', name)
-                    del params['custom']
-                    field = Field(**params, name=custom_name)
+                    custom_name = field_params.pop('name', name)
+                    del field_params['custom']
+                    field = Field(**field_params, name=custom_name)
 
                 case {}:
                     # The field is a default overridden by the user.
-                    field = Field.from_default(name, params)
-                    if field is None:
+                    # Has the user given custom icons from the command line?
+                    if name in field_icons:
+                        cust_icon = field_icons.pop(name)
+                        field_params['icons'] = (cust_icon, cust_icon)
 
+                    field = Field.from_default(name, field_params)
+
+                    if field is None:
                         exc = make_error_message(
                             DefaultFieldNotFoundError,
                             doing_what="parsing 'field_definitions'",
@@ -794,7 +809,7 @@ class Bar:
                         InvalidFieldSpecError,
                         doing_what="parsing 'field_definitions'",
                         details=(
-                            f"Invalid Field specification: {params!r}",
+                            f"Invalid Field specification: {field_params!r}",
                         ),
                         indent_level=1
                     )
@@ -1081,32 +1096,41 @@ class Bar:
         stream.flush()
 
 class Config:
-    def __init__(self, file: os.PathLike = None) -> None:
-        # Get the config file name if passed as a command line argument
-        cli_parser = ArgumentParser()
-        cli_parser.add_argument('--config')
-        config_file = (
-            cli_parser.parse_args(sys.argv[1:]).config
-            or file
-            or CONFIG_FILE
-        )
+    def __init__(self,
+        file: os.PathLike = None,
+        opts: ConfigSpec = {},
+    ) -> None:
+        opts = opts.copy()
+        # self.opts = opts
+
+        debug = opts.pop('debug', None) or DEBUG
+        if not (config_file := opts.pop('config_file', None)):
+            file_provided = False
+            config_file = file or CONFIG_FILE
+        file_provided = True
 
         absolute = os.path.expanduser(config_file)
-        if not os.path.exists(absolute):
+        if not os.path.exists(absolute) and not file_provided:
             self.write_file(absolute)
         self.file = absolute
-
         self.data, self.text = self.read_file(absolute)
+
+        # Supplement file data with options from runtime.
+        self.bar_spec = self.data | opts
 
     def __repr__(self) -> str:
         cls = self.__class__.__name__
         file = self.file
         return f"{cls}({file=})"
 
-    def make_bar(self) -> Bar:
-        return Bar.from_dict(self.data)
+    def to_bar(self, cls=Bar) -> Bar:
+        return cls.from_dict(self.bar_spec)
 
-    def read_file(self, file: os.PathLike = None) -> tuple[BarSpec, str]:
+    def read_file(self,
+        file: os.PathLike = None
+    ) -> tuple[ConfigSpec, JSONText]:
+        '''
+        '''
         if file is None:
             file = self.file
         with open(self.file, 'r') as f:
@@ -1116,15 +1140,20 @@ class Config:
 
     def write_file(self,
         file: os.PathLike = None,
-        obj: BarSpec = None
+        obj: BarParamSpec = None,
+        defaults: BarParamSpec = None
     ) -> None:
+        '''
+        '''
         if file is None:
             file = self.file
+        if obj is None:
+            obj = self.bar_spec
+        if defaults is None:
+            defaults = Bar._default_params.copy()
 
-        # return json.dumps(obj)
-        obj = Bar._default_params.copy() if obj is None else obj
+        obj = defaults | obj
 
-        dft_bar = obj
         dft_fields = Field._default_fields.copy()
 
         for name, field in dft_fields.items():
@@ -1135,9 +1164,7 @@ class Config:
                 except KeyError:
                     pass
 
-        dft_bar['field_definitions'] = dft_fields
-        dft_bar['field_order'] = Bar._default_field_order
-        self.defaults = dft_bar
+        obj['field_definitions'] = dft_fields
 
         # return self.defaults
         with open(os.path.expanduser(file), 'w') as f:
@@ -1147,16 +1174,7 @@ class Config:
 def run() -> None:
     '''Generate a bar from the default config file and run it in STDOUT.
     '''
-
-    CFG = Config(CONFIG_FILE)
-##    if not os.path.exists(CONFIG_FILE):
-##        CFG.write_file()
-
-    bar = CFG.make_bar()
-##    START = time.time()
-##    refresh_test = Field(bar=bar, name='refresh_test', func=(lambda: str((time.time() - START)%1)), interval=0.1, threaded=True)
-##    bar._fields['refresh_test'] = foo
-##    bar._field_order.append('refresh_test')
-
+    cfg = Config(CONFIG_FILE)
+    bar = cfg.to_bar()
     bar.run()
 

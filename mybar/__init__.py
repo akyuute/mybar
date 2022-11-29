@@ -17,6 +17,7 @@ __license__ = 'MIT'
 __copyright__ = 'Copyright (c) 2021-2022 SleepyAbsol'
 
 
+from . import cli
 from . import field_funcs
 from . import setups
 from . import utils
