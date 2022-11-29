@@ -132,8 +132,8 @@ def make_error_message(
     if blame is not None:
         if expected is not None:
             message.append(
-                f"{indent * level}Expected {expected!r}, "
-                f"but got {blame!r} instead."
+                f"{indent * level}Expected {expected}, "
+                f"but got {blame} instead."
             )
         else:
             message.append(f"{indent * level}{blame}")
