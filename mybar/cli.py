@@ -3,6 +3,7 @@ import re
 import sys
 
 from mybar.base import AskWritingToRequestedFile, Bar, Config
+##from mybar.utils import join_options
 
 
 from typing import NoReturn, TypeAlias
@@ -28,20 +29,34 @@ class Parser(ArgumentParser):
             argument_default=SUPPRESS,
         )
         self.add_arguments()
+##        self.conflicting_args: list[set] = []
+##        self.conflicting_args.append({'fmt', 'field_order'})
 
     def parse_args(self, args: None | list[str] = None) -> ConfigSpec:
+        '''Parse command line arguments and return a dict of options.'''
+        # Use vars() because dict items are more portable than attrs.
         opts = vars(super().parse_args(args))
-        self.check_conflicting_options(opts)
+        # self.check_conflicting_args(opts)
         params = self.process_complex_args(opts)
         return params
 
-    def check_conflicting_options(self, opts: dict) -> None | NoReturn:
-        if 'fmt' in opts and 'field_order' in opts:
-            err = (
-                "--fields and --format options are mutually exclusive. "
-                "(usage msg here)"
-            )
-            raise UsageError(err)
+##    def check_conflicting_args(self, opts: dict) -> None | NoReturn:
+##
+##        # if 'fmt' in opts and 'field_order' in opts:
+##        for coll in self.conflicting_args:
+##            if len(matches := coll.intersection(opts)) >= 2:
+##                args = [
+##                    '/'.join(arg.option_strings) for arg in self._actions
+##                    if arg.dest in matches
+##                ]
+##                together = join_options(
+##                    args,
+##                    sep=', ' if len(matches) > 2 else ' ',
+##                    final_sep='and '
+##                )
+##                err = f"Options {together} are mutually exclusive."
+##                # raise Exception(err)
+##                raise UsageError(err)
 
     def process_complex_args(self, opts: ConfigSpec) -> ConfigSpec:
         if (icons := opts.pop('icon_pairs', None)):
@@ -54,27 +69,9 @@ class Parser(ArgumentParser):
     def split_list_args(args: list) -> list|None: ...
 
     def add_arguments(self) -> None:
-        self.add_argument(
-            '-f', '--fields',
-            action='extend',
-            nargs='+',
-            # metavar='FIELD1[,FIELD2, ...]',
-            metavar=('FIELDNAME1', 'FIELDNAME2'),
-            dest='field_order',
-            # type=(lambda f: f.split(',', 1)),
-            help="A list of fields to be displayed. Not valid with --format/-m options.",
-        )
 
-        self.add_argument(
-            '--icons',
-            action='extend',
-            nargs='+',
-            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
-            dest='icon_pairs',
-            help="A mapping of field names to icons.",
-        )
-
-        self.add_argument(
+        fields_or_fmt = self.add_mutually_exclusive_group()
+        fields_or_fmt.add_argument(
             '-m', '--format',
             metavar="'FORMAT_STRING'",
             dest='fmt',
@@ -84,7 +81,33 @@ class Parser(ArgumentParser):
             ),
         )
 
-        self.add_argument(
+        fields_or_fmt.add_argument(
+            '-f', '--fields',
+            action='extend',
+            nargs='+',
+            metavar=('FIELDNAME1', 'FIELDNAME2'),
+            dest='field_order',
+            # type=(lambda f: f.split(',', 1)),
+            help=(
+                "A list of fields to be displayed. "
+                "Not valid with --format/-m options."
+            ),
+        )
+
+        fields_group = self.add_argument_group(
+            title="Options for fields",
+            description="These options are not valid when using --format/-m."
+        )
+        fields_group.add_argument(
+            '--icons',
+            action='extend',
+            nargs='+',
+            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
+            dest='icon_pairs',
+            help="A mapping of field names to icons.",
+        )
+
+        fields_group.add_argument(
             '-s', '--separator',
             metavar="'FIELD_SEPARATOR'",
             dest='separator',
@@ -94,12 +117,22 @@ class Parser(ArgumentParser):
             ),
         )
 
+        fields_group.add_argument(
+            '--join-empty', '-j',
+            action='store_true',
+            dest='join_empty_fields',
+            help=(
+                "Include empty field contents instead of hiding them. "
+                "Only valid with --field/-f options."
+            ),
+        )
+
         self.add_argument(
             '-r', '--refresh',
             type=float,
             dest='refresh_rate',
             help=(
-                "The bar's refresh rate in cycles/second."
+                "The bar's refresh rate in cycles per second."
             ),
         )
 
@@ -113,21 +146,11 @@ class Parser(ArgumentParser):
         )
 
         self.add_argument(
-            '--join-empty', '-j',
-            action='store_true',
-            dest='join_empty_fields',
-            help=(
-                "Include empty field contents instead of hiding them. "
-                "Only valid with --field/-f options."
-            ),
-        )
-
-        self.add_argument(
             '--once', '-o',
             action='store_true',
             dest='run_once',
             help=(
-                "Only run the bar once rather than continuously."
+                "Run the bar once rather than continuously."
             ),
         )
 
