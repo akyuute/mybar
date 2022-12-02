@@ -2,74 +2,68 @@ from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 import re
 import sys
 
-from mybar.base import AskWritingToRequestedFile, Bar, Config
-##from mybar.utils import join_options
+from mybar.base import AskWriteNewFile, Bar, Config
 
 
-from typing import NoReturn, TypeAlias
+from typing import Any, NoReturn, TypeAlias
 ConfigSpec: TypeAlias = dict
+OptName: TypeAlias = str
+CurlyBraceFormatString: TypeAlias = str
 
 
 PROG = __package__
 
 
 class UnrecoverableError(Exception):
+    '''Base class for errors that cause the program to exit.'''
     def __init__(self, msg: str) -> None:
         super().__init__()
         self.msg = msg
 
 class UsageError(UnrecoverableError):
+    '''Raised when the command is used incorrectly.'''
     pass
 
 
 class Parser(ArgumentParser):
+    '''A custom command line parser used by the command line utility.'''
+    assignment_arg_map = {
+        'icon_pairs': 'field_icons',
+    }
+
     def __init__(self) -> None:
         super().__init__(
             prog=PROG,
             argument_default=SUPPRESS,
         )
         self.add_arguments()
-##        self.conflicting_args: list[set] = []
-##        self.conflicting_args.append({'fmt', 'field_order'})
 
     def parse_args(self, args: None | list[str] = None) -> ConfigSpec:
         '''Parse command line arguments and return a dict of options.'''
         # Use vars() because dict items are more portable than attrs.
         opts = vars(super().parse_args(args))
-        # self.check_conflicting_args(opts)
-        params = self.process_complex_args(opts)
+        params = self.process_assignment_args(opts)
         return params
 
-##    def check_conflicting_args(self, opts: dict) -> None | NoReturn:
-##
-##        # if 'fmt' in opts and 'field_order' in opts:
-##        for coll in self.conflicting_args:
-##            if len(matches := coll.intersection(opts)) >= 2:
-##                args = [
-##                    '/'.join(arg.option_strings) for arg in self._actions
-##                    if arg.dest in matches
-##                ]
-##                together = join_options(
-##                    args,
-##                    sep=', ' if len(matches) > 2 else ' ',
-##                    final_sep='and '
-##                )
-##                err = f"Options {together} are mutually exclusive."
-##                # raise Exception(err)
-##                raise UsageError(err)
+    def process_assignment_args(self,
+        opts: ConfigSpec,
+        assignments: dict[str, str] = None
+    ) -> ConfigSpec:
+        '''Make dicts from key-value pairs in assignment args.'''
+        if assignments is None:
+            assignments = self.assignment_arg_map
 
-    def process_complex_args(self, opts: ConfigSpec) -> ConfigSpec:
-        if (icons := opts.pop('icon_pairs', None)):
-            opts['field_icons'] = dict(
-                pair for item in icons
-                if len(pair := item.split('=', 1)) == 2
-            )
+        for src, new_dest in assignments.items():
+            if (vals := opts.pop(src, None)):
+                opts[new_dest] = dict(
+                    pair for item in vals
+                    # Only use items that are pairs:
+                    if len(pair := item.split('=', 1)) == 2
+                )
         return opts
 
-    def split_list_args(args: list) -> list|None: ...
-
     def add_arguments(self) -> None:
-
+        '''Equip the parser with all its arguments.'''
         fields_or_fmt = self.add_mutually_exclusive_group()
         fields_or_fmt.add_argument(
             '-m', '--format',
@@ -160,40 +154,79 @@ class Parser(ArgumentParser):
             help="Use debug mode.",
         )
 
+    def quit(self, message: str = "Exiting...") -> NoReturn:
+        self.exit(1, message + '\n')
 
-def gather_config():
+
+class DialogHandler:
+    UNASSIGNED = None
+
+    def __init__(self,
+        opts: dict[Any, OptName],
+        default_val: Any,
+        prompt: CurlyBraceFormatString = "Foo? [{}] ",
+        display_default: bool = True,
+        case_sensitive: bool = False
+    ) -> None:
+        self.opts = opts
+        self.default_val = default_val
+        self.prompt = prompt
+        self.display_default = display_default
+        self.case_sensitive = case_sensitive
+
+        optstrings = opts.copy()
+        default_str = optstrings[default_val]
+        optstrings[default_val] = default_str.upper()
+        self.optstrings = tuple(optstrings.values())
+
+        self.choices = {
+            v if case_sensitive
+            else v.lower(): k for k, v in opts.items()
+        }
+        self.choices[''] = default_val
+
+    def handle_dialog(self) -> dict[str]:
+        answer = self.UNASSIGNED
+        prompt = self.prompt.format('/'.join(self.optstrings))
+        while answer not in self.choices:
+            answer = input(prompt)
+            if not self.case_sensitive:
+                answer = answer.lower()
+        return self.choices.get(answer)
+
+def make_initial_config(write_new_file_dft: bool = False) -> Config:
+    '''Parse args from stdin and return a new Config.'''
     parser = Parser()
     try:
-        options = parser.parse_args()
-    except UnrecoverableError as e:
-        parser.error(e.msg)
-    
-    try:
-        cfg = Config(opts=options)
+        bar_options = parser.parse_args()
+        cfg = Config(opts=bar_options)
 
-    except AskWritingToRequestedFile as e:
+    except AskWriteNewFile as e:
         file = e.requested_file
         errmsg = (
             f"{parser.prog}: error: \n"
             f"The config file at {file} does not exist."
         )
-        prompt = f"Would you like to make it? [y/N] "
 
-        choices = ('n', 'y', '')
-        answer = None
+        file_options = {True: 'y', False: 'n'}
+        prompt = "Would you like to make it now? [{}] "
+        handler = DialogHandler(file_options, write_new_file_dft, prompt)
+
         print(errmsg)
-        while answer not in choices:
-            answer = input(prompt)
-            match answer.lower():
-                case '' | 'n':
-                    parser.exit(1, message="Exiting...\n")
-                case 'y':
-                    Config.write_file(file, options)
-                    cfg = Config(opts=options)
+        write_new_file = handler.handle_dialog()
+        if write_new_file:
+            Config.write_file(file, bar_options)
+            print(f"Wrote new config file at {file}")
+            cfg = Config(opts=bar_options)
+        else:
+            parser.quit()
+
+    except UnrecoverableError as e:
+        parser.error(e.msg)
 
     except OSError as e:
-        errmsg = f"{parser.prog}: error: {e}"
-        parser.exit(1, message=errmsg + '\n')
+        err = f"{parser.prog}: error: {e}"
+        parser.quit(err)
 
     return cfg
 

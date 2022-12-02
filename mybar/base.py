@@ -1095,7 +1095,7 @@ class Bar:
         stream.write(beginning + line + end)
         stream.flush()
 
-class AskWritingToRequestedFile(Exception):
+class AskWriteNewFile(Exception):
     def __init__(self, requested_file: os.PathLike) -> None:
         self.requested_file = requested_file
 
@@ -1116,7 +1116,7 @@ class Config:
         absolute = os.path.abspath(os.path.expanduser(config_file))
         if not os.path.exists(absolute):
             if file_provided:
-                raise AskWritingToRequestedFile(absolute)
+                raise AskWriteNewFile(absolute)
             else:
                 self.write_file(absolute)
 

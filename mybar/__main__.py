@@ -1,12 +1,17 @@
+import sys
+from typing import NoReturn
+
 from mybar.base import Bar, Config
 from mybar import cli 
-
-from typing import NoReturn
 
 
 def main() -> NoReturn:
     '''Run the command line utility.'''
-    cfg = cli.gather_config()
+    try:
+        cfg = cli.make_initial_config()
+    except KeyboardInterrupt:
+        print()
+        sys.exit(1)
     bar = cfg.to_bar()
     bar.run()
 
