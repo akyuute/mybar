@@ -2,7 +2,8 @@ from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 import re
 import sys
 
-from mybar.base import AskWriteNewFile, Bar, Config
+from mybar.base import Bar, Config
+from mybar.errors import AskWriteNewFile
 
 
 from typing import Any, NoReturn, TypeAlias

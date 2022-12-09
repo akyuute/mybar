@@ -1,3 +1,6 @@
+from os import PathLike
+from typing import Any
+
 class BrokenFormatStringError(ValueError):
     '''Raised when a format string cannot be properly parsed or contains
     positional fields ('{}').'''
@@ -5,11 +8,6 @@ class BrokenFormatStringError(ValueError):
 
 class DefaultFieldNotFoundError(LookupError):
     '''Raised for references to an undefined default Field.'''
-    pass
-
-class FailedSetup(Exception):
-    '''Raised when a setup function decides not to Field.run().
-    The run() method uses args[0] for the buffer value as a backup.'''
     pass
 
 class IncompatibleArgsError(ValueError):
@@ -51,4 +49,19 @@ class UndefinedFieldError(LookupError):
     'field_order' item of the dict passed to Bar.from_dict() that is neither
     found in its 'field_definitions' parameter nor in Field._default_fields.'''
     pass
+
+
+class AskWriteNewFile(Exception):
+    '''Raised when Config.__init__ encounters a broken config file path.
+    This allows the command line utility to ask the user if they would
+    like the config file automatically written.
+    '''
+    def __init__(self, requested_file: PathLike) -> None:
+        self.requested_file = requested_file
+
+class FailedSetup(Exception):
+    '''Raised when a setup function decides not to Field.run().
+    The run() method uses args[0] for the buffer value as a backup.'''
+    def __init__(self, backup: Any):
+        self.backup = backup
 
