@@ -328,7 +328,7 @@ class Field:
             # use it as the field's new constant_output and update the
             # bar buffer:
             except FailedSetup as e:
-                backup = e.args[0]
+                backup = e.backup
                 contents = self._format_contents(
                     backup,
                     self.icon,
@@ -488,6 +488,14 @@ class Field:
         bar._buffers[self.name] = contents
 
         if self.run_once or once:
+            # logger.debug(self.name + str(local_loop.__dict__))
+            # if self._check_bar(no_error=True):
+
+            local_loop.stop()  ###########################################################
+            local_loop.close()  ##########################################################
+            self._bar._threads.remove(self._thread)
+            # print(f"Removing {self._thread}")
+
             return
 
         count = 0
@@ -579,12 +587,15 @@ class Field:
         local_loop.stop()
         local_loop.close()
 
-    def _check_bar(self) -> None:
+    def _check_bar(self, no_error: bool = False) -> None:
         '''Raises MissingBarError if self._bar is None.'''
         if self._bar is None:
+            if no_error:
+                return False
             raise MissingBarError(
                 "Fields cannot run until they belong to a Bar."
             )
+        return True
 
     async def send_to_thread(self, run_once: bool = True) -> None:
         '''Make and start a thread in which to run the field's callback.'''
@@ -593,6 +604,9 @@ class Field:
             name=self.name,
             args=(run_once,)
         )
+        if self._bar is not None:
+            self._bar._threads.add(self._thread)
+            # print(f"Added {self._thread}")
         self._thread.start()
 
 
@@ -711,6 +725,10 @@ class Bar:
         # interval when the bar stops.
         # (A shorter cooldown means faster exits):
         self._thread_cooldown = thread_cooldown
+
+        # The set of field threads the bar must wait to join before
+        # printing a line with run_once:
+        self._threads = set()
 
         # Calling run() sets this Event. Unsetting it stops all fields:
         self._can_run = threading.Event()
@@ -897,9 +915,11 @@ class Bar:
 
         # Allow the bar to run repeatedly in the same interpreter.
         if self._loop.is_closed():
+            # print("Loop closed!")
             self._loop = asyncio.new_event_loop()
         try:
             self._can_run.set()
+            # print("Loop beginning!")
             self._loop.run_until_complete(self._startup(self.run_once))
 
         except KeyboardInterrupt:
@@ -912,8 +932,6 @@ class Bar:
     async def _startup(self, run_once: bool) -> None:
         '''Schedule field coroutines, threads and the line printer to be run
         in parallel.'''
-        self._active_queue_get_coro = None
-
         overriding = False
         gathered = []
 
@@ -922,6 +940,7 @@ class Bar:
                 overriding = True
 
             if field.threaded:
+                # print(f"Threading {field._thread}")
                 await field.send_to_thread(run_once)
 
             else:
@@ -929,6 +948,8 @@ class Bar:
 
         if run_once:
             await asyncio.gather(*gathered)
+            while self._threads:
+                await asyncio.sleep(self._thread_cooldown)
             self._print_one_line(self._make_one_line())
 
         else:
@@ -944,6 +965,7 @@ class Bar:
         self._can_run.clear()
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
+                # print(f"joining {field}")
                 field._thread.join()
 
         if self.in_a_tty:
@@ -1094,10 +1116,6 @@ class Bar:
 
         stream.write(beginning + line + end)
         stream.flush()
-
-class AskWriteNewFile(Exception):
-    def __init__(self, requested_file: os.PathLike) -> None:
-        self.requested_file = requested_file
 
 class Config:
     def __init__(self,
