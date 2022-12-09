@@ -1,11 +1,10 @@
 import sys
 from typing import NoReturn
 
-from mybar.base import Bar, Config
 from mybar import cli 
 
 
-def main() -> NoReturn:
+def main() -> None | NoReturn:
     '''Run the command line utility.'''
     try:
         cfg = cli.make_initial_config()
