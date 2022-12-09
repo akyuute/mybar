@@ -17,7 +17,7 @@ def join_options(
 ):
     if not hasattr(it, '__iter__'):
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
-    opts = [repr(i) if quote else (i := str(item)) for item in it][:limit]
+    opts = [repr(str(item)) if quote else str(item) for item in it][:limit]
     if limit is not None and len(opts) >= limit:
         opts.append(overflow)
     else:
