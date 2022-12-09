@@ -6,13 +6,19 @@ from mybar.base import Bar, Config
 from mybar.errors import AskWriteNewFile
 
 
-from typing import Any, NoReturn, TypeAlias
+from typing import Any, Callable, NoReturn, TypeAlias
 ConfigSpec: TypeAlias = dict
 OptName: TypeAlias = str
 CurlyBraceFormatString: TypeAlias = str
 
 
 PROG = __package__
+
+def SplitFirst(char: str) -> Callable[[str], str]:
+    return (lambda f: f.split(char, 1))
+
+def ToTuple(length: int) -> Callable[[Any], tuple]:
+    return (lambda s: (s,) * length)
 
 
 class UnrecoverableError(Exception):
@@ -82,7 +88,7 @@ class Parser(ArgumentParser):
             nargs='+',
             metavar=('FIELDNAME1', 'FIELDNAME2'),
             dest='field_order',
-            # type=(lambda f: f.split(',', 1)),
+            # type=SplitFirst(','),
             help=(
                 "A list of fields to be displayed. "
                 "Not valid with --format/-m options."
@@ -104,8 +110,9 @@ class Parser(ArgumentParser):
 
         fields_group.add_argument(
             '-s', '--separator',
+            type=ToTuple(length=2),
             metavar="'FIELD_SEPARATOR'",
-            dest='separator',
+            dest='separators',
             help=(
                 "The character used for joining fields. "
                 "Only valid with --field/-f options."
