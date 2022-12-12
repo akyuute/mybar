@@ -485,13 +485,9 @@ class Field:
 
         if self.run_once or once:
             # logger.debug(self.name + str(local_loop.__dict__))
-            # if self._check_bar(no_error=True):
-
-            local_loop.stop()  ###########################################################
-            local_loop.close()  ##########################################################
+            local_loop.stop()
+            local_loop.close()
             self._bar._threads.remove(self._thread)
-            # print(f"Removing {self._thread}")
-
             return
 
         count = 0
@@ -602,7 +598,6 @@ class Field:
         )
         if self._bar is not None:
             self._bar._threads.add(self._thread)
-            # print(f"Added {self._thread}")
         self._thread.start()
 
 
@@ -911,11 +906,9 @@ class Bar:
 
         # Allow the bar to run repeatedly in the same interpreter.
         if self._loop.is_closed():
-            # print("Loop closed!")
             self._loop = asyncio.new_event_loop()
         try:
             self._can_run.set()
-            # print("Loop beginning!")
             self._loop.run_until_complete(self._startup(self.run_once))
 
         except KeyboardInterrupt:
@@ -936,7 +929,6 @@ class Bar:
                 overriding = True
 
             if field.threaded:
-                # print(f"Threading {field._thread}")
                 await field.send_to_thread(run_once)
 
             else:
@@ -961,7 +953,6 @@ class Bar:
         self._can_run.clear()
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
-                # print(f"joining {field}")
                 field._thread.join()
 
         if self.in_a_tty:

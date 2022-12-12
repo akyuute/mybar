@@ -14,7 +14,7 @@ def join_options(
     oxford: bool = False,
     limit: int = None,
     overflow: str = '...',
-):
+) -> str:
     if not hasattr(it, '__iter__'):
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
     opts = [repr(str(item)) if quote else str(item) for item in it][:limit]
@@ -24,7 +24,7 @@ def join_options(
         opts[-1] = final_sep + opts[-1]
     return sep.join(opts)
 
-def str_to_bool(value: str, /):
+def str_to_bool(value: str, /) -> bool:
     '''Returns `True` or `False` bools for truthy or falsy strings.'''
     truthy = "true t yes y on 1".split()
     falsy = "false f no n off 0".split()
