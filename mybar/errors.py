@@ -51,6 +51,17 @@ class UndefinedFieldError(LookupError):
     pass
 
 
+class FatalError(Exception):
+    '''Base class for errors that cause the CLI program to exit.'''
+    def __init__(self, msg: str) -> None:
+        super().__init__()
+        self.msg = msg
+
+class CLIUsageError(FatalError):
+    '''Raised when the CLI program is used incorrectly.'''
+    pass
+
+
 class AskWriteNewFile(Exception):
     '''Raised when Config.__init__ encounters a broken config file path.
     This allows the command line utility to ask the user if they would
