@@ -1,5 +1,4 @@
 #TODO: collections.defaultdict, dict.fromkeys!
-#TODO: Command line args!
 #TODO: Finish Mocp line!
 #TODO: Implement dynamic icons!
 
@@ -26,30 +25,26 @@ from string import Formatter
 from mybar import field_funcs
 from mybar import setups
 from mybar.errors import *
-
 from mybar.utils import (
     join_options,
-    str_to_bool,
+    make_error_message,
     scrub_comments,
-    make_error_message
 )
 
 
 ### Typing ###
 from collections.abc import Callable, Iterable, Sequence
-from typing import IO, TypeAlias
+from typing import IO, NoReturn, TypeAlias
 
 BarParamSpec: TypeAlias = dict[str]
-ConfigSpec: TypeAlias = dict[str]
-FieldParamSpec: TypeAlias = dict[str]
-FieldName: TypeAlias = str
-JSONText: TypeAlias = str
+PTY_Separator: TypeAlias = str
+TTY_Separator: TypeAlias = str
 
+FieldName: TypeAlias = str
+FieldParamSpec: TypeAlias = dict[str]
 Icon: TypeAlias = str
 PTY_Icon: TypeAlias = str
 TTY_Icon: TypeAlias = str
-PTY_Separator: TypeAlias = str
-TTY_Separator: TypeAlias = str
 
 ConsoleControlCode: TypeAlias = str
 FormatStr: TypeAlias = str
@@ -57,6 +52,8 @@ FormatStr: TypeAlias = str
 Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
+ConfigSpec: TypeAlias = dict[str]
+JSONText: TypeAlias = str
 
 ### Constants ###
 CONFIG_FILE: str = '~/.mybar.json'
@@ -164,7 +161,6 @@ class Field:
         align_to_seconds: bool = False,
         overrides_refresh: bool = False,
         threaded: bool = False,
-        # wrap: bool = True,
         always_show_icon: bool = False,
         constant_output: str = None,
         run_once: bool = False,
@@ -1117,66 +1113,73 @@ class Bar:
         stream.write(beginning + line + end)
         stream.flush()
 
+
 class Config:
     def __init__(self,
-        file: os.PathLike = None,
-        opts: ConfigSpec = {},
+        options: ConfigSpec = {},
+        defaults: ConfigSpec = None,
     ) -> None:
-        opts = opts.copy()
-        # self.opts = opts
+        if defaults is None:
+            self.defaults = Bar._default_params.copy()
+        else:
+            self.defaults = defaults.copy()
+        self.options = options.copy()
 
-        debug = opts.pop('debug', None) or DEBUG
-        if not (config_file := opts.pop('config_file', None)):
-            file_provided = False
-            config_file = file or CONFIG_FILE
-        file_provided = True
-
-        absolute = os.path.abspath(os.path.expanduser(config_file))
-        if not os.path.exists(absolute):
-            if file_provided:
-                raise AskWriteNewFile(absolute)
-            else:
-                self.write_file(absolute)
-
-        self.file = absolute
-        self.data, self.text = self.read_file(absolute)
-
-        # Supplement file data with options from runtime.
-        self.bar_spec = self.data | opts
+        self.bar_spec = self.defaults | self.options
+        self.file = None
+        debug = self.options.pop('debug', None) or DEBUG
 
     def __repr__(self) -> str:
-        cls = self.__class__.__name__
+        cls = type(self).__name__
         file = self.file
-        return f"{cls}({file=})"
+        bar_spec = self.bar_spec
+        return f"<{cls} {f'{file=}, ' if file else ''}{bar_spec=}>"
 
-    def to_bar(self, cls=Bar) -> Bar:
-        return cls.from_dict(self.bar_spec)
+    @classmethod
+    def from_file(cls,
+        file: os.PathLike = None,
+        overrides: ConfigSpec = {},
+        defaults: ConfigSpec = None,
+    ) -> 'Config' | NoReturn:
+        if defaults is None:
+            defaults = Bar._default_params
+        overrides = overrides.copy()
 
-    def read_file(self,
-        file: os.PathLike = None
-    ) -> tuple[ConfigSpec, JSONText]:
-        '''
-        '''
+        file_given = True if file or 'config_file' in overrides else False
         if file is None:
-            file = self.file
-        with open(self.file, 'r') as f:
+            file = overrides.pop('config_file', CONFIG_FILE)
+
+        file_spec = {}
+        absolute = os.path.abspath(os.path.expanduser(file))
+        if os.path.exists(absolute):
+            file_spec, text = cls.read_file(absolute)
+        elif file_given:
+            raise AskWriteNewFile(absolute)
+        else:
+            cls.write_file(absolute, overrides, defaults)
+
+        options = file_spec | overrides
+        cfg = cls(options, defaults)
+        cfg.file = absolute
+        return cfg
+
+    @staticmethod
+    def read_file(file: os.PathLike) -> tuple[ConfigSpec, JSONText]:
+        '''
+        '''
+        with open(file, 'r') as f:
             data = json.load(f)
             text = f.read()
         return data, text
 
     @staticmethod
     def write_file(
-        #self,
-        file: os.PathLike ,#= None,
-        obj: ConfigSpec ,#= None,
+        file: os.PathLike,
+        obj: ConfigSpec = {},
         defaults: BarParamSpec = None
     ) -> None:
         '''
         '''
-##        if file is None:
-##            file = self.file
-##        if obj is None:
-##            obj = self.bar_spec
         if defaults is None:
             defaults = Bar._default_params.copy()
 
@@ -1203,7 +1206,8 @@ class Config:
 def run() -> None:
     '''Generate a bar from the default config file and run it in STDOUT.
     '''
-    cfg = Config(CONFIG_FILE)
-    bar = cfg.to_bar()
+    # bar = Bar.from_dict(Bar._default_params)
+    cfg = Config.from_file(CONFIG_FILE)
+    bar = Bar.from_dict(cfg.bar_spec)
     bar.run()
 

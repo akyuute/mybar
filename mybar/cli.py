@@ -1,17 +1,25 @@
+__all__ = (
+    'Parser',
+    'OptionsAsker',
+    'get_config'
+)
+
+
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
-import re
-import sys
-
+from enum import Enum
 from mybar.base import Bar, Config
-from mybar.errors import AskWriteNewFile
+from mybar.errors import AskWriteNewFile, FatalError, CLIUsageError
 
 
+### Typing ###
 from typing import Any, Callable, NoReturn, TypeAlias
+
 ConfigSpec: TypeAlias = dict
 OptName: TypeAlias = str
-CurlyBraceFormatString: TypeAlias = str
+OptSpec: TypeAlias = dict[OptName, Any]
 
 
+### Constants ###
 PROG = __package__
 
 def SplitFirst(char: str) -> Callable[[str], str]:
@@ -19,17 +27,6 @@ def SplitFirst(char: str) -> Callable[[str], str]:
 
 def ToTuple(length: int) -> Callable[[Any], tuple]:
     return (lambda s: (s,) * length)
-
-
-class UnrecoverableError(Exception):
-    '''Base class for errors that cause the program to exit.'''
-    def __init__(self, msg: str) -> None:
-        super().__init__()
-        self.msg = msg
-
-class UsageError(UnrecoverableError):
-    '''Raised when the command is used incorrectly.'''
-    pass
 
 
 class Parser(ArgumentParser):
@@ -166,48 +163,97 @@ class Parser(ArgumentParser):
         self.exit(1, message + '\n')
 
 
-class DialogHandler:
-    UNASSIGNED = None
+class HighlightMethod(Enum):
+    CAPITALIZE = 'CAPITALIZE'
+    # UNDERLINE = 'UNDERLINE'
+    # BOLD = 'BOLD'
+
+
+class OptionsAsker:
+    MISSING = None
 
     def __init__(self,
-        opts: dict[Any, OptName],
-        default_val: Any,
-        prompt: CurlyBraceFormatString = "Foo? [{}] ",
-        display_default: bool = True,
-        case_sensitive: bool = False
+        opts: OptSpec,
+        default: str | tuple[str],
+        question: str = "Foo?",
+        case_sensitive: bool = False,
+        highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
     ) -> None:
-        self.opts = opts
-        self.default_val = default_val
-        self.prompt = prompt
-        self.display_default = display_default
+        # self.default_val = default_val
+        if default not in opts:
+            raise ValueError(
+                f"The option dict {opts!r} "
+                f"must contain the provided default option, {default!r}"
+            )
+        # self.opts = opts.copy()
+        self.default = default
+        self.default_val = opts[default]
+        self.question = question
         self.case_sensitive = case_sensitive
+        self.choices = opts.copy()
 
-        optstrings = opts.copy()
-        default_str = optstrings[default_val]
-        optstrings[default_val] = default_str.upper()
-        self.optstrings = tuple(optstrings.values())
+        self.optstrings = self.gen_optstrings(highlight_method)
 
-        self.choices = {
-            v if case_sensitive
-            else v.lower(): k for k, v in opts.items()
-        }
-        self.choices[''] = default_val
+        self.choices[''] = self.default_val
 
-    def handle_dialog(self) -> dict[str]:
-        answer = self.UNASSIGNED
-        prompt = self.prompt.format('/'.join(self.optstrings))
+    def gen_optstrings(self,
+        highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
+    ) -> tuple[OptName]:
+
+        ### Only needed if matching OptName, not default_val:
+        default = self.default
+        if isinstance(default, str):
+            default = (default,)
+        elif hasattr(default, '__iter__'):
+            pass
+        else: raise TypeError()
+        ###
+
+        match highlight_method:
+            case HighlightMethod.CAPITALIZE:
+                optstrings = (
+                    choice.upper() if val == self.default_val # in default
+                    else choice
+                    for choice, val in self.choices.items()
+                )
+            case _:
+                optstrings = self.choices
+
+        return tuple(optstrings)
+
+    def ask(self,
+        prompt: str = None,
+        highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
+    ) -> Any:
+        answer = self.MISSING
+        options = f"[{'/'.join(self.optstrings)}]"
+        if prompt is None:
+            prompt = f"{self.question} {options} "
+
         while answer not in self.choices:
             answer = input(prompt)
             if not self.case_sensitive:
-                answer = answer.lower()
+                answer = answer.casefold()
         return self.choices.get(answer)
 
-def make_initial_config(write_new_file_dft: bool = False) -> Config:
-    '''Parse args from stdin and return a new Config.'''
+
+def get_config(write_new_file_dft: bool = False) -> Config:
+    '''Return a new Config using args from STDIN.
+    Prompt the user before writing a new config file.
+    '''
     parser = Parser()
     try:
         bar_options = parser.parse_args()
-        cfg = Config(opts=bar_options)
+
+    except FatalError as e:
+        parser.error(e.msg)
+
+    except OSError as e:
+        err = f"{parser.prog}: error: {e}"
+        parser.quit(err)
+
+    try:
+        cfg = Config.from_file(overrides=bar_options)
 
     except AskWriteNewFile as e:
         file = e.requested_file
@@ -215,26 +261,19 @@ def make_initial_config(write_new_file_dft: bool = False) -> Config:
             f"{parser.prog}: error: \n"
             f"The config file at {file} does not exist."
         )
-
-        file_options = {True: 'y', False: 'n'}
-        prompt = "Would you like to make it now? [{}] "
-        handler = DialogHandler(file_options, write_new_file_dft, prompt)
+        question = "Would you like to make it now?"
+        write_options = {'y': True, 'n': False}
+        default = 'ny'[write_new_file_dft]
+        handler = OptionsAsker(write_options, default, question)
 
         print(errmsg)
-        write_new_file = handler.handle_dialog()
+        write_new_file = handler.ask()
         if write_new_file:
             Config.write_file(file, bar_options)
             print(f"Wrote new config file at {file}")
-            cfg = Config(opts=bar_options)
+            cfg = Config.from_file(file)
         else:
             parser.quit()
-
-    except UnrecoverableError as e:
-        parser.error(e.msg)
-
-    except OSError as e:
-        err = f"{parser.prog}: error: {e}"
-        parser.quit(err)
 
     return cfg
 
