@@ -14,7 +14,7 @@ __url__ = "https://github.com/sleepyabsol/mybar"
 __version__ = '0.3'
 __author__ = "SleepyAbsol"
 __license__ = 'MIT'
-__copyright__ = 'Copyright (c) 2021-2022 SleepyAbsol'
+__copyright__ = "Copyright (c) 2021-present SleepyAbsol"
 
 
 from . import cli
