@@ -19,8 +19,12 @@ __copyright__ = "Copyright (c) 2021-present SleepyAbsol"
 
 from . import cli
 from . import field_funcs
-from . import setups
 from . import utils
-from .base import *
+from .bar import *
 from .errors import *
+from .field import *
+
+
+CONFIG_FILE: str = '~/.mybar.json'
+DEBUG: bool = False
 
