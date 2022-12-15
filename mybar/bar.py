@@ -660,5 +660,5 @@ def run(once: bool = False) -> None:
     # bar = Bar.from_dict(Bar._default_params)
     cfg = Config.from_file(CONFIG_FILE)
     bar = Bar.from_dict(cfg.bar_spec)
-    bar.run(once)
+    bar.run(once=once)
 
