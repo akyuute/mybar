@@ -6,7 +6,7 @@
 
 __all__ = (
     'Bar',
-    'Config',
+    'Template',
     'run',
 )
 
@@ -50,7 +50,7 @@ FormatStr: TypeAlias = str
 Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
-ConfigSpec: TypeAlias = dict[str]
+TemplateSpec: TypeAlias = dict[str]
 JSONText: TypeAlias = str
 
 
@@ -565,10 +565,10 @@ class Bar:
         stream.flush()
 
 
-class Config:
+class Template:
     def __init__(self,
-        options: ConfigSpec = {},
-        defaults: ConfigSpec = None,
+        options: TemplateSpec = {},
+        defaults: TemplateSpec = None,
     ) -> None:
         if defaults is None:
             self.defaults = Bar._default_params.copy()
@@ -589,9 +589,9 @@ class Config:
     @classmethod
     def from_file(cls,
         file: os.PathLike = None,
-        overrides: ConfigSpec = {},
-        defaults: ConfigSpec = None,
-    ) -> 'Config' | NoReturn:
+        overrides: TemplateSpec = {},
+        defaults: TemplateSpec = None,
+    ) -> 'Template' | NoReturn:
         if defaults is None:
             defaults = Bar._default_params
         overrides = overrides.copy()
@@ -615,7 +615,7 @@ class Config:
         return cfg
 
     @staticmethod
-    def read_file(file: os.PathLike) -> tuple[ConfigSpec, JSONText]:
+    def read_file(file: os.PathLike) -> tuple[TemplateSpec, JSONText]:
         '''
         '''
         with open(file, 'r') as f:
@@ -626,7 +626,7 @@ class Config:
     @staticmethod
     def write_file(
         file: os.PathLike,
-        obj: ConfigSpec = {},
+        obj: TemplateSpec = {},
         defaults: BarParamSpec = None
     ) -> None:
         '''
@@ -658,7 +658,7 @@ def run(once: bool = False) -> None:
     '''Generate a bar from the default config file and run it in STDOUT.
     '''
     # bar = Bar.from_dict(Bar._default_params)
-    cfg = Config.from_file(CONFIG_FILE)
+    cfg = Template.from_file(CONFIG_FILE)
     bar = Bar.from_dict(cfg.bar_spec)
     bar.run(once=once)
 

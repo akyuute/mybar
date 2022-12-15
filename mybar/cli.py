@@ -7,14 +7,14 @@ __all__ = (
 
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
-from mybar.bar import Bar, Config
+from mybar.bar import Bar, Template
 from mybar.errors import AskWriteNewFile, FatalError, CLIUsageError
 
 
 ### Typing ###
 from typing import Any, Callable, NoReturn, TypeAlias
 
-ConfigSpec: TypeAlias = dict
+TemplateSpec: TypeAlias = dict
 OptName: TypeAlias = str
 OptSpec: TypeAlias = dict[OptName, Any]
 
@@ -42,7 +42,7 @@ class Parser(ArgumentParser):
         )
         self.add_arguments()
 
-    def parse_args(self, args: None | list[str] = None) -> ConfigSpec:
+    def parse_args(self, args: None | list[str] = None) -> TemplateSpec:
         '''Parse command line arguments and return a dict of options.'''
         # Use vars() because dict items are more portable than attrs.
         opts = vars(super().parse_args(args))
@@ -50,9 +50,9 @@ class Parser(ArgumentParser):
         return params
 
     def process_assignment_args(self,
-        opts: ConfigSpec,
+        opts: TemplateSpec,
         assignments: dict[str, str] = None
-    ) -> ConfigSpec:
+    ) -> TemplateSpec:
         '''Make dicts from key-value pairs in assignment args.'''
         if assignments is None:
             assignments = self.assignment_arg_map
@@ -237,8 +237,8 @@ class OptionsAsker:
         return self.choices.get(answer)
 
 
-def get_config(write_new_file_dft: bool = False) -> Config:
-    '''Return a new Config using args from STDIN.
+def get_config(write_new_file_dft: bool = False) -> Template:
+    '''Return a new Template using args from STDIN.
     Prompt the user before writing a new config file.
     '''
     parser = Parser()
@@ -253,7 +253,7 @@ def get_config(write_new_file_dft: bool = False) -> Config:
         parser.quit(err)
 
     try:
-        cfg = Config.from_file(overrides=bar_options)
+        cfg = Template.from_file(overrides=bar_options)
 
     except AskWriteNewFile as e:
         file = e.requested_file
@@ -269,9 +269,9 @@ def get_config(write_new_file_dft: bool = False) -> Config:
         print(errmsg)
         write_new_file = handler.ask()
         if write_new_file:
-            Config.write_file(file, bar_options)
+            Template.write_file(file, bar_options)
             print(f"Wrote new config file at {file}")
-            cfg = Config.from_file(file)
+            cfg = Template.from_file(file)
         else:
             parser.quit()
 
