@@ -13,6 +13,7 @@ import asyncio
 import threading
 import time
 
+from mybar import DEBUG
 from mybar import field_funcs
 from mybar import setups
 from mybar.errors import *

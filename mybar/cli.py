@@ -7,7 +7,7 @@ __all__ = (
 
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
-from mybar.base import Bar, Config
+from mybar.bar import Bar, Config
 from mybar.errors import AskWriteNewFile, FatalError, CLIUsageError
 
 
