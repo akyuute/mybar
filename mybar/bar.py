@@ -32,8 +32,11 @@ from mybar.utils import (
 
 ### Typing ###
 from collections.abc import Iterable, Sequence
-from typing import IO, NoReturn, TypeAlias
+from typing import IO, NoReturn, TypeAlias, TypedDict, TypeVar
 
+# Bar_T = TypeVar('Bar')
+B = TypeVar('B')
+T = TypeVar('T')
 BarParamSpec: TypeAlias = dict[str]
 PTY_Separator: TypeAlias = str
 TTY_Separator: TypeAlias = str
@@ -46,6 +49,7 @@ TTY_Icon: TypeAlias = str
 
 ConsoleControlCode: TypeAlias = str
 FormatStr: TypeAlias = str
+Pattern: TypeAlias = str
 
 Args: TypeAlias = list
 Kwargs: TypeAlias = dict
@@ -62,6 +66,46 @@ UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
 
 class Bar:
+    '''Contains fields 
+    stores buffers
+    field functions 
+    methods for displaying printing composing 
+
+    :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
+    :type fields: Iterable[Field | str]
+
+    :param fmt: A curly-bracket format string with field names, defaults to ``None``
+    :type fmt: :class:`FormatStr`
+
+    :param separator: The field separator when :param fields: is given, defaults to ``'|'``
+    :type separator: :class:`PTY_Separator` | :class:`TTY_Separator`
+
+    :param run_once: Whether the bar should print once and return, defaults to ``False``
+    :type run_once: :class:`bool`
+
+    :param refresh_rate: How often in seconds the bar automatically redraws itself, defaults to ``1.0``
+    :type refresh_rate: :class:`float`
+
+    :param align_to_seconds: Whether to synchronize redraws at the start of each new second (updates to the clock are shown accurately), defaults to ``True``
+    :type align_to_seconds: :class:`bool`
+
+    :param join_empty_fields: Whether to draw separators around fields with no content, defaults to ``False``
+    :type join_empty_fields: :class:`bool`
+
+    :param override_cooldown: Cooldown in seconds between handling sequential field overrides, defaults to ``1/60``
+    :type override_cooldown: :class:`float`
+
+    #:param thread_cooldown: Time in seconds to wait for threads to finish before printing when :param once: is ``True``, defaults to ``1/8``
+    :type thread_cooldown: :class:`float`
+
+    :param separators: , defaults to ``None``
+    :type separators: :class:`Sequence`[:class:`PTY_Separator`, :class:`TTY_Separator`]
+    #:type separators: :class:`Sequence[PTY_Separator, TTY_Separator]`
+
+    :param stream: The bar's output stream, defaults to ``sys.stdout``
+    :type stream: :class:`IO`
+
+    '''
 
     _default_field_order = [
         'hostname',
@@ -194,12 +238,32 @@ class Bar:
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_dict(cls,
+    def from_dict(cls: B,
         dct: BarParamSpec,
-        ignore_with: str | tuple[str] | None = '//'
-    ):
-        '''Accept a mapping of Bar parameters.
-        Ignore keys and list elements starting with '//' by default.
+        ignore_with: Pattern | tuple[Pattern] | None = '//'
+    ) -> B:
+        '''Make a :class:`Bar` using a dict of :class:`Bar` parameters.
+        Ignore keys and list elements starting with :param ignore_with:,
+        which is ``'//'`` by default.
+        If :param ignore_with: is ``None``, do not remove any values.
+
+        :param dct: The :class:`dict` to convert
+        :type dct: :class:`dict`
+        :param ignore_with: A pattern to ignore, defaults to ``'//'``
+        :type ignore_with: Pattern | tuple[Pattern] | None, optional
+        :returns: A new :class:`Bar`
+        :rtype: :class:`Bar`
+        :raises: :class:`IncompatibleArgsError` when
+            no :attr:`field_order` or :attr:`fmt` is defined
+        :raises: :class:`DefaultFieldNotFoundError` when a field
+            in :attr:`field_order` or :attr:`fmt` cannot be found
+            in :attr:`Field._default_fields`
+        :raises: :class:`UndefinedFieldError` when a field
+            in :attr:`field_order` or :attr:`fmt` is not properly defined in :attr:`field_definitions`
+        :raises: :class:`InvalidFieldSpecError` when a field definition #has the wrong structure?#################
+
+        .. note:: :param:`dct` must match the form :class:`BarParamSpec`.
+
         '''
         if ignore_with is None:
             data = deepcopy(dct)
@@ -221,25 +285,23 @@ class Bar:
             field_order = cls.parse_fmt(fmt)
 
         fields = []
+        expctd_name="the name of a default or properly defined `custom` Field"
         for name in field_order:
             field_params = field_defs.get(name)
 
             match field_params:
                 case None:
                     # The field is strictly default:
-                    field = Field.from_default(name)
-                    if field is None:
+                    try:
+                        field = Field.from_default(name)
+                    except DefaultFieldNotFoundError:
                         exc = make_error_message(
-                            UndefinedFieldError,
-                            doing_what="parsing 'field_order'",
+                            DefaultFieldNotFoundError,
+                            # doing_what="parsing 'field_order'",  # Only relevant in context file parsing
                             blame=f"{name!r}",
-                            expected=(
-                                f"the name of a default Field or a "
-                                f"custom field defined in 'field_definitions'"
-                            ),
-                            indent_level=1
+                            expected=expctd_name
                         )
-                        raise exc
+                        raise exc from None
 
                 case {'custom': True}:
                     # The field is custom, so it is only defined in
@@ -255,34 +317,33 @@ class Bar:
                         cust_icon = field_icons.pop(name)
                         field_params['icons'] = (cust_icon, cust_icon)
 
-                    field = Field.from_default(name, field_params)
-
-                    if field is None:
+                    try:
+                        field = Field.from_default(name, field_params)
+                    except DefaultFieldNotFoundError:
                         exc = make_error_message(
-                            DefaultFieldNotFoundError,
-                            doing_what="parsing 'field_definitions'",
+                            UndefinedFieldError,
+                            # doing_what="parsing 'field_order'",
                             blame=f"{name!r}",
-                            expected="the name of a default Field",
+                            expected=expctd_name,
                             epilogue=(
                                 f"(In config files, remember to set "
                                 f"custom = true "
                                 f"for custom field definitions.)"
                             ),
-                            indent_level=1
                         )
-                        raise exc
+                        raise exc from None
 
                 case _:
-
                     exc = make_error_message(
                         InvalidFieldSpecError,
-                        doing_what="parsing 'field_definitions'",
+                        # doing_what="parsing 'field_definitions'",
+                        doing_what=f"parsing {name!r} definition",
                         details=(
                             f"Invalid Field specification: {field_params!r}",
                         ),
                         indent_level=1
                     )
-                    raise exc
+                    raise exc from None
 
             fields.append(field)
 
@@ -321,8 +382,15 @@ class Bar:
         return self._separators[self._stream.isatty()]
 
     @staticmethod
-    def parse_fmt(fmt: FormatStr) -> list[str]:
-        '''Returns a list of field names that should act as a field order.'''
+    def parse_fmt(fmt: FormatStr) -> list[FieldName]:
+        '''Return a list of field names that should act as a field order.
+        :param fmt: A format string to parse
+        :type fmt: :class:`str`
+        :returns: A list of field names that were found
+        :rtype: list[str]
+        :raises: :class:`BrokenFormatStringError` when the format string
+            is malformed or contains positional fields
+        '''
         try:
             field_names = [
                 name
@@ -338,9 +406,23 @@ class Bar:
             )
         return field_names
 
-    def convert_fields(self, fields: Iterable[str]) -> dict[str, Field]:
-        '''Converts strings in a list of fields to corresponding default Fields
-        and returns a dict mapping field names to Fields.'''
+    def convert_fields(self,
+        fields: Iterable[FieldName | Field]
+    ) -> dict[FieldName, Field]:
+        '''Convert a list of field names or :class:`Field` instances to
+        corresponding default Fields and return a dict mapping field
+        names to Fields.
+        :param fields: The iterable of fields to convert
+        :type fields: :class:`Iterable`[:class:`str`]
+        :returns: A dict mapping field names to :class:`Field` instances
+        :rtype: dict[FieldName, Field] ####
+        :rtype: :class:`dict`[:class:`str`, :class:`Field`]
+        :raises: :class:`DefaultFieldNotFoundError` when a string
+            element of :param:`fields` is not the name of a default Field
+        :raises: :class:`InvalidFieldError` when an element
+            of :param:`fields` is neither the name of a default Field
+            nor an instance of :class:`Field`
+        '''
         converted = {}
         for field in fields:
             match field:
@@ -357,8 +439,18 @@ class Bar:
         return converted
 
     def run(self, *, stream: IO = None, once: bool = None) -> None:
-        '''Run the bar.
-        Block until an exception is raised and exit smoothly.'''
+        '''Run the bar in the specified output :class:`stream`.
+        Block until an exception is raised and exit smoothly.
+
+        :param stream: The IO stream in which to run the bar
+        :type stream: :class:`IO`
+        :param once: Whether to print the bar only once
+        :type once: :class:`bool`
+        :returns: ``None``
+
+        .. note::
+            This method cannot be called within an async event loop.
+        '''
         if stream is not None:
             self._stream = stream
         if once is not None:
@@ -397,6 +489,7 @@ class Bar:
         if run_once:
             await asyncio.gather(*gathered)
             while self._threads:
+                # Wait for threads to finish:
                 await asyncio.sleep(self._thread_cooldown)
             self._print_one_line(self._make_one_line())
 
@@ -566,6 +659,9 @@ class Bar:
 
 
 class Template:
+    '''
+    Represents a :class:`Bar` object....
+    '''
     def __init__(self,
         options: TemplateSpec = {},
         defaults: TemplateSpec = None,
@@ -583,15 +679,33 @@ class Template:
     def __repr__(self) -> str:
         cls = type(self).__name__
         file = self.file
+        maybe_file = f"{file=}, " if file else ""
         bar_spec = self.bar_spec
-        return f"<{cls} {f'{file=}, ' if file else ''}{bar_spec=}>"
+        return f"<{cls} {maybe_file}{bar_spec=}>"
 
     @classmethod
-    def from_file(cls,
+    def from_file(cls: T,
         file: os.PathLike = None,
-        overrides: TemplateSpec = {},
         defaults: TemplateSpec = None,
-    ) -> 'Template' | NoReturn:
+        overrides: TemplateSpec = {}
+    ) -> T:
+        '''
+        Return a new :class:`Template` from a config file path.
+
+        :param file: The filepath to the config file,
+            defaults to ``'~/.mybar.json'``
+        :type file: :class:`os.PathLike`
+        :param defaults: The base :class:`TemplateSpec` dict whose
+            params the new :class:`Template` will override,
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`TemplateSpec`
+        :param overrides: Additional param overrides to the config file
+        :type overrides: :class:`TemplateSpec`
+        :returns: A new :class:`Template` instance
+        :rtype: :class:`Template`
+        :raises: :class:`AskWriteNewFile` to ask the user for write
+            permission when the requested file path does not exist
+        '''
         if defaults is None:
             defaults = Bar._default_params
         overrides = overrides.copy()

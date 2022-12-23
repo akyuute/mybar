@@ -23,7 +23,7 @@ from mybar.utils import (
 )
 
 from collections.abc import Callable, Sequence
-from typing import NoReturn, TypeAlias
+from typing import NoReturn, TypeAlias, TypeVar
 
 FieldName: TypeAlias = str
 FieldParamSpec: TypeAlias = dict[str]
@@ -34,6 +34,8 @@ TTY_Icon: TypeAlias = str
 FormatStr: TypeAlias = str
 
 Kwargs: TypeAlias = dict
+
+Bar_T = TypeVar('Bar')
 
 
 class Field:
@@ -124,7 +126,7 @@ class Field:
         always_show_icon: bool = False,
         constant_output: str = None,
         run_once: bool = False,
-        bar: 'Bar' = None,
+        bar: Bar_T = None,
         args = None,
         kwargs = None,
         setup: Callable[..., Kwargs] = None,
@@ -208,7 +210,7 @@ class Field:
 
         default: dict = source.get(name)
         if default is None:
-            return default
+            # return default
             raise DefaultFieldNotFoundError(
                 f"{name!r} is not the name of a default Field."
             )
