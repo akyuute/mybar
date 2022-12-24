@@ -22,7 +22,7 @@ from string import Formatter
 
 from mybar import CONFIG_FILE, DEBUG
 from mybar.errors import *
-from mybar.field import Field
+from mybar.field import Field, FieldParamSpec
 from mybar.utils import (
     join_options,
     make_error_message,
@@ -32,17 +32,17 @@ from mybar.utils import (
 
 ### Typing ###
 from collections.abc import Iterable, Sequence
-from typing import IO, NoReturn, TypeAlias, TypedDict, TypeVar
+from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 
 # Bar_T = TypeVar('Bar')
 B = TypeVar('B')
 T = TypeVar('T')
-BarParamSpec: TypeAlias = dict[str]
+# BarParamSpec: TypeAlias = dict[str]
+Separator: TypeAlias = str
 PTY_Separator: TypeAlias = str
 TTY_Separator: TypeAlias = str
 
 FieldName: TypeAlias = str
-FieldParamSpec: TypeAlias = dict[str]
 Icon: TypeAlias = str
 PTY_Icon: TypeAlias = str
 TTY_Icon: TypeAlias = str
@@ -65,11 +65,29 @@ HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
 
+class BarParamSpec(TypedDict, total=False):
+    '''
+    '''
+    refresh_rate: float
+    run_once: bool
+    align_to_seconds: bool
+    join_empty_fields: bool
+    override_cooldown: float
+    thread_cooldown: float
+
+    # The following field params are mutually exclusive with `fmt`.
+    field_order: Required[list[FieldName]]
+    field_definitions: dict[FieldName, FieldParamSpec]
+    field_icons: dict[FieldName, Icon]
+    separator: Separator
+    separators: Sequence[PTY_Separator, TTY_Separator]
+
+    # The `fmt` params is mutually exclusive with all field params.
+    fmt: FormatStr
+
+
 class Bar:
-    '''Contains fields 
-    stores buffers
-    field functions 
-    methods for displaying printing composing 
+    '''The class used for creating highly customizable status bars.
 
     :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
     :type fields: Iterable[Field | str]
@@ -95,7 +113,29 @@ class Bar:
     :param override_cooldown: Cooldown in seconds between handling sequential field overrides, defaults to ``1/60``
     :type override_cooldown: :class:`float`
 
-    #:param thread_cooldown: Time in seconds to wait for threads to finish before printing when :param once: is ``True``, defaults to ``1/8``
+    :param thread_cooldown:
+    How long a field thread loop sleeps after checking if the bar is still
+        running, defaults to ``1/8``. A threaded field blocks
+        for :param thread_cooldown: seconds rather than
+        :attr:`Field.interval` seconds in between executions. A shorter
+        cooldown means more chances to check if the bar has stopped and
+        a faster return time between .
+        
+    Enables a field function to return after :param thread_cooldown: rather than :attr:`Field.interval` seconds
+
+    Time in seconds
+    a stand-in for interval
+    check if the bar is still running
+    to wait for threads
+    to finish before printing when :param once: is ``True``,
+    more chances to detect when the bar has stopped
+
+    Rather than block for the whole interval,
+    use tiny steps to check if the bar is still running.
+    A shorter step means more chances to check if the bar stops.
+    Thus, threads usually cancel `step` seconds after `func`
+    returns when the bar stops rather than after `interval` seconds.
+
     :type thread_cooldown: :class:`float`
 
     :param separators: , defaults to ``None``
@@ -444,7 +484,7 @@ class Bar:
 
         :param stream: The IO stream in which to run the bar
         :type stream: :class:`IO`
-        :param once: Whether to print the bar only once
+        :param once: Whether to print the bar only once, defaults to ``False``
         :type once: :class:`bool`
         :returns: ``None``
 

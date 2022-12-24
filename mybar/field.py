@@ -23,7 +23,7 @@ from mybar.utils import (
 )
 
 from collections.abc import Callable, Sequence
-from typing import NoReturn, TypeAlias, TypeVar
+from typing import NoReturn, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 
 FieldName: TypeAlias = str
 FieldParamSpec: TypeAlias = dict[str]
@@ -33,12 +33,97 @@ TTY_Icon: TypeAlias = str
 
 FormatStr: TypeAlias = str
 
+Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
 Bar_T = TypeVar('Bar')
+P = ParamSpec('P')
+
+
+class FieldParamSpec(TypedDict, total=False):
+    '''
+    '''
+    name: Required[FieldName]
+    func: Callable[P, str]
+    icon: Icon
+    fmt: FormatStr
+    interval: float
+    align_to_seconds: bool
+    overrides_refresh: bool
+    threaded: bool
+    always_show_icon: bool
+    constant_output: str
+    run_once: bool
+    bar: Bar_T
+    args: Args
+    kwargs: Kwargs
+    # setup: Callable[P, Kwargs]
+    setup: Callable[P, P.kwargs]
+    # Set this to use different icons for different output streams:
+    icons: Sequence[PTY_Icon, TTY_Icon]
 
 
 class Field:
+    '''
+    Used to populate a Bar
+
+    :param name: A unique identifier for the new field, defaults to :param:`func```.__name__``
+    :type name: :class:`str`
+
+    :param func: The Python function to run at every :param:`interval` if no :param:`constant_output` is set
+    :type func: Callable[[*Args, **Kwargs], str]
+
+    :param icon: The field icon, defaults to ``''``.
+        Placed before field contents or in place of ``{icon}`` in :param:`fmt`, if provided
+    :type icon: str
+
+    :param fmt: A curly-brace format string.
+        Valid placeholders:
+            - ``{icon}`` references :param:`icon`
+            - ``{}`` references field contents
+    :type fmt: :class:`FormatStr`
+    .. note:: This parameter is required if :param:`icon` is ``None``
+
+    :param interval: How often in seconds field contents are updated, defaults to 1.0
+    :type interval: float
+
+    :param align_to_seconds: Update contents at the start of each second, defaults to False
+    :type align_to_seconds: bool
+
+    :param overrides_refresh: Updates to this field re-print the bar between refreshes, defaults to False
+    :type overrides_refresh: bool
+
+    :param threaded: Run this field in a separate thread, defaults to False
+    :type threaded: bool
+
+    :param always_show_icon: Show icons even when contents are empty, defaults to False
+    :type always_show_icon: bool
+
+    :param constant_output: Permanently set contents instead of running a function
+    :type constant_output: str, optional
+
+    :param run_once: Permanently set contents by running :param:`func` only once, defaults to False
+    :type run_once: bool
+
+    :param bar: Attach the :class:`Field` to this :class:`Bar`
+    :type bar: Bar, optional
+
+    :param args: Positional args passed to :param:`func`
+    :type args: Args, optional
+
+    :param kwargs: Keyword args passed to :param:`func`
+    :type kwargs: Kwargs, optional
+
+    :param setup: A special callback that updates :param:`kwargs` with static data that :param:`func` would have to evaluate every time it runs
+    # :type setup: Callable[P, P.kwargs]
+    :type setup: Callable[P, Kwargs]
+        , optional
+
+        # Set this to use different icons for different output streams:
+    :param icons: A pair of icons for non-TTY and TTY output streams, respectively
+    :type icons: Sequence[PTY_Icon, TTY_Icon], optional
+
+    '''
 
     _default_fields = {
 
@@ -116,9 +201,10 @@ class Field:
     def __init__(self,
         *,
         name: FieldName = None,
-        func: Callable[..., str] = None,
+        # func: Callable[[*Args, *Kwargs], str],
+        func: Callable[P, str],
         icon: str = '',
-        fmt: str = None,
+        fmt: FormatStr = None,
         interval: float = 1.0,
         align_to_seconds: bool = False,
         overrides_refresh: bool = False,
@@ -127,9 +213,11 @@ class Field:
         constant_output: str = None,
         run_once: bool = False,
         bar: Bar_T = None,
-        args = None,
-        kwargs = None,
-        setup: Callable[..., Kwargs] = None,
+        args: Args = None,
+        kwargs: Kwargs = None,
+        # setup: Callable[[*Args, *Kwargs], Kwargs] = None,
+        # setup: Callable[P, Kwargs]
+        setup: Callable[P, P.kwargs] = None,
 
         # Set this to use different icons for different output streams:
         icons: Sequence[PTY_Icon, TTY_Icon] = None,
