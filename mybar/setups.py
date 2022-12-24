@@ -1,15 +1,17 @@
 import psutil
 from string import Formatter
 
-from mybar.errors import (
+from .errors import (
     BrokenFormatStringError,
     FailedSetup,
     IncompatibleArgsError,
     InvalidFormatStringFieldError,
 )
-from mybar.utils import join_options, make_error_message
+from .utils import join_options, make_error_message
 
-FormatStr = str
+from typing import TypeAlias
+
+FormatStr: TypeAlias = str
 
 FORMATTER = Formatter()
 

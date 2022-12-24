@@ -1,7 +1,7 @@
-#TODO: NewType()! TypedDict()!
+#TODO: NewType()!
+#TODO: Bar.as_generator()!
 #TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Finish Mocp line!
-#TODO: Implement dynamic icons!
 
 
 __all__ = (
@@ -20,10 +20,10 @@ import time
 from copy import deepcopy
 from string import Formatter
 
-from mybar import CONFIG_FILE, DEBUG
-from mybar.errors import *
-from mybar.field import Field, FieldParamSpec
-from mybar.utils import (
+from . import CONFIG_FILE, DEBUG
+from .errors import *
+from .field import Field, FieldSpec
+from .utils import (
     join_options,
     make_error_message,
     scrub_comments,
@@ -37,7 +37,7 @@ from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 # Bar_T = TypeVar('Bar')
 B = TypeVar('B')
 T = TypeVar('T')
-# BarParamSpec: TypeAlias = dict[str]
+# BarSpec: TypeAlias = dict[str]
 Separator: TypeAlias = str
 PTY_Separator: TypeAlias = str
 TTY_Separator: TypeAlias = str
@@ -54,7 +54,6 @@ Pattern: TypeAlias = str
 Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
-TemplateSpec: TypeAlias = dict[str]
 JSONText: TypeAlias = str
 
 
@@ -65,9 +64,8 @@ HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
 
-class BarParamSpec(TypedDict, total=False):
-    '''
-    '''
+class BarSpec(TypedDict, total=False):
+    '''A dict representation of Bar constructor parameters.'''
     refresh_rate: float
     run_once: bool
     align_to_seconds: bool
@@ -77,13 +75,19 @@ class BarParamSpec(TypedDict, total=False):
 
     # The following field params are mutually exclusive with `fmt`.
     field_order: Required[list[FieldName]]
-    field_definitions: dict[FieldName, FieldParamSpec]
+    field_definitions: dict[FieldName, FieldSpec]
     field_icons: dict[FieldName, Icon]
     separator: Separator
     separators: Sequence[PTY_Separator, TTY_Separator]
 
     # The `fmt` params is mutually exclusive with all field params.
     fmt: FormatStr
+
+
+class TemplateSpec(BarSpec, total=False):
+    '''A dict representation of Template constructor parameters.'''
+    config_file: os.PathLike
+    debug: bool
 
 
 class Bar:
@@ -130,12 +134,6 @@ class Bar:
     to finish before printing when :param once: is ``True``,
     more chances to detect when the bar has stopped
 
-    Rather than block for the whole interval,
-    use tiny steps to check if the bar is still running.
-    A shorter step means more chances to check if the bar stops.
-    Thus, threads usually cancel `step` seconds after `func`
-    returns when the bar stops rather than after `interval` seconds.
-
     :type thread_cooldown: :class:`float`
 
     :param separators: , defaults to ``None``
@@ -144,6 +142,8 @@ class Bar:
 
     :param stream: The bar's output stream, defaults to ``sys.stdout``
     :type stream: :class:`IO`
+
+    :raises: :class
 
     '''
 
@@ -279,11 +279,11 @@ class Bar:
 
     @classmethod
     def from_dict(cls: B,
-        dct: BarParamSpec,
+        dct: BarSpec,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> B:
         '''Make a :class:`Bar` using a dict of :class:`Bar` parameters.
-        Ignore keys and list elements starting with :param ignore_with:,
+        Ignore keys and list elements starting with :param:`ignore_with`,
         which is ``'//'`` by default.
         If :param ignore_with: is ``None``, do not remove any values.
 
@@ -302,7 +302,7 @@ class Bar:
             in :attr:`field_order` or :attr:`fmt` is not properly defined in :attr:`field_definitions`
         :raises: :class:`InvalidFieldSpecError` when a field definition #has the wrong structure?#################
 
-        .. note:: :param:`dct` must match the form :class:`BarParamSpec`.
+        .. note:: :param:`dct` must match the form :class:`BarSpec`.
 
         '''
         if ignore_with is None:
@@ -452,8 +452,9 @@ class Bar:
         '''Convert a list of field names or :class:`Field` instances to
         corresponding default Fields and return a dict mapping field
         names to Fields.
+
         :param fields: The iterable of fields to convert
-        :type fields: :class:`Iterable`[:class:`str`]
+        :type fields: :class:`Iterable[str]`
         :returns: A dict mapping field names to :class:`Field` instances
         :rtype: dict[FieldName, Field] ####
         :rtype: :class:`dict`[:class:`str`, :class:`Field`]
@@ -781,7 +782,7 @@ class Template:
     def write_file(
         file: os.PathLike,
         obj: TemplateSpec = {},
-        defaults: BarParamSpec = None
+        defaults: BarSpec = None
     ) -> None:
         '''
         '''

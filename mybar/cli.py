@@ -7,11 +7,10 @@ __all__ = (
 
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
-from mybar.bar import Bar, Template
-from mybar.errors import AskWriteNewFile, FatalError, CLIUsageError
 
+from .bar import Bar, Template
+from .errors import AskWriteNewFile, FatalError, CLIUsageError
 
-### Typing ###
 from typing import Any, Callable, NoReturn, TypeAlias
 
 TemplateSpec: TypeAlias = dict

@@ -13,11 +13,11 @@ import asyncio
 import threading
 import time
 
-from mybar import DEBUG
-from mybar import field_funcs
-from mybar import setups
-from mybar.errors import *
-from mybar.utils import (
+from . import DEBUG
+from . import field_funcs
+from . import setups
+from .errors import *
+from .utils import (
     join_options,
     make_error_message,
 )
@@ -26,7 +26,7 @@ from collections.abc import Callable, Sequence
 from typing import NoReturn, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 
 FieldName: TypeAlias = str
-FieldParamSpec: TypeAlias = dict[str]
+FieldSpec: TypeAlias = dict[str]
 Icon: TypeAlias = str
 PTY_Icon: TypeAlias = str
 TTY_Icon: TypeAlias = str
@@ -40,9 +40,8 @@ Bar_T = TypeVar('Bar')
 P = ParamSpec('P')
 
 
-class FieldParamSpec(TypedDict, total=False):
-    '''
-    '''
+class FieldSpec(TypedDict, total=False):
+    '''A dict representation of Field constructor parameters.'''
     name: Required[FieldName]
     func: Callable[P, str]
     icon: Icon
@@ -289,7 +288,7 @@ class Field:
     @classmethod
     def from_default(cls,
         name: str,
-        params: FieldParamSpec = {},
+        params: FieldSpec = {},
         source: dict = None
     ):
         '''Used to create default Fields with custom parameters.'''

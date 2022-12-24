@@ -1,7 +1,7 @@
 import sys
 from typing import NoReturn
 
-from mybar import cli, Bar
+from . import cli, Bar
 
 
 def main() -> None | NoReturn:

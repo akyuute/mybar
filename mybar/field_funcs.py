@@ -22,29 +22,27 @@ from datetime import datetime
 from os import uname
 from string import Formatter
 
-from mybar.errors import *
-from mybar.utils import join_options
+from .errors import *
+from .utils import join_options
 
-
-# Typing
 from collections.abc import Callable, Iterable
-from typing import Literal
+from typing import Literal, TypeAlias
 
-FormatStr = str
+FormatStr: TypeAlias = str
 
-ParserLiteral = str|None
-ParserFname = str|None
-ParserFormatSpec = str|None
-ParserConversion = str|None
-FieldStructure_T = tuple[tuple[tuple[
+ParserLiteral: TypeAlias = str|None
+ParserFname: TypeAlias = str|None
+ParserFormatSpec: TypeAlias = str|None
+ParserConversion: TypeAlias = str|None
+FieldStructure_T: TypeAlias = tuple[tuple[tuple[
     ParserLiteral,
     ParserFname,
     ParserFormatSpec,
     ParserConversion
 ]]]
 
-NmConnIDSpecifier = Literal['id', 'uuid', 'path', 'apath']
-NmConnFilterSpec = Iterable[NmConnIDSpecifier]
+NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
+NmConnFilterSpec: TypeAlias = Iterable[NmConnIDSpecifier]
 
 
 POWERS_OF_1K = {
