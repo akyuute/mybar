@@ -37,6 +37,7 @@ Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
 Bar_T = TypeVar('Bar')
+F = TypeVar('F')
 P = ParamSpec('P')
 
 
@@ -64,7 +65,7 @@ class FieldSpec(TypedDict, total=False):
 
 class Field:
     '''
-    Used to populate a Bar
+    One part of a Bar.
 
     :param name: A unique identifier for the new field, defaults to :param:`func```.__name__``
     :type name: :class:`str`
@@ -115,10 +116,9 @@ class Field:
 
     :param setup: A special callback that updates :param:`kwargs` with static data that :param:`func` would have to evaluate every time it runs
     # :type setup: Callable[P, P.kwargs]
-    :type setup: Callable[P, Kwargs]
-        , optional
+    :type setup: Callable[P, Kwargs], optional
+        # , optional
 
-        # Set this to use different icons for different output streams:
     :param icons: A pair of icons for non-TTY and TTY output streams, respectively
     :type icons: Sequence[PTY_Icon, TTY_Icon], optional
 
@@ -286,12 +286,25 @@ class Field:
         return f"{cls}({name=})"
 
     @classmethod
-    def from_default(cls,
+    def from_default(cls: F,
         name: str,
-        params: FieldSpec = {},
-        source: dict = None
-    ):
-        '''Used to create default Fields with custom parameters.'''
+        overrides: FieldSpec = {},
+        source: dict[FieldName, FieldSpec] = None
+    ) -> F:
+        '''Quickly get a default Field and customize its parameters.
+
+        :param name: Name of the default :class:`Field` to access or customize
+        :type name: :class:`str`
+
+        :param overrides: Custom parameters that override those of the default Field
+        :type overrides: :class:`FieldSpec`, optional
+        :param source: The :class:`dict` in which to look up default fields,
+            defaults to :attr:`Field._default_fields`
+        :type source: :class:`dict[FieldName, FieldSpec]`
+        :returns: A new :class:`Field`
+        :rtype: :class:`Field`
+        :raises: :class:`DefaultFieldNotFoundError` when :param:`name` is not in :param:`source`
+        '''
         if source is None:
             source = cls._default_fields
 
@@ -302,8 +315,7 @@ class Field:
                 f"{name!r} is not the name of a default Field."
             )
 
-        spec = {**default}
-        spec.update(params)
+        spec = default | overrides
         return cls(**spec)
 
     @property

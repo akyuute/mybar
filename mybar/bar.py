@@ -119,21 +119,13 @@ class Bar:
 
     :param thread_cooldown:
     How long a field thread loop sleeps after checking if the bar is still
-        running, defaults to ``1/8``. A threaded field blocks
+        running,
+        defaults to ``1/8``.
+        A threaded field blocks
         for :param thread_cooldown: seconds rather than
         :attr:`Field.interval` seconds in between executions. A shorter
         cooldown means more chances to check if the bar has stopped and
         a faster return time between .
-        
-    Enables a field function to return after :param thread_cooldown: rather than :attr:`Field.interval` seconds
-
-    Time in seconds
-    a stand-in for interval
-    check if the bar is still running
-    to wait for threads
-    to finish before printing when :param once: is ``True``,
-    more chances to detect when the bar has stopped
-
     :type thread_cooldown: :class:`float`
 
     :param separators: , defaults to ``None``
@@ -143,8 +135,15 @@ class Bar:
     :param stream: The bar's output stream, defaults to ``sys.stdout``
     :type stream: :class:`IO`
 
-    :raises: :class
-
+    :raises: :class:`InvalidOutputStreamError` when :param:`stream` does
+        not implement the IO protocol.
+    :raises: :class:`IncompatibleArgsError` when
+        neither :param:`fmt` nor :param:`fields` are given
+    :raises: :class:`IncompatibleArgsError` when :param:`fmt`
+        is ``None`` but no :param:`separator` or :param:`separators`
+        are given
+    :raises: :class:`ValueError` when :param:`fields` is not iterable
+    :raises: :class:`TypeError` when :param:`fmt` is not a string
     '''
 
     _default_field_order = [
@@ -194,7 +193,7 @@ class Bar:
         # Ensure required parameters are defined if no fmt is given:
         if fmt is None:
             if fields is None:
-                raise ValueError(
+                raise IncompatibleArgsError(
                     f"Either a list of Fields 'fields' "
                     f"or a format string 'fmt' is required."
                 )
@@ -300,7 +299,8 @@ class Bar:
             in :attr:`Field._default_fields`
         :raises: :class:`UndefinedFieldError` when a field
             in :attr:`field_order` or :attr:`fmt` is not properly defined in :attr:`field_definitions`
-        :raises: :class:`InvalidFieldSpecError` when a field definition #has the wrong structure?#################
+        :raises: :class:`InvalidFieldSpecError` when
+            a field definition is not of the form :class:`FieldSpec`
 
         .. note:: :param:`dct` must match the form :class:`BarSpec`.
 
