@@ -128,8 +128,8 @@ class Bar:
         a faster exit time.
     :type thread_cooldown: :class:`float`
 
-    :param separators: A sequence of 2 strings that separate fields when `fields` is given.
-        Note: The `separator` parameter sets this automatically.
+    :param separators: A tuple of 2 strings that separate fields when `fields` is given.
+        Note: The `separator` parameter sets both of these automatically.
         The first string is used in graphical (PTY) environments where support for Unicode is more likely.
         The second string is used in terminal (TTY) environments where only ASCII is supported.
         This enables the same :class:`Bar` instance to use the most optimal separator automatically.

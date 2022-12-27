@@ -115,10 +115,14 @@ class Field:
     :type kwargs: :class:`Kwargs`, optional
 
     :param setup: A special callback that updates `kwargs` with static data that `func` would have to evaluate every time it runs
-    :type setup: :class:`Callable[P, Kwargs]`, optional # :type setup: :class:`Callable[P, P.kwargs]`, optional
+    :type setup: :class:`Callable[P, Kwargs]`, optional
 
-    :param icons: A pair of icons for non-TTY and TTY output streams, respectively
-    :type icons: :class:Sequence[:class:`PTY_Icon`, :class:`TTY_Icon`], optional
+    :param icons: A pair of icons used in different cases.
+        Note: The `icon` parameter sets both of these automatically.
+        The first string is intended for graphical (PTY) environments where support for Unicode is more likely.
+        The second string is intended for terminal (TTY) environments where only ASCII is supported.
+        This enables the same :class:`Field` instance to use the most optimal icon automatically.
+    :type icons: tuple[:class:`PTY_Icon`, :class:`TTY_Icon`], optional
 
     '''
 
