@@ -146,8 +146,7 @@ class Bar:
     :raises: :class:`IncompatibleArgsError` when `fmt`
         is ``None`` but no `separator` or `separators`
         are given
-    :raises: :class:`ValueError` when `fields` is not iterable
-    :raises: :class:`TypeError` when `fmt` is not a string
+    :raises: :class:`TypeError` when `fields` is not iterable, or when `fmt` is not a string
     '''
 
     _default_field_order = [
@@ -203,7 +202,7 @@ class Bar:
                 )
 
             if not hasattr(fields, '__iter__'):
-                raise ValueError("The 'fields' argument must be iterable.")
+                raise TypeError("The 'fields' argument must be iterable.")
 
             if separator is None and separators is None:
                 raise IncompatibleArgsError(
