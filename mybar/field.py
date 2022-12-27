@@ -16,51 +16,25 @@ import time
 from . import DEBUG
 from . import field_funcs
 from . import setups
+from . import utils
 from .errors import *
-from .utils import (
-    join_options,
-    make_error_message,
+from .types import (
+    FieldName,
+    FieldSpec,
+    Icon,
+    PTY_Icon,
+    TTY_Icon,
+    FormatStr,
+    Args,
+    Kwargs,
 )
 
 from collections.abc import Callable, Sequence
-from typing import NoReturn, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
-
-FieldName: TypeAlias = str
-FieldSpec: TypeAlias = dict[str]
-Icon: TypeAlias = str
-PTY_Icon: TypeAlias = str
-TTY_Icon: TypeAlias = str
-
-FormatStr: TypeAlias = str
-
-Args: TypeAlias = list
-Kwargs: TypeAlias = dict
+from typing import NoReturn, ParamSpec, Required, TypeVar
 
 Bar_T = TypeVar('Bar')
-F = TypeVar('F')
+Field = TypeVar('Field')
 P = ParamSpec('P')
-
-
-class FieldSpec(TypedDict, total=False):
-    '''A dict representation of Field constructor parameters.'''
-    name: Required[FieldName]
-    func: Callable[P, str]
-    icon: Icon
-    fmt: FormatStr
-    interval: float
-    align_to_seconds: bool
-    overrides_refresh: bool
-    threaded: bool
-    always_show_icon: bool
-    run_once: bool
-    constant_output: str
-    bar: Bar_T
-    args: Args
-    kwargs: Kwargs
-    # setup: Callable[P, Kwargs]
-    setup: Callable[P, P.kwargs]
-    # Set this to use different icons for different output streams:
-    icons: Sequence[PTY_Icon, TTY_Icon]
 
 
 class Field:
@@ -284,15 +258,15 @@ class Field:
     def __repr__(self) -> str:
         cls = type(self).__name__
         name = self.name
-        # attrs = join_options(...)
+        # attrs = utils.join_options(...)
         return f"{cls}({name=})"
 
     @classmethod
-    def from_default(cls: F,
+    def from_default(cls: Field,
         name: str,
         overrides: FieldSpec = {},
         source: dict[FieldName, FieldSpec] = None
-    ) -> F:
+    ) -> Field:
         '''Quickly get a default Field and customize its parameters.
 
         :param name: Name of the default :class:`Field` to access or customize

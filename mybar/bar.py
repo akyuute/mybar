@@ -21,74 +21,40 @@ from copy import deepcopy
 from string import Formatter
 
 from . import CONFIG_FILE, DEBUG
+from . import utils
 from .errors import *
-from .field import Field, FieldSpec
-from .utils import (
-    join_options,
-    make_error_message,
-    scrub_comments,
+from .field import Field
+from .types import (
+    BarSpec,
+    TemplateSpec,
+    Separator,
+    PTY_Separator,
+    TTY_Separator,
+    Line,
+    FieldName,
+    Icon,
+    PTY_Icon,
+    TTY_Icon,
+    ConsoleControlCode,
+    FormatStr,
+    Pattern,
+    Args,
+    Kwargs,
+    JSONText,
 )
 
-
-### Typing ###
 from collections.abc import Iterable, Sequence
 from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 
-# Bar_T = TypeVar('Bar')
 B = TypeVar('B')
+Bar = TypeVar('Bar')
 T = TypeVar('T')
-# BarSpec: TypeAlias = dict[str]
-Separator: TypeAlias = str
-PTY_Separator: TypeAlias = str
-TTY_Separator: TypeAlias = str
-Line: TypeAlias = str
-
-FieldName: TypeAlias = str
-Icon: TypeAlias = str
-PTY_Icon: TypeAlias = str
-TTY_Icon: TypeAlias = str
-
-ConsoleControlCode: TypeAlias = str
-FormatStr: TypeAlias = str
-Pattern: TypeAlias = str
-
-Args: TypeAlias = list
-Kwargs: TypeAlias = dict
-
-JSONText: TypeAlias = str
-
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
 CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
-
-
-class BarSpec(TypedDict, total=False):
-    '''A dict representation of Bar constructor parameters.'''
-    refresh_rate: float
-    run_once: bool
-    align_to_seconds: bool
-    join_empty_fields: bool
-    override_cooldown: float
-    thread_cooldown: float
-
-    # The following field params are mutually exclusive with `fmt`.
-    field_order: Required[list[FieldName]]
-    field_definitions: dict[FieldName, FieldSpec]
-    field_icons: dict[FieldName, Icon]
-    separator: Separator
-    separators: Sequence[PTY_Separator, TTY_Separator]
-
-    # The `fmt` params is mutually exclusive with all field params.
-    fmt: FormatStr
-
-
-class TemplateSpec(BarSpec, total=False):
-    '''A dict representation of Template constructor parameters.'''
-    config_file: os.PathLike
-    debug: bool
 
 
 class Bar:
@@ -187,7 +153,7 @@ class Bar:
         io_methods = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_methods):
             io_method_calls = [a + '()' for a in io_methods]
-            joined = join_options(io_method_calls, final_sep=' and ')
+            joined = utils.join_options(io_method_calls, final_sep=' and ')
             raise InvalidOutputStreamError(
                 f"Output stream {stream!r} needs {joined} methods."
             )
@@ -275,15 +241,15 @@ class Bar:
 
     def __repr__(self) -> str:
         names = self._field_order
-        fields = join_options(names, final_sep='', quote=True, limit=3)
+        fields = utils.join_options(names, final_sep='', quote=True, limit=3)
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_dict(cls: B,
+    def from_dict(cls: Bar,
         dct: BarSpec,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
-    ) -> B:
+    ) -> Bar:
         '''Make a :class:`Bar` using a dict of :class:`Bar` parameters.
         Ignore keys and list elements starting with `ignore_with`,
         which is ``'//'`` by default.
@@ -311,7 +277,7 @@ class Bar:
         if ignore_with is None:
             data = deepcopy(dct)
         else:
-            data = scrub_comments(dct, ignore_with)
+            data = utils.scrub_comments(dct, ignore_with)
 
         bar_params = cls._default_params | data
         field_defs = bar_params.pop('field_definitions', {})
@@ -338,7 +304,7 @@ class Bar:
                     try:
                         field = Field.from_default(name)
                     except DefaultFieldNotFoundError:
-                        exc = make_error_message(
+                        exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
                             # doing_what="parsing 'field_order'",  # Only relevant in context file parsing
                             blame=f"{name!r}",
@@ -363,7 +329,7 @@ class Bar:
                     try:
                         field = Field.from_default(name, field_params)
                     except DefaultFieldNotFoundError:
-                        exc = make_error_message(
+                        exc = utils.make_error_message(
                             UndefinedFieldError,
                             # doing_what="parsing 'field_order'",
                             blame=f"{name!r}",
@@ -377,7 +343,7 @@ class Bar:
                         raise exc from None
 
                 case _:
-                    exc = make_error_message(
+                    exc = utils.make_error_message(
                         InvalidFieldSpecError,
                         # doing_what="parsing 'field_definitions'",
                         doing_what=f"parsing {name!r} definition",

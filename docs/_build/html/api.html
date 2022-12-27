@@ -72,6 +72,17 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#module-mybar.cli">Command-Line Tools</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#mybar.cli.Parser"><code class="docutils literal notranslate"><span class="pre">Parser</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#mybar.cli.Parser.__init__"><code class="docutils literal notranslate"><span class="pre">Parser.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mybar.cli.Parser.add_arguments"><code class="docutils literal notranslate"><span class="pre">Parser.add_arguments()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mybar.cli.Parser.parse_args"><code class="docutils literal notranslate"><span class="pre">Parser.parse_args()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mybar.cli.Parser.process_assignment_args"><code class="docutils literal notranslate"><span class="pre">Parser.process_assignment_args()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#mybar.cli.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#models">Models</a></li>
 </ul>
 </li>
@@ -186,7 +197,7 @@ nor an instance of <a class="reference internal" href="#mybar.Field" title="myba
 
 <dl class="py method">
 <dt class="sig sig-object py" id="mybar.Bar.from_dict">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dct</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">BarSpec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ignore_with</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'//'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">B</span></span></span><a class="headerlink" href="#mybar.Bar.from_dict" title="Permalink to this definition">¶</a></dt>
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dct</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">BarSpec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ignore_with</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'//'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#mybar.Bar" title="mybar.bar.Bar"><span class="pre">Bar</span></a></span></span><a class="headerlink" href="#mybar.Bar.from_dict" title="Permalink to this definition">¶</a></dt>
 <dd><p>Make a <a class="reference internal" href="#mybar.Bar" title="mybar.Bar"><code class="xref py py-class docutils literal notranslate"><span class="pre">Bar</span></code></a> using a dict of <a class="reference internal" href="#mybar.Bar" title="mybar.Bar"><code class="xref py py-class docutils literal notranslate"><span class="pre">Bar</span></code></a> parameters.
 Ignore keys and list elements starting with <cite>ignore_with</cite>,
 which is <code class="docutils literal notranslate"><span class="pre">'//'</span></code> by default.
@@ -347,7 +358,7 @@ permission when the requested file path does not exist</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="mybar.Template.read_file">
-<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">read_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PathLike</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">mybar.bar.TemplateSpec</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#mybar.Template.read_file" title="Permalink to this definition">¶</a></dt>
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">read_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PathLike</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">mybar.types.TemplateSpec</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#mybar.Template.read_file" title="Permalink to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -402,7 +413,7 @@ This enables the same <a class="reference internal" href="#mybar.Field" title="m
 </dl>
 <dl class="py method">
 <dt class="sig sig-object py" id="mybar.Field.from_default">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_default</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overrides</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FieldSpec</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">mybar.field.FieldSpec</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">F</span></span></span><a class="headerlink" href="#mybar.Field.from_default" title="Permalink to this definition">¶</a></dt>
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_default</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overrides</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FieldSpec</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">mybar.types.FieldSpec</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#mybar.Field" title="mybar.field.Field"><span class="pre">Field</span></a></span></span><a class="headerlink" href="#mybar.Field.from_default" title="Permalink to this definition">¶</a></dt>
 <dd><p>Quickly get a default Field and customize its parameters.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -452,6 +463,45 @@ and send its updates to the bar.</p>
 It defaults to the TTY icon (self._icons[1]) if no bar is set.</p>
 </dd></dl>
 
+</dd></dl>
+
+</section>
+<section id="module-mybar.cli">
+<span id="command-line-tools"></span><h2>Command-Line Tools<a class="headerlink" href="#module-mybar.cli" title="Permalink to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="mybar.cli.Parser">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">mybar.cli.</span></span><span class="sig-name descname"><span class="pre">Parser</span></span><a class="headerlink" href="#mybar.cli.Parser" title="Permalink to this definition">¶</a></dt>
+<dd><p>A custom command line parser used by the command line utility.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="mybar.cli.Parser.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#mybar.cli.Parser.__init__" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mybar.cli.Parser.add_arguments">
+<span class="sig-name descname"><span class="pre">add_arguments</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#mybar.cli.Parser.add_arguments" title="Permalink to this definition">¶</a></dt>
+<dd><p>Equip the parser with all its arguments.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mybar.cli.Parser.parse_args">
+<span class="sig-name descname"><span class="pre">parse_args</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#mybar.cli.Parser.parse_args" title="Permalink to this definition">¶</a></dt>
+<dd><p>Parse command line arguments and return a dict of options.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mybar.cli.Parser.process_assignment_args">
+<span class="sig-name descname"><span class="pre">process_assignment_args</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">opts</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">assignments</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#mybar.cli.Parser.process_assignment_args" title="Permalink to this definition">¶</a></dt>
+<dd><p>Make dicts from key-value pairs in assignment args.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="mybar.cli.get_config">
+<span class="sig-prename descclassname"><span class="pre">mybar.cli.</span></span><span class="sig-name descname"><span class="pre">get_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">write_new_file_dft</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#mybar.Template" title="mybar.bar.Template"><span class="pre">Template</span></a></span></span><a class="headerlink" href="#mybar.cli.get_config" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a new Template using args from STDIN.
+Prompt the user before writing a new config file.</p>
 </dd></dl>
 
 </section>

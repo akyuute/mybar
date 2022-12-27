@@ -25,6 +25,12 @@ Fields
    :exclude-members: __init__
 
 
+Command-Line Tools
+-------------------
+
+.. automodule:: mybar.cli
+   :members:
+
 Models
 -------
 

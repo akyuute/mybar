@@ -130,7 +130,7 @@ class Parser(ArgumentParser):
             type=float,
             dest='refresh_rate',
             help=(
-                "The bar's refresh rate in cycles per second."
+                "The bar's refresh rate in seconds per cycle."
             ),
         )
 
