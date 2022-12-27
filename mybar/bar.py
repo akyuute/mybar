@@ -41,6 +41,7 @@ T = TypeVar('T')
 Separator: TypeAlias = str
 PTY_Separator: TypeAlias = str
 TTY_Separator: TypeAlias = str
+Line: TypeAlias = str
 
 FieldName: TypeAlias = str
 Icon: TypeAlias = str
@@ -91,15 +92,16 @@ class TemplateSpec(BarSpec, total=False):
 
 
 class Bar:
-    '''The class used for creating highly customizable status bars.
+    '''
+    The class used for creating highly customizable status bars.
 
     :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
-    :type fields: Iterable[Field | str]
+    :type fields: :class:`Iterable[Field | str]`
 
     :param fmt: A curly-bracket format string with field names, defaults to ``None``
     :type fmt: :class:`FormatStr`
 
-    :param separator: The field separator when :param fields: is given, defaults to ``'|'``
+    :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`PTY_Separator` | :class:`TTY_Separator`
 
     :param run_once: Whether the bar should print once and return, defaults to ``False``
@@ -117,33 +119,35 @@ class Bar:
     :param override_cooldown: Cooldown in seconds between handling sequential field overrides, defaults to ``1/60``
     :type override_cooldown: :class:`float`
 
-    :param thread_cooldown:
-    How long a field thread loop sleeps after checking if the bar is still
-        running,
+    :param thread_cooldown: How long a field thread loop sleeps after checking if the bar is still running,
         defaults to ``1/8``.
-        A threaded field blocks
-        for :param thread_cooldown: seconds rather than
-        :attr:`Field.interval` seconds in between executions. A shorter
-        cooldown means more chances to check if the bar has stopped and
-        a faster return time between .
+        Between executions, unlike async fields, a threaded field sleeps for several iterations of
+        `thread_cooldown` seconds that always add up to :attr:`Field.interval` seconds.
+        Between sleeps, it checks if the bar has stopped.
+        A shorter cooldown means more chances to check if the bar has stopped and
+        a faster exit time.
     :type thread_cooldown: :class:`float`
 
-    :param separators: , defaults to ``None``
-    :type separators: :class:`Sequence`[:class:`PTY_Separator`, :class:`TTY_Separator`]
-    #:type separators: :class:`Sequence[PTY_Separator, TTY_Separator]`
+    :param separators: A sequence of 2 strings that separate fields when `fields` is given.
+        Note: The `separator` parameter sets this automatically.
+        The first string is used in graphical (PTY) environments where support for Unicode is more likely.
+        The second string is used in terminal (TTY) environments where only ASCII is supported.
+        This enables the same :class:`Bar` instance to use the most optimal separator automatically.
+    :type separators: tuple[:class:`PTY_Separator`, :class:`TTY_Separator`], optional
 
-    :param stream: The bar's output stream, defaults to ``sys.stdout``
+    :param stream: The bar's output stream, defaults to :attr:`sys.stdout`
     :type stream: :class:`IO`
 
-    :raises: :class:`InvalidOutputStreamError` when :param:`stream` does
+
+    :raises: :class:`InvalidOutputStreamError` when `stream` does
         not implement the IO protocol.
     :raises: :class:`IncompatibleArgsError` when
-        neither :param:`fmt` nor :param:`fields` are given
-    :raises: :class:`IncompatibleArgsError` when :param:`fmt`
-        is ``None`` but no :param:`separator` or :param:`separators`
+        neither `fmt` nor `fields` are given
+    :raises: :class:`IncompatibleArgsError` when `fmt`
+        is ``None`` but no `separator` or `separators`
         are given
-    :raises: :class:`ValueError` when :param:`fields` is not iterable
-    :raises: :class:`TypeError` when :param:`fmt` is not a string
+    :raises: :class:`ValueError` when `fields` is not iterable
+    :raises: :class:`TypeError` when `fmt` is not a string
     '''
 
     _default_field_order = [
@@ -282,7 +286,7 @@ class Bar:
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> B:
         '''Make a :class:`Bar` using a dict of :class:`Bar` parameters.
-        Ignore keys and list elements starting with :param:`ignore_with`,
+        Ignore keys and list elements starting with `ignore_with`,
         which is ``'//'`` by default.
         If :param ignore_with: is ``None``, do not remove any values.
 
@@ -302,7 +306,7 @@ class Bar:
         :raises: :class:`InvalidFieldSpecError` when
             a field definition is not of the form :class:`FieldSpec`
 
-        .. note:: :param:`dct` must match the form :class:`BarSpec`.
+        .. note:: `dct` must match the form :class:`BarSpec`.
 
         '''
         if ignore_with is None:
@@ -412,7 +416,7 @@ class Bar:
         return self._stream.isatty()
 
     @property
-    def separator(self) -> str:
+    def separator(self) -> Separator:
         '''The field separator as determined by the output stream.
         It defaults to the TTY sep (self._separators[1]) if no stream is set.
         '''
@@ -424,6 +428,7 @@ class Bar:
     @staticmethod
     def parse_fmt(fmt: FormatStr) -> list[FieldName]:
         '''Return a list of field names that should act as a field order.
+
         :param fmt: A format string to parse
         :type fmt: :class:`str`
         :returns: A list of field names that were found
@@ -433,8 +438,7 @@ class Bar:
         '''
         try:
             field_names = [
-                name
-                for m in Formatter().parse(fmt)
+                name for m in Formatter().parse(fmt)
                 if (name := m[1]) is not None
             ]
         except ValueError:
@@ -459,9 +463,9 @@ class Bar:
         :rtype: dict[FieldName, Field] ####
         :rtype: :class:`dict`[:class:`str`, :class:`Field`]
         :raises: :class:`DefaultFieldNotFoundError` when a string
-            element of :param:`fields` is not the name of a default Field
+            element of `fields` is not the name of a default Field
         :raises: :class:`InvalidFieldError` when an element
-            of :param:`fields` is neither the name of a default Field
+            of `fields` is neither the name of a default Field
             nor an instance of :class:`Field`
         '''
         converted = {}
@@ -480,7 +484,7 @@ class Bar:
         return converted
 
     def run(self, *, stream: IO = None, once: bool = None) -> None:
-        '''Run the bar in the specified output :class:`stream`.
+        '''Run the bar in the specified output stream.
         Block until an exception is raised and exit smoothly.
 
         :param stream: The IO stream in which to run the bar
@@ -532,7 +536,8 @@ class Bar:
             while self._threads:
                 # Wait for threads to finish:
                 await asyncio.sleep(self._thread_cooldown)
-            self._print_one_line(self._make_one_line())
+            # self._print_one_line(self._make_one_line())
+            self._print_one_line()
 
         else:
             if overriding:
@@ -559,6 +564,7 @@ class Bar:
         This only writes using the current buffer contents.'''
         # Again, local variables may save time:
         using_format_str = (self.fmt is not None)
+        sep = self.separator
         running = self._can_run.is_set
         clock = time.monotonic
 
@@ -572,17 +578,19 @@ class Bar:
         self._stream.flush()
 
         # Print something right away just so that the bar is not empty:
-        if using_format_str:
-            line = self.fmt.format_map(self._buffers)
-        else:
-            line = self.separator.join(
-                buf
-                for field in self._field_order
-                    if (buf := self._buffers[field])
-                    or self.join_empty_fields
-            )
-        self._stream.write(beginning + line + end)
-        self._stream.flush()
+        # self._print_one_line(self._make_one_line())
+        self._print_one_line()
+
+##        if using_format_str:
+##            line = self.fmt.format_map(self._buffers)
+##        else:
+##            line = sep.join(
+##                buf for field in self._field_order
+##                    if (buf := self._buffers[field])
+##                    or self.join_empty_fields
+##            )
+##        self._stream.write(beginning + line + end)
+##        self._stream.flush()
 
         if self.align_to_seconds:
             # Begin every refresh at the start of a clock second:
@@ -594,9 +602,8 @@ class Bar:
             if using_format_str:
                 line = self.fmt.format_map(self._buffers)
             else:
-                line = self.separator.join(
-                    buf
-                    for field in self._field_order
+                line = sep.join(
+                    buf for field in self._field_order
                         if (buf := self._buffers[field])
                         or self.join_empty_fields
                 )
@@ -619,6 +626,7 @@ class Bar:
         '''Prints a line when fields with overrides_refresh send new data.'''
         # Again, local variables may save time:
         bar = self._bar
+        sep = self.separator
         using_format_str = (self.fmt is not None)
         running = self._can_run.is_set
 
@@ -647,9 +655,8 @@ class Bar:
             if using_format_str:
                 line = self.fmt.format_map(self._buffers)
             else:
-                line = self.separator.join(
-                    buf
-                    for field in self._field_order
+                line = sep.join(
+                    buf for field in self._field_order
                         if (buf := self._buffers[field])
                         or self.join_empty_fields
                 )
@@ -660,7 +667,7 @@ class Bar:
                 # logger.debug(f"handler: sleeping for {self._override_cooldown}")
             await asyncio.sleep(self._override_cooldown)
 
-    def _make_one_line(self) -> str:
+    def _make_one_line(self) -> Line:
         '''Make a line using the bar's field buffers.
         This method is not meant to be called from within a loop.
         '''
@@ -668,15 +675,14 @@ class Bar:
             line = self.fmt.format_map(self._buffers)
         else:
             line = self.separator.join(
-                buf
-                for field in self._field_order
+                buf for field in self._field_order
                     if (buf := self._buffers[field])
                     or self.join_empty_fields
             )
         return line
 
     def _print_one_line(self,
-        line: str,
+        # line: str,
         stream: IO = None,
         end: str = '\r'
     ) -> None:
@@ -688,21 +694,32 @@ class Bar:
 
         if self.in_a_tty:
             beginning = self.clearline_char + end
-            stream.write(CSI + HIDE_CURSOR)
+            # stream.write(CSI + HIDE_CURSOR)
         else:
             beginning = self.clearline_char
 
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         stream.flush()
 
-        stream.write(beginning + line + end)
+        stream.write(beginning + self._make_one_line() + end)
+        # stream.write(beginning + line + end)
         stream.flush()
 
 
 class Template:
     '''
-    Represents a :class:`Bar` object....
+    Build and transport Bar configs between files, dicts and command line args.
+
+    :param options: Optional :class:`TemplateSpec` parameters that override those of `defaults`
+    :type options: :class:`TemplateSpec`
+    :param defaults: Parameters to use by default,
+        defaults to :attr:`Bar._default_params`
+    :type defaults: :class:`dict`
+
+    .. note:: `options` and `defaults` must be :class:`dict` instances of form :class:`TemplateSpec`
+
     '''
+
     def __init__(self,
         options: TemplateSpec = {},
         defaults: TemplateSpec = None,
@@ -731,6 +748,7 @@ class Template:
         overrides: TemplateSpec = {}
     ) -> T:
         '''
+        Return a new Template from a config file path.
         Return a new :class:`Template` from a config file path.
 
         :param file: The filepath to the config file,

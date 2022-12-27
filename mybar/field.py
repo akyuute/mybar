@@ -52,8 +52,8 @@ class FieldSpec(TypedDict, total=False):
     overrides_refresh: bool
     threaded: bool
     always_show_icon: bool
-    constant_output: str
     run_once: bool
+    constant_output: str
     bar: Bar_T
     args: Args
     kwargs: Kwargs
@@ -67,60 +67,58 @@ class Field:
     '''
     One part of a Bar.
 
-    :param name: A unique identifier for the new field, defaults to :param:`func```.__name__``
+    :param name: A unique identifier for the new field, defaults to `func.`:attr:`__name__`
     :type name: :class:`str`
 
-    :param func: The Python function to run at every :param:`interval` if no :param:`constant_output` is set
-    :type func: Callable[[*Args, **Kwargs], str]
+    :param func: The Python function to run at every `interval` if no `constant_output` is set
+    :type func: :class:`Callable[[*Args, **Kwargs], str]`
 
     :param icon: The field icon, defaults to ``''``.
-        Placed before field contents or in place of ``{icon}`` in :param:`fmt`, if provided
-    :type icon: str
+        Placed before field contents or in place of ``{icon}`` in `fmt`, if provided
+    :type icon: :class:`str`
 
     :param fmt: A curly-brace format string.
+        This parameter is **required** if `icon` is ``None``.
         Valid placeholders:
-            - ``{icon}`` references :param:`icon`
+            - ``{icon}`` references `icon`
             - ``{}`` references field contents
     :type fmt: :class:`FormatStr`
-    .. note:: This parameter is required if :param:`icon` is ``None``
 
-    :param interval: How often in seconds field contents are updated, defaults to 1.0
-    :type interval: float
+    :param interval: How often in seconds field contents are updated, defaults to ``1.0``
+    :type interval: :class:`float`
 
-    :param align_to_seconds: Update contents at the start of each second, defaults to False
-    :type align_to_seconds: bool
+    :param align_to_seconds: Update contents at the start of each second, defaults to ``False``
+    :type align_to_seconds: :class:`bool`
 
-    :param overrides_refresh: Updates to this field re-print the bar between refreshes, defaults to False
-    :type overrides_refresh: bool
+    :param overrides_refresh: Updates to this field re-print the bar between refreshes, defaults to ``False``
+    :type overrides_refresh: :class:`bool`
 
-    :param threaded: Run this field in a separate thread, defaults to False
-    :type threaded: bool
+    :param threaded: Run this field in a separate thread, defaults to ``False``
+    :type threaded: :class:`bool`
 
-    :param always_show_icon: Show icons even when contents are empty, defaults to False
-    :type always_show_icon: bool
+    :param always_show_icon: Show icons even when contents are empty, defaults to ``False``
+    :type always_show_icon: :class:`bool`
+
+    :param run_once: Permanently set contents by running `func` only once, defaults to ``False``
+    :type run_once: :class:`bool`
 
     :param constant_output: Permanently set contents instead of running a function
-    :type constant_output: str, optional
-
-    :param run_once: Permanently set contents by running :param:`func` only once, defaults to False
-    :type run_once: bool
+    :type constant_output: :class:`str`, optional
 
     :param bar: Attach the :class:`Field` to this :class:`Bar`
-    :type bar: Bar, optional
+    :type bar: :class:`Bar`, optional
 
-    :param args: Positional args passed to :param:`func`
-    :type args: Args, optional
+    :param args: Positional args passed to `func`
+    :type args: :class:`Args`, optional
 
-    :param kwargs: Keyword args passed to :param:`func`
-    :type kwargs: Kwargs, optional
+    :param kwargs: Keyword args passed to `func`
+    :type kwargs: :class:`Kwargs`, optional
 
-    :param setup: A special callback that updates :param:`kwargs` with static data that :param:`func` would have to evaluate every time it runs
-    # :type setup: Callable[P, P.kwargs]
-    :type setup: Callable[P, Kwargs], optional
-        # , optional
+    :param setup: A special callback that updates `kwargs` with static data that `func` would have to evaluate every time it runs
+    :type setup: :class:`Callable[P, Kwargs]`, optional # :type setup: :class:`Callable[P, P.kwargs]`, optional
 
     :param icons: A pair of icons for non-TTY and TTY output streams, respectively
-    :type icons: Sequence[PTY_Icon, TTY_Icon], optional
+    :type icons: :class:Sequence[:class:`PTY_Icon`, :class:`TTY_Icon`], optional
 
     '''
 
@@ -209,8 +207,8 @@ class Field:
         overrides_refresh: bool = False,
         threaded: bool = False,
         always_show_icon: bool = False,
-        constant_output: str = None,
         run_once: bool = False,
+        constant_output: str = None,
         bar: Bar_T = None,
         args: Args = None,
         kwargs: Kwargs = None,
@@ -303,7 +301,7 @@ class Field:
         :type source: :class:`dict[FieldName, FieldSpec]`
         :returns: A new :class:`Field`
         :rtype: :class:`Field`
-        :raises: :class:`DefaultFieldNotFoundError` when :param:`name` is not in :param:`source`
+        :raises: :class:`DefaultFieldNotFoundError` when `name` is not in `source`
         '''
         if source is None:
             source = cls._default_fields
