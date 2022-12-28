@@ -49,6 +49,7 @@ from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 B = TypeVar('B')
 Bar = TypeVar('Bar')
 T = TypeVar('T')
+Template = TypeVar('Template')
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
@@ -707,13 +708,12 @@ class Template:
         return f"<{cls} {maybe_file}{bar_spec=}>"
 
     @classmethod
-    def from_file(cls: T,
+    def from_file(cls: Template,
         file: os.PathLike = None,
         defaults: TemplateSpec = None,
         overrides: TemplateSpec = {}
-    ) -> T:
+    ) -> Template:
         '''
-        Return a new Template from a config file path.
         Return a new :class:`Template` from a config file path.
 
         :param file: The filepath to the config file,
@@ -748,13 +748,21 @@ class Template:
             cls.write_file(absolute, overrides, defaults)
 
         options = file_spec | overrides
-        cfg = cls(options, defaults)
-        cfg.file = absolute
-        return cfg
+        t = cls(options, defaults)
+        t.file = absolute
+        return t
 
     @staticmethod
     def read_file(file: os.PathLike) -> tuple[TemplateSpec, JSONText]:
         '''
+        Read a given config file.
+        Convert its JSON contents to a dict and return it along with the
+        raw text of the file.
+
+        :param file: The file to convert
+        :type file: :class:`os.PathLike`
+        :returns: The converted file and its raw text
+        :rtype: tuple[:class:`TemplateSpec`, :class:`JSONText`]
         '''
         with open(file, 'r') as f:
             data = json.load(f)
@@ -767,7 +775,15 @@ class Template:
         obj: TemplateSpec = {},
         defaults: BarSpec = None
     ) -> None:
-        '''
+        '''Write :class:`TemplateSpec` params to a JSON file.
+
+        :param file: The file to write to
+        :type file: :class:`os.PathLike`
+        :param obj: The :class:`TemplateSpec` to write
+        :type obj: :class:`TemplateSpec`, optional
+        :param defaults: Any default parameters that `obj` should override,
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`BarSpec`
         '''
         if defaults is None:
             defaults = Bar._default_params.copy()
@@ -793,7 +809,10 @@ class Template:
 
 
 def run(once: bool = False) -> None:
-    '''Generate a bar from the default config file and run it in STDOUT.
+    '''Generate a new :class:`Bar` from the default config file and run it in STDOUT.
+
+    :param once: Run the bar only once, defaults to ``False``
+    :type once: :class:`bool`
     '''
     # bar = Bar.from_dict(Bar._default_params)
     cfg = Template.from_file(CONFIG_FILE)
