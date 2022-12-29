@@ -116,7 +116,6 @@ class Field:
                 'fmt': '{days}d:{hours}h:{mins}m',
                 'sep': ':'
             },
-            'align_to_seconds': True,
             'icon': 'Up '
         },
 
@@ -168,7 +167,6 @@ class Field:
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
-            'align_to_seconds': True
         }
 
     }
