@@ -29,27 +29,35 @@ from .utils import join_options
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias
 
-ParserLiteral: TypeAlias = str|None
-ParserFname: TypeAlias = str|None
-ParserFormatSpec: TypeAlias = str|None
-ParserConversion: TypeAlias = str|None
-FieldStructure_T: TypeAlias = tuple[tuple[tuple[
-    ParserLiteral,
-    ParserFname,
-    ParserFormatSpec,
-    ParserConversion
+
+FormatterLiteral: TypeAlias = str|None
+FormatterFname: TypeAlias = str|None
+FormatterFormatSpec: TypeAlias = str|None
+FormatterConversion: TypeAlias = str|None
+FmtStrStructure: TypeAlias = tuple[tuple[tuple[
+    FormatterLiteral,
+    FormatterFname,
+    FormatterFormatSpec,
+    FormatterConversion
 ]]]
 
 NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
 NmConnFilterSpec: TypeAlias = Iterable[NmConnIDSpecifier]
 
-TimeUnit: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
+Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
 
 POWERS_OF_1K = {
     'G': 3,
     'M': 2,
     'K': 1
 }
+
+
+
+##class Func:
+##    f: Callable
+##    s: Setup
+##    pass
 
 # Field functions
 
@@ -323,7 +331,7 @@ async def get_uptime(
     )
     return out
 
-def _secs_to_dhms_dict(secs: int, reps) -> dict[TimeUnit, int]:
+def _secs_to_dhms_dict(secs: int, reps: int) -> dict[Duration, int]:
     table = {'secs': secs}
     # Get the field names in the right order:
     # indexes = tuple(keys.index(f) for f in fields)
@@ -343,17 +351,17 @@ def _secs_to_dhms_dict(secs: int, reps) -> dict[TimeUnit, int]:
 
 def _format_numerical_fields(
     lookup_table: dict[str, int|float],
-    fmt: str,
+    fmt: FormatStr,
     sep: str,
 
     # setup_uptime() supplies the following two args to avoid having to parse
     # the format string at each interval.
 
     # The list of format string field names:
-    fnames: Iterable[str],
+    fnames: Iterable[FormatterFname],
     # The nested tuple of deconstructed format string field data after going
     # through sep.split() and string.Formatter().parse():
-    deconstructed: FieldStructure_T,
+    deconstructed: FmtStrStructure,
     dynamic: bool = True
 ) -> str:
     '''Fornat a dict of numbers according to a format string by parsing

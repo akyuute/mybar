@@ -1,5 +1,5 @@
-import psutil
 from string import Formatter
+import psutil
 
 from .errors import (
     BrokenFormatStringError,
@@ -10,71 +10,35 @@ from .errors import (
 from .types import FormatStr
 from .utils import join_options, make_error_message
 
-from typing import TypeAlias
+from typing import Generic, Literal, TypeAlias, TypeVar, TypeVarTuple
+
+FormatterLiteral: TypeAlias = str|None
+FormatterFname: TypeAlias = str|None
+FormatterFormatSpec: TypeAlias = str|None
+FormatterConversion: TypeAlias = str|None
+FmtStrStructure: TypeAlias = tuple[tuple[tuple[
+    FormatterLiteral,
+    FormatterFname,
+    FormatterFormatSpec,
+    FormatterConversion
+]]]
+
+Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
 
 
 FORMATTER = Formatter()
 
-##def setup_cpu_usage(
-##    in_fahrenheit: bool = False,
-##    *args,
-##    **kwargs
-##):
-##    setupvars = {}
-##
-##    temps = psutil.sensors_temperatures(in_fahrenheit)
-##    match temps:
-##        case {'k10temp': t} | {'coretemp': t}:
-##            current = t[0].current
-##        case _:
-##            current = '??'
-##
-##    return fmt.format(current, symbol)
+# T = TypeVar('T')
+Ts = TypeVarTuple('Ts')
+# class SetupVars(Generic[Ts]):
+class SetupVars:
+    def __class_getitem__(cls, keys):
+        # return f"{cls.__name__}[{', '.join(type(i).__name__ for i in items)}]"
+        cls.__args__ = keys
+        return cls
 
-##def setup_mem_usage(
-##    prec: int = 1,
-##    measure: str = 'used',
-##    unit: str = 'G',
-##    fmt: str = "{:.{}f}{}",
-##    *args,
-##    **kwargs
-##):
-##    setupvars = {}
-##
-##    if unit not in UNITS:
-##        raise InvalidArgError(
-##            f"Invalid unit: {unit!r}\n"
-##            f"'unit' must be one of "
-##            f"{join_options(UNITS, quote=True)}."
-##        )
-##
-##    disk = psutil.disk_usage(path)
-##    statistic = getattr(disk, measure, None)
-##    if statistic is None:
-##        raise InvalidArgError(
-##            f"Invalid measure on this operating system: {measure!r}.\n"
-##            f"measure must be one of "
-##            f"{join_options(statistic._fields, quote=True)}"
-##        )
-##
-##    setupvars.update(
-##        unit=unit,
-##        measure=measure,
-##    )
-
-
-
-ParserLiteral: TypeAlias = str|None
-ParserFname: TypeAlias = str|None
-ParserFormatSpec: TypeAlias = str|None
-ParserConversion: TypeAlias = str|None
-FieldStructure_T: TypeAlias = tuple[tuple[tuple[
-    ParserLiteral,
-    ParserFname,
-    ParserFormatSpec,
-    ParserConversion
-]]]
-
+# SetupVars: TypeAlias = dict[*Ts]
+# SetupVars: TypeAlias = dict[str, T]
 
 
 async def setup_uptime(
@@ -83,7 +47,7 @@ async def setup_uptime(
     sep: str = None,
     *args,
     **kwargs
-):
+) -> SetupVars[list[Duration], int, FmtStrStructure]:
     setupvars = {}
 
     fnames = [name for tup in FORMATTER.parse(fmt) if (name := tup[1])]
@@ -174,4 +138,52 @@ def _is_malformed(piece: FormatStr):
     except ValueError:
         return True
     return False
+
+
+##def setup_cpu_usage(
+##    in_fahrenheit: bool = False,
+##    *args,
+##    **kwargs
+##):
+##    setupvars = {}
+##
+##    temps = psutil.sensors_temperatures(in_fahrenheit)
+##    match temps:
+##        case {'k10temp': t} | {'coretemp': t}:
+##            current = t[0].current
+##        case _:
+##            current = '??'
+##
+##    return fmt.format(current, symbol)
+
+##def setup_mem_usage(
+##    prec: int = 1,
+##    measure: str = 'used',
+##    unit: str = 'G',
+##    fmt: str = "{:.{}f}{}",
+##    *args,
+##    **kwargs
+##):
+##    setupvars = {}
+##
+##    if unit not in UNITS:
+##        raise InvalidArgError(
+##            f"Invalid unit: {unit!r}\n"
+##            f"'unit' must be one of "
+##            f"{join_options(UNITS, quote=True)}."
+##        )
+##
+##    disk = psutil.disk_usage(path)
+##    statistic = getattr(disk, measure, None)
+##    if statistic is None:
+##        raise InvalidArgError(
+##            f"Invalid measure on this operating system: {measure!r}.\n"
+##            f"measure must be one of "
+##            f"{join_options(statistic._fields, quote=True)}"
+##        )
+##
+##    setupvars.update(
+##        unit=unit,
+##        measure=measure,
+##    )
 
