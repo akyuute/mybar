@@ -22,7 +22,6 @@ DEBUG: bool = False
 
 
 from . import cli
-from . import field_funcs
 from . import utils
 from .bar import *
 from .errors import *

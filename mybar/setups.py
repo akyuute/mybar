@@ -7,11 +7,11 @@ from .errors import (
     IncompatibleArgsError,
     InvalidFormatStringFieldError,
 )
+from .types import FormatStr
 from .utils import join_options, make_error_message
 
 from typing import TypeAlias
 
-FormatStr: TypeAlias = str
 
 FORMATTER = Formatter()
 
@@ -62,9 +62,24 @@ FORMATTER = Formatter()
 ##        measure=measure,
 ##    )
 
+
+
+ParserLiteral: TypeAlias = str|None
+ParserFname: TypeAlias = str|None
+ParserFormatSpec: TypeAlias = str|None
+ParserConversion: TypeAlias = str|None
+FieldStructure_T: TypeAlias = tuple[tuple[tuple[
+    ParserLiteral,
+    ParserFname,
+    ParserFormatSpec,
+    ParserConversion
+]]]
+
+
+
 async def setup_uptime(
     # kwargs: dict,
-    fmt: str,
+    fmt: FormatStr,
     sep: str = None,
     *args,
     **kwargs
@@ -110,9 +125,7 @@ async def setup_uptime(
     )
 
     if not sep:
-        setupvars.update(
-            dynamic=False,
-        )
+        setupvars.update(dynamic=False)
         return setupvars
 
     # Split fmt for parsing, but join any format specs that get broken:
@@ -149,12 +162,8 @@ async def setup_uptime(
         for parsed in section
         if (name := parsed[1])
     )
-    # print('\n', fnames)
 
-    setupvars.update(
-        deconstructed=deconstructed
-    )
-    # print("\n", setupvars, "\n")
+    setupvars.update(deconstructed=deconstructed)
 
     return setupvars
 

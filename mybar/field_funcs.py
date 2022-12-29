@@ -8,27 +8,26 @@ __all__ = (
     'get_disk_usage',
     'get_battery_info',
     'get_net_stats',
-    'get_audio_volume'
+    # 'get_audio_volume'
 )
 
 
-import psutil
+import os
 import re
 import shlex
 import time
-
 from asyncio import subprocess as aiosp
 from datetime import datetime
-from os import uname
 from string import Formatter
 
+import psutil
+
 from .errors import *
+from .types import Contents, FieldName, FormatStr
 from .utils import join_options
 
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias
-
-FormatStr: TypeAlias = str
 
 ParserLiteral: TypeAlias = str|None
 ParserFname: TypeAlias = str|None
@@ -44,6 +43,7 @@ FieldStructure_T: TypeAlias = tuple[tuple[tuple[
 NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
 NmConnFilterSpec: TypeAlias = Iterable[NmConnIDSpecifier]
 
+TimeUnit: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
 
 POWERS_OF_1K = {
     'G': 3,
@@ -51,17 +51,9 @@ POWERS_OF_1K = {
     'K': 1
 }
 
-DURATION_SWITCH = [
-    ('mins', 'secs', 60),
-    ('hours', 'mins', 60),
-    ('days', 'hours', 24),
-    ('weeks', 'days', 7),
-]
-
-
 # Field functions
 
-async def get_audio_volume(fmt="{:02.0f}{state}", *args, **kwargs):
+async def get_audio_volume(fmt="{:02.0f}{state}", *args, **kwargs) -> Contents:
     '''Currently awaiting a more practical implementation that supports
     instantaneous updates. A socket would be quite nice for that.'''
 ##    '''Returns system audio volume from ALSA amixer. SIGUSR1 is used to
@@ -91,7 +83,7 @@ async def get_battery_info(
     fmt: str = "{:02.{}f}",
     *args,
     **kwargs
-):
+) -> Contents:
     '''Returns battery capacity as a percent and whether it is charging
     or discharging.'''
 
@@ -117,7 +109,7 @@ async def get_cpu_temp(
     in_fahrenheit=False,
     *args,
     **kwargs
-):
+) -> Contents:
     '''Returns current CPU temperature in Celcius or Fahrenheit.'''
     symbols = ('C', 'F')
     symbol = symbols[in_fahrenheit]
@@ -135,15 +127,23 @@ async def get_cpu_usage(
     fmt = "{:02.0f}%",
     *args,
     **kwargs
-):
+) -> Contents:
     '''Returns system CPU usage in percent over a specified interval.'''
     return fmt.format(psutil.cpu_percent(interval))
 
-async def get_datetime(fmt: str = "%Y-%m-%d %H:%M:%S", *args, **kwargs):
+async def get_datetime(
+    fmt: str = "%Y-%m-%d %H:%M:%S",
+    *args,
+    **kwargs
+) -> Contents:
     '''Return the current time as formatted with `fmt`.'''
     return datetime.now().strftime(fmt)
 
-def precision_datetime(fmt: str = "%Y-%m-%d %H:%M:%S.%f", *args, **kwargs):
+def precision_datetime(
+    fmt: str = "%Y-%m-%d %H:%M:%S.%f",
+    *args,
+    **kwargs
+) -> Contents:
     '''Return the current time as formatted with `fmt`.
     Being synchronous, a threaded Field can run this with
     align_to_seconds and see less than a millisecond of offset.
@@ -158,7 +158,7 @@ async def get_disk_usage(
     prec: int = 1,
     *args,
     **kwargs
-):
+) -> Contents:
     '''Returns disk usage for a given path.
     Measure can be 'total', 'used', 'free', or 'percent'.
     Units can be 'G', 'M', or 'K'.'''
@@ -184,8 +184,8 @@ async def get_disk_usage(
     return usage
 
 
-async def get_hostname(*args, **kwargs):
-    return uname().nodename
+async def get_hostname(*args, **kwargs) -> Contents:
+    return os.uname().nodename
 
 async def get_mem_usage(
     prec: int = 1,
@@ -194,7 +194,7 @@ async def get_mem_usage(
     fmt: str = "{:.{}f}{}",
     *args,
     **kwargs
-):
+) -> Contents:
     '''Returns total RAM used including buffers and cache in GiB.'''
 
     if unit not in POWERS_OF_1K:
@@ -227,7 +227,7 @@ async def get_net_stats(
     default: str = "",
     *args,
     **kwargs
-):
+) -> Contents:
     '''Returns active network name (and later, stats) from either
     NetworkManager or iwconfig.
     '''
@@ -298,22 +298,21 @@ async def get_net_stats(
 # Uptime
 
 async def get_uptime(
-    #TODO: Raise errors upon invalid field names!
     *,
-    fmt: str,
+    fmt: FormatStr,
     sep: str = None,
     dynamic: bool = True,
     reps: int = 4,
-    fnames: Iterable[str] = None,
+    fnames: Iterable[FieldName] = None,
     deconstructed: Iterable = None,
-):
+) -> Contents:
     # n = time.time() - psutil.boot_time()
     n = int(time.time() - psutil.boot_time())
-    lookup_table = await _secs_to_dhms_dict(n, reps)
+    lookup_table = _secs_to_dhms_dict(n, reps)
     if not dynamic or sep is None:
         return fmt.format_map(lookup_table)
 
-    out = await _format_numerical_fields(
+    out = _format_numerical_fields(
         lookup_table=lookup_table,
         fmt=fmt,
         sep=sep,
@@ -324,18 +323,25 @@ async def get_uptime(
     )
     return out
 
-async def _secs_to_dhms_dict(n, reps):
-    table = {'secs': n}
+def _secs_to_dhms_dict(secs: int, reps) -> dict[TimeUnit, int]:
+    table = {'secs': secs}
     # Get the field names in the right order:
     # indexes = tuple(keys.index(f) for f in fields)
     # granularity = keys[min(indexes)]
     # reps = max(indexes)
+    duration_switch = (
+        ('mins', 'secs', 60),
+        ('hours', 'mins', 60),
+        ('days', 'hours', 24),
+        ('weeks', 'days', 7),
+    )
+
     for i in range(reps):
-        fname, prev, mod = DURATION_SWITCH[i]
+        fname, prev, mod = duration_switch[i]
         table[fname], table[prev] = divmod(table[prev], mod)
     return table
 
-async def _format_numerical_fields(
+def _format_numerical_fields(
     lookup_table: dict[str, int|float],
     fmt: str,
     sep: str,

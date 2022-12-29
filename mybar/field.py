@@ -105,7 +105,7 @@ class Field:
         'hostname': {
             'name': 'hostname',
             'func': field_funcs.get_hostname,
-            'interval': 10
+            'run_once': True
         },
 
         'uptime': {
@@ -117,7 +117,7 @@ class Field:
                 'sep': ':'
             },
             'align_to_seconds': True,
-            'icon': 'Up ',
+            'icon': 'Up '
         },
 
         'cpu_usage': {
@@ -125,7 +125,7 @@ class Field:
             'func': field_funcs.get_cpu_usage,
             'interval': 2,
             'threaded': True,
-            'icon': 'CPU ',
+            'icon': 'CPU '
         },
 
         'cpu_temp': {
@@ -169,7 +169,7 @@ class Field:
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
             'align_to_seconds': True
-        },
+        }
 
     }
 
