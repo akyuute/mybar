@@ -811,7 +811,7 @@ class Template:
 def run(once: bool = False) -> None:
     '''Generate a new :class:`Bar` from the default config file and run it in STDOUT.
 
-    :param once: Run the bar only once, defaults to ``False``
+    :param once: Print the bar only once, defaults to ``False``
     :type once: :class:`bool`
     '''
     # bar = Bar.from_dict(Bar._default_params)

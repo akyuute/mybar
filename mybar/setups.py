@@ -10,7 +10,7 @@ from .errors import (
 from .types import FormatStr
 from .utils import join_options, make_error_message
 
-from typing import Generic, Literal, TypeAlias, TypeVar, TypeVarTuple
+from typing import Generic, Literal, NewType, TypeAlias, TypeVar, TypeVarTuple
 
 FormatterLiteral: TypeAlias = str|None
 FormatterFname: TypeAlias = str|None
@@ -28,7 +28,7 @@ Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
 
 FORMATTER = Formatter()
 
-# T = TypeVar('T')
+T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
 # class SetupVars(Generic[Ts]):
 class SetupVars:
@@ -39,6 +39,7 @@ class SetupVars:
 
 # SetupVars: TypeAlias = dict[*Ts]
 # SetupVars: TypeAlias = dict[str, T]
+SetupVars = NewType('SetupVars', dict[str, T])
 
 
 async def setup_uptime(
@@ -47,7 +48,7 @@ async def setup_uptime(
     sep: str = None,
     *args,
     **kwargs
-) -> SetupVars[list[Duration], int, FmtStrStructure]:
+    ) -> SetupVars :#[list[Duration], int, FmtStrStructure]:
     setupvars = {}
 
     fnames = [name for tup in FORMATTER.parse(fmt) if (name := tup[1])]

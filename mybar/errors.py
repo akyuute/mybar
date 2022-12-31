@@ -55,7 +55,12 @@ class UndefinedFieldError(LookupError):
 
 
 class FatalError(Exception):
-    '''Base class for errors that cause the CLI program to exit.'''
+    '''
+    Base class for errors that cause the CLI program to exit.
+
+    :param msg: The error message to issue when exiting
+    :type msg: :class:`str`
+    '''
     def __init__(self, msg: str) -> None:
         super().__init__()
         self.msg = msg
@@ -66,16 +71,25 @@ class CLIUsageError(FatalError):
 
 
 class AskWriteNewFile(Exception):
-    '''Raised when :meth:`Template.from_file` is given a broken config file path.
+    '''
+    Raised when :meth:`Template.from_file` is given a broken config file path.
     This allows the command line utility to ask the user if they would
     like the config file automatically written.
+
+    :param requested_file: The nonexistent file requested by user input
+    :type requested_file: :class:`PathLike`
     '''
     def __init__(self, requested_file: PathLike) -> None:
         self.requested_file = requested_file
 
+
 class FailedSetup(Exception):
-    '''Raised when a setup function cannot produce a suitable value.
+    '''
+    Raised by a setup function when it cannot return a suitable value.
     :meth:`Field.run` uses `backup` for the :class:`Bar` buffer value instead.
+
+    :param backup: The field contents to use instead of the setup function return value
+    :type backup: :class:`str`
     '''
     def __init__(self, backup: Contents) -> None:
         self.backup = backup

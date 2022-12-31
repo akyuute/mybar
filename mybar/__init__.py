@@ -17,7 +17,7 @@ __license__ = 'MIT'
 __copyright__ = "Copyright (c) 2021-present SleepyAbsol"
 
 
-CONFIG_FILE: str = '~/.mybar.json'
+CONFIG_FILE: str = '~/.mybar.json'  # The default bar config file path
 DEBUG: bool = False
 
 

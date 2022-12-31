@@ -6,22 +6,10 @@ API Reference
 The following section outlines the API of mybar.
 
 
+mybar.run()
+------------
+
 .. autofunction:: run
-
-
-Constants
-----------
-
-.. code:: py
-
-    CONFIG_FILE: str = '~/.mybar.json'
-    # Unix terminal escape code (control sequence introducer):
-    CSI: ConsoleControlCode = '\033['
-    CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
-    HIDE_CURSOR: ConsoleControlCode = '?25l'
-    UNHIDE_CURSOR: ConsoleControlCode = '?25h'
-
-
 
 
 Bars
@@ -32,8 +20,8 @@ Bars
    :exclude-members: __init__
 
 .. autoclass:: Template
-   :exclude-members: __init__
    :members:
+   :exclude-members: __init__
 
 
 Fields
@@ -48,8 +36,8 @@ Command Line Tools
 -------------------
 
 .. automodule:: mybar.cli
-   :exclude-members: __init__
    :members:
+   :exclude-members: __init__
 
 
 Exceptions
@@ -57,8 +45,7 @@ Exceptions
 
 .. automodule:: mybar.errors
    :members:
-
-autoexception
+   :exclude-members: __init__
 
 
 Custom Types
