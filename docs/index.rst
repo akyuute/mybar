@@ -12,6 +12,7 @@ Welcome to mybar's documentation!
 
    install
    cli
+   usage
    bars
    fields
    configuration

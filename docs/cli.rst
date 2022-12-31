@@ -94,3 +94,10 @@ Run the bar using a custom format string:
     $ python -m mybar -m '{uptime}! [{cpu_usage}/{cpu_temp}]; {datetime}'
     Up 6d:11h:37m! [CPU 01%/36C]; 2022-12-28 01:37:58
 
+
+
+
+.. seealso::
+
+   The :doc:`configuration` page shows more comprehensive customization options through the use of config files.
+
