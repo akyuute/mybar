@@ -21,10 +21,8 @@ CONFIG_FILE: str = '~/.mybar.json'  # The default bar config file path
 DEBUG: bool = False
 
 
-from . import cli
 from . import utils
 from .bar import *
-from .errors import *
 from .field import *
 
 

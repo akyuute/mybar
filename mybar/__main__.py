@@ -1,18 +1,19 @@
 import sys
 from typing import NoReturn
 
-from . import cli, Bar
+from .bar import Bar, from_cli
 
 
-def main() -> None | NoReturn:
+def main() -> NoReturn | None:
     '''Run the command line utility.'''
     try:
-        cfg = cli.get_config()
+        bar = from_cli()
     except KeyboardInterrupt:
         print()
         sys.exit(1)
-    bar = Bar.from_dict(cfg.bar_spec)
     bar.run()
 
-main()
+
+if __name__ == '__main__':
+    main()
 

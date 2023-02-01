@@ -1,7 +1,7 @@
 from os import PathLike
 from typing import Any, IO
 
-from .types import Contents, FieldSpec
+from ._types import Contents, FieldSpec
 
 
 class BrokenFormatStringError(ValueError):

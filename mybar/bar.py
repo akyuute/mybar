@@ -6,8 +6,8 @@
 
 __all__ = (
     'Bar',
-    'Template',
     'run',
+    'from_cli',
 )
 
 
@@ -21,12 +21,13 @@ from copy import deepcopy
 from string import Formatter
 
 from . import CONFIG_FILE, DEBUG
+from . import cli
 from . import utils
 from .errors import *
 from .field import Field
-from .types import (
+from ._types import (
     BarSpec,
-    TemplateSpec,
+    BarTemplateSpec,
     Separator,
     PTY_Separator,
     TTY_Separator,
@@ -49,13 +50,205 @@ from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 B = TypeVar('B')
 Bar = TypeVar('Bar')
 T = TypeVar('T')
-Template = TypeVar('Template')
+BarTemplate = TypeVar('BarTemplate')
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
 CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
+
+
+class BarTemplate(dict):
+    '''
+    Build and transport Bar configs between files, dicts and command line args.
+
+    :param options: Optional :class:`BarTemplateSpec` parameters that override those of `defaults`
+    :type options: :class:`BarTemplateSpec`
+
+    :param defaults: Parameters to use by default,
+        defaults to :attr:`Bar._default_params`
+    :type defaults: :class:`dict`
+
+    .. note:: `options` and `defaults` must be :class:`dict` instances of form :class:`BarTemplateSpec`
+
+    '''
+
+    def __init__(self,
+        options: BarTemplateSpec = {},
+        defaults: BarTemplateSpec = None,
+    ) -> None:
+        if defaults is None:
+            self.defaults = Bar._default_params.copy()
+        else:
+            self.defaults = defaults.copy()
+        self.options = options.copy()
+
+        # self.bar_spec = self.defaults | self.options
+        self.update(self.defaults | self.options)
+        self.file = None
+        debug = self.options.pop('debug', None) or DEBUG
+
+    def __repr__(self) -> str:
+        cls = type(self).__name__
+        file = self.file
+        maybe_file = f"{file=}, " if file else ""
+        bar_spec = {**self}
+        return f"<{cls} {maybe_file}{bar_spec=}>"
+
+    @classmethod
+    def from_file(cls: BarTemplate,
+        file: PathLike = None,
+        defaults: BarTemplateSpec = None,
+        overrides: BarTemplateSpec = {}
+    ) -> BarTemplate:
+        '''
+        Return a new :class:`BarTemplate` from a config file path.
+
+        :param file: The filepath to the config file,
+            defaults to ``'~/.mybar.json'``
+        :type file: :class:`PathLike`
+
+        :param defaults: The base :class:`BarTemplateSpec` dict whose
+            params the new :class:`BarTemplate` will override,
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`BarTemplateSpec`
+
+        :param overrides: Additional param overrides to the config file
+        :type overrides: :class:`BarTemplateSpec`
+
+        :returns: A new :class:`BarTemplate` instance
+        :rtype: :class:`BarTemplate`
+        :raises: :class:`AskWriteNewFile` to ask the user for write
+            permission when the requested file path does not exist
+        '''
+        if defaults is None:
+            defaults = Bar._default_params
+        overrides = overrides.copy()
+
+        file_given = True if file or 'config_file' in overrides else False
+        if file is None:
+            file = overrides.pop('config_file', CONFIG_FILE)
+
+        file_spec = {}
+        absolute = os.path.abspath(os.path.expanduser(file))
+        if os.path.exists(absolute):
+            file_spec, text = cls.read_file(absolute)
+        elif file_given:
+            raise AskWriteNewFile(absolute)
+        else:
+            cls.write_file(absolute, overrides, defaults)
+
+        options = file_spec | overrides
+        t = cls(options, defaults)
+        t.file = absolute
+        return t
+
+    @classmethod
+    def from_stdin(cls: BarTemplate,
+        write_new_file_dft: bool = False
+    ) -> BarTemplate:
+        '''Return a new :class:`BarTemplate` using args from STDIN.
+        Prompt the user before writing a new config file if one does
+        not exist.
+
+        :param write_new_file_dft: Write new files by default,
+            defaults to ``False``
+        :type write_new_file_dft: :class:`bool`
+
+        :returns: A new :class:`BarTemplate`
+        :rtype: :class:`BarTemplate`
+        '''
+        parser = cli.Parser()
+        try:
+            bar_options = parser.parse_args()
+
+        except FatalError as e:
+            parser.error(e.msg)
+
+        except OSError as e:
+            err = f"{parser.prog}: error: {e}"
+            parser.quit(err)
+
+        try:
+            template = cls.from_file(overrides=bar_options)
+
+        except AskWriteNewFile as e:
+            file = e.requested_file
+            errmsg = (
+                f"{parser.prog}: error: \n"
+                f"The config file at {file} does not exist."
+            )
+            question = "Would you like to make it now?"
+            write_options = {'y': True, 'n': False}
+            default = 'ny'[write_new_file_dft]
+            handler = cli.OptionsAsker(write_options, default, question)
+
+            print(errmsg)
+            write_new_file = handler.ask()
+            if write_new_file:
+                cls.write_file(file, bar_options)
+                print(f"Wrote new config file at {file}")
+                template = cls.from_file(file)
+            else:
+                parser.quit()
+
+        return template
+
+    @staticmethod
+    def read_file(file: PathLike) -> tuple[BarTemplateSpec, JSONText]:
+        '''
+        Read a given config file.
+        Convert its JSON contents to a dict and return it along with the
+        raw text of the file.
+
+        :param file: The file to convert
+        :type file: :class:`PathLike`
+        :returns: The converted file and its raw text
+        :rtype: tuple[:class:`BarTemplateSpec`, :class:`JSONText`]
+        '''
+        with open(file, 'r') as f:
+            data = json.load(f)
+            text = f.read()
+        return data, text
+
+    @staticmethod
+    def write_file(
+        file: PathLike,
+        obj: BarTemplateSpec = {},
+        defaults: BarSpec = None
+    ) -> None:
+        '''Write :class:`BarTemplateSpec` params to a JSON file.
+
+        :param file: The file to write to
+        :type file: :class:`PathLike`
+        :param obj: The :class:`BarTemplateSpec` to write
+        :type obj: :class:`BarTemplateSpec`, optional
+        :param defaults: Any default parameters that `obj` should override,
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`BarSpec`
+        '''
+        if defaults is None:
+            defaults = Bar._default_params.copy()
+
+        obj = obj.copy()
+        obj.pop('config_file', None)
+        obj = defaults | obj
+
+        dft_fields = Field._default_fields.copy()
+
+        for name, field in dft_fields.items():
+            new = dft_fields[name] = field.copy()
+            for param in ('name', 'func', 'setup'):
+                try:
+                    del new[param]
+                except KeyError:
+                    pass
+
+        obj['field_definitions'] = dft_fields
+
+        with open(os.path.expanduser(file), 'w') as f:
+            json.dump(obj, f, indent=4, ) #separators=(',\n', ': '))
 
 
 class Bar:
@@ -149,6 +342,8 @@ class Bar:
 
         # Set this to use different seps for different output streams:
         separators: Sequence[PTY_Separator, TTY_Separator] = None,
+
+        debug: bool = DEBUG,  # Not yet implemented!
     ) -> None:
         # Ensure the output stream has the required methods:
         io_methods = ('write', 'flush', 'isatty')
@@ -358,6 +553,17 @@ class Bar:
             fields.append(field)
 
         return cls(fields=fields, **bar_params)
+
+    @classmethod
+    def from_file(cls: Bar, file: os.PathLike) -> Bar:
+        '''
+        Generate a new :class:`Bar` by reading a config file.
+
+        :param file: The config file to read
+        :type file: :class:`os.PathLike`
+        '''
+        template = BarTemplate.from_file(file)
+        return cls.from_dict(template)
 
     @property
     def clearline_char(self) -> str:
@@ -672,150 +878,28 @@ class Bar:
         stream.flush()
 
 
-class Template:
+def from_cli() -> Bar:
     '''
-    Build and transport Bar configs between files, dicts and command line args.
+    Return a new :class:`Bar` using command line arguments.
 
-    :param options: Optional :class:`TemplateSpec` parameters that override those of `defaults`
-    :type options: :class:`TemplateSpec`
-    :param defaults: Parameters to use by default,
-        defaults to :attr:`Bar._default_params`
-    :type defaults: :class:`dict`
-
-    .. note:: `options` and `defaults` must be :class:`dict` instances of form :class:`TemplateSpec`
-
+    :returns: a new :class:`Bar` using command line arguments
+    :rtype: :class:`Bar`
     '''
-
-    def __init__(self,
-        options: TemplateSpec = {},
-        defaults: TemplateSpec = None,
-    ) -> None:
-        if defaults is None:
-            self.defaults = Bar._default_params.copy()
-        else:
-            self.defaults = defaults.copy()
-        self.options = options.copy()
-
-        self.bar_spec = self.defaults | self.options
-        self.file = None
-        debug = self.options.pop('debug', None) or DEBUG
-
-    def __repr__(self) -> str:
-        cls = type(self).__name__
-        file = self.file
-        maybe_file = f"{file=}, " if file else ""
-        bar_spec = self.bar_spec
-        return f"<{cls} {maybe_file}{bar_spec=}>"
-
-    @classmethod
-    def from_file(cls: Template,
-        file: os.PathLike = None,
-        defaults: TemplateSpec = None,
-        overrides: TemplateSpec = {}
-    ) -> Template:
-        '''
-        Return a new :class:`Template` from a config file path.
-
-        :param file: The filepath to the config file,
-            defaults to ``'~/.mybar.json'``
-        :type file: :class:`os.PathLike`
-        :param defaults: The base :class:`TemplateSpec` dict whose
-            params the new :class:`Template` will override,
-            defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`TemplateSpec`
-        :param overrides: Additional param overrides to the config file
-        :type overrides: :class:`TemplateSpec`
-        :returns: A new :class:`Template` instance
-        :rtype: :class:`Template`
-        :raises: :class:`AskWriteNewFile` to ask the user for write
-            permission when the requested file path does not exist
-        '''
-        if defaults is None:
-            defaults = Bar._default_params
-        overrides = overrides.copy()
-
-        file_given = True if file or 'config_file' in overrides else False
-        if file is None:
-            file = overrides.pop('config_file', CONFIG_FILE)
-
-        file_spec = {}
-        absolute = os.path.abspath(os.path.expanduser(file))
-        if os.path.exists(absolute):
-            file_spec, text = cls.read_file(absolute)
-        elif file_given:
-            raise AskWriteNewFile(absolute)
-        else:
-            cls.write_file(absolute, overrides, defaults)
-
-        options = file_spec | overrides
-        t = cls(options, defaults)
-        t.file = absolute
-        return t
-
-    @staticmethod
-    def read_file(file: os.PathLike) -> tuple[TemplateSpec, JSONText]:
-        '''
-        Read a given config file.
-        Convert its JSON contents to a dict and return it along with the
-        raw text of the file.
-
-        :param file: The file to convert
-        :type file: :class:`os.PathLike`
-        :returns: The converted file and its raw text
-        :rtype: tuple[:class:`TemplateSpec`, :class:`JSONText`]
-        '''
-        with open(file, 'r') as f:
-            data = json.load(f)
-            text = f.read()
-        return data, text
-
-    @staticmethod
-    def write_file(
-        file: os.PathLike,
-        obj: TemplateSpec = {},
-        defaults: BarSpec = None
-    ) -> None:
-        '''Write :class:`TemplateSpec` params to a JSON file.
-
-        :param file: The file to write to
-        :type file: :class:`os.PathLike`
-        :param obj: The :class:`TemplateSpec` to write
-        :type obj: :class:`TemplateSpec`, optional
-        :param defaults: Any default parameters that `obj` should override,
-            defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`BarSpec`
-        '''
-        if defaults is None:
-            defaults = Bar._default_params.copy()
-
-        obj = obj.copy()
-        obj.pop('config_file', None)
-        obj = defaults | obj
-
-        dft_fields = Field._default_fields.copy()
-
-        for name, field in dft_fields.items():
-            new = dft_fields[name] = field.copy()
-            for param in ('name', 'func', 'setup'):
-                try:
-                    del new[param]
-                except KeyError:
-                    pass
-
-        obj['field_definitions'] = dft_fields
-
-        with open(os.path.expanduser(file), 'w') as f:
-            json.dump(obj, f, indent=4, ) #separators=(',\n', ': '))
+    template = BarTemplate.from_stdin()
+    return Bar.from_dict(template)
 
 
-def run(once: bool = False) -> None:
-    '''Generate a new :class:`Bar` from the default config file and run it in STDOUT.
+def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
+    '''
+    Generate a new :class:`Bar` from the default config file and run it in STDOUT.
 
     :param once: Print the bar only once, defaults to ``False``
     :type once: :class:`bool`
+
+    :param file: The config file to source, defaults to :attr:`mybar.CONFIG_FILE`
+    :type file: :class:`os.PathLike`
     '''
-    # bar = Bar.from_dict(Bar._default_params)
-    cfg = Template.from_file(CONFIG_FILE)
-    bar = Bar.from_dict(cfg.bar_spec)
+    template = BarTemplate.from_file(CONFIG_FILE)
+    bar = Bar.from_dict(template)
     bar.run(once=once)
 

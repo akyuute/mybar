@@ -1,19 +1,17 @@
 __all__ = (
     'Parser',
     'OptionsAsker',
-    'get_config'
 )
 
 
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
 
-from .bar import Bar, Template
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
+from ._types import BarTemplateSpec
 
 from typing import Any, Callable, NoReturn, TypeAlias
 
-TemplateSpec: TypeAlias = dict
 OptName: TypeAlias = str
 OptSpec: TypeAlias = dict[OptName, Any]
 
@@ -41,7 +39,7 @@ class Parser(ArgumentParser):
         )
         self.add_arguments()
 
-    def parse_args(self, args: None | list[str] = None) -> TemplateSpec:
+    def parse_args(self, args: None | list[str] = None) -> BarTemplateSpec:
         '''Parse command line arguments and return a dict of options.'''
         # Use vars() because dict items are more portable than attrs.
         opts = vars(super().parse_args(args))
@@ -49,9 +47,9 @@ class Parser(ArgumentParser):
         return params
 
     def process_assignment_args(self,
-        opts: TemplateSpec,
+        opts: BarTemplateSpec,
         assignments: dict[str, str] = None
-    ) -> TemplateSpec:
+    ) -> BarTemplateSpec:
         '''Make dicts from key-value pairs in assignment args.'''
         if assignments is None:
             assignments = self.assignment_arg_map
@@ -234,45 +232,4 @@ class OptionsAsker:
             if not self.case_sensitive:
                 answer = answer.casefold()
         return self.choices.get(answer)
-
-
-def get_config(write_new_file_dft: bool = False) -> Template:
-    '''Return a new Template using args from STDIN.
-    Prompt the user before writing a new config file.
-    '''
-    parser = Parser()
-    try:
-        bar_options = parser.parse_args()
-
-    except FatalError as e:
-        parser.error(e.msg)
-
-    except OSError as e:
-        err = f"{parser.prog}: error: {e}"
-        parser.quit(err)
-
-    try:
-        cfg = Template.from_file(overrides=bar_options)
-
-    except AskWriteNewFile as e:
-        file = e.requested_file
-        errmsg = (
-            f"{parser.prog}: error: \n"
-            f"The config file at {file} does not exist."
-        )
-        question = "Would you like to make it now?"
-        write_options = {'y': True, 'n': False}
-        default = 'ny'[write_new_file_dft]
-        handler = OptionsAsker(write_options, default, question)
-
-        print(errmsg)
-        write_new_file = handler.ask()
-        if write_new_file:
-            Template.write_file(file, bar_options)
-            print(f"Wrote new config file at {file}")
-            cfg = Template.from_file(file)
-        else:
-            parser.quit()
-
-    return cfg
 

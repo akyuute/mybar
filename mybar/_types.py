@@ -1,7 +1,7 @@
 __all__ = (
     'BarSpec',
+    'BarTemplateSpec',
     'Contents'
-    'TemplateSpec',
     'Separator',
     'PTY_Separator',
     'TTY_Separator',
@@ -20,6 +20,7 @@ __all__ = (
 
 
 from collections.abc import Callable, Sequence
+from enum import Enum
 from typing import ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 from os import PathLike
 
@@ -44,8 +45,14 @@ TTY_Icon: TypeAlias = str
 Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
-Bar_T = TypeVar('Bar')
+Bar = TypeVar('Bar')
 P = ParamSpec('P')
+
+
+class ColorEscaping(Enum):
+    ANSI = 'ANSI'
+    POLYBAR = 'POLYBAR'
+
 
 class FieldSpec(TypedDict, total=False):
     '''A dict representation of Field constructor parameters.'''
@@ -60,7 +67,7 @@ class FieldSpec(TypedDict, total=False):
     always_show_icon: bool
     run_once: bool
     constant_output: str
-    bar: Bar_T
+    bar: Bar
     args: Args
     kwargs: Kwargs
     # setup: Callable[P, Kwargs]
@@ -89,7 +96,7 @@ class BarSpec(TypedDict, total=False):
     fmt: FormatStr
 
 
-class TemplateSpec(BarSpec, total=False):
+class BarTemplateSpec(BarSpec, total=False):
     '''A dict representation of bar.Template constructor parameters.'''
     config_file: PathLike
     debug: bool

@@ -7,7 +7,7 @@ from .errors import (
     IncompatibleArgsError,
     InvalidFormatStringFieldError,
 )
-from .types import FormatStr
+from ._types import FormatStr
 from .utils import join_options, make_error_message
 
 from typing import Generic, Literal, NewType, TypeAlias, TypeVar, TypeVarTuple
@@ -25,8 +25,6 @@ FmtStrStructure: TypeAlias = tuple[tuple[tuple[
 
 Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
 
-
-FORMATTER = Formatter()
 
 T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
@@ -51,7 +49,7 @@ async def setup_uptime(
     ) -> SetupVars :#[list[Duration], int, FmtStrStructure]:
     setupvars = {}
 
-    fnames = [name for tup in FORMATTER.parse(fmt) if (name := tup[1])]
+    fnames = [name for tup in Formatter().parse(fmt) if (name := tup[1])]
     if not fnames:
         # Running the Field function is pointless if there are no
         # format string fields and the output is constant.
@@ -117,7 +115,7 @@ async def setup_uptime(
         raise exc from None
 
     deconstructed = tuple(
-        tuple(FORMATTER.parse(section))
+        tuple(Formatter().parse(section))
         for section in sections
     )
 
@@ -135,7 +133,7 @@ async def setup_uptime(
 def _is_malformed(piece: FormatStr):
     '''Return whether piece is a malformed format string.'''
     try:
-        tuple(FORMATTER.parse(piece))
+        tuple(Formatter().parse(piece))
     except ValueError:
         return True
     return False

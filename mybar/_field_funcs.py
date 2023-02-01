@@ -23,8 +23,8 @@ from string import Formatter
 import psutil
 
 from .errors import *
-from .types import Contents, FieldName, FormatStr
 from .utils import join_options
+from ._types import Contents, FieldName, FormatStr
 
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias

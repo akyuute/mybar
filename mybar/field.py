@@ -14,11 +14,11 @@ import threading
 import time
 
 from . import DEBUG
-from . import field_funcs
-from . import setups
+from . import _field_funcs
+from . import _setups
 from . import utils
 from .errors import *
-from .types import (
+from ._types import (
     FieldName,
     FieldSpec,
     Icon,
@@ -104,14 +104,14 @@ class Field:
 
         'hostname': {
             'name': 'hostname',
-            'func': field_funcs.get_hostname,
+            'func': _field_funcs.get_hostname,
             'run_once': True
         },
 
         'uptime': {
             'name': 'uptime',
-            'func': field_funcs.get_uptime,
-            'setup': setups.setup_uptime,
+            'func': _field_funcs.get_uptime,
+            'setup': _setups.setup_uptime,
             'kwargs': {
                 'fmt': '{days}d:{hours}h:{mins}m',
                 'sep': ':'
@@ -121,7 +121,7 @@ class Field:
 
         'cpu_usage': {
             'name': 'cpu_usage',
-            'func': field_funcs.get_cpu_usage,
+            'func': _field_funcs.get_cpu_usage,
             'interval': 2,
             'threaded': True,
             'icon': 'CPU '
@@ -129,41 +129,41 @@ class Field:
 
         'cpu_temp': {
             'name': 'cpu_temp',
-            'func': field_funcs.get_cpu_temp,
+            'func': _field_funcs.get_cpu_temp,
             'interval': 2,
             'threaded': True
         },
 
         'mem_usage': {
             'name': 'mem_usage',
-            'func': field_funcs.get_mem_usage,
+            'func': _field_funcs.get_mem_usage,
             'interval': 2,
             'icon': 'Mem '
         },
 
         'disk_usage': {
             'name': 'disk_usage',
-            'func': field_funcs.get_disk_usage,
+            'func': _field_funcs.get_disk_usage,
             'interval': 4,
             'icon': '/:'
         },
 
         'battery': {
             'name': 'battery',
-            'func': field_funcs.get_battery_info,
+            'func': _field_funcs.get_battery_info,
             'icon': 'Bat '
         },
 
         'net_stats': {
             'name': 'net_stats',
-            'func': field_funcs.get_net_stats,
+            'func': _field_funcs.get_net_stats,
             'interval': 4
         },
 
         'datetime': {
             'name': 'datetime',
-            # 'func': field_funcs.precision_datetime,
-            'func': field_funcs.get_datetime,
+            # 'func': _field_funcs.precision_datetime,
+            'func': _field_funcs.get_datetime,
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
