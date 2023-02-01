@@ -1,13 +1,13 @@
 import sys
 from typing import NoReturn
 
-from .bar import Bar, from_cli
+from .bar import Bar
 
 
 def main() -> NoReturn | None:
     '''Run the command line utility.'''
     try:
-        bar = from_cli()
+        bar = Bar.from_cli()
     except KeyboardInterrupt:
         print()
         sys.exit(1)

@@ -7,7 +7,6 @@
 __all__ = (
     'Bar',
     'run',
-    'from_cli',
 )
 
 
@@ -100,7 +99,7 @@ class BarTemplate(dict):
     def from_file(cls: BarTemplate,
         file: PathLike = None,
         defaults: BarTemplateSpec = None,
-        overrides: BarTemplateSpec = {}
+        overrides: BarTemplateSpec = {},
     ) -> BarTemplate:
         '''
         Return a new :class:`BarTemplate` from a config file path.
@@ -119,8 +118,7 @@ class BarTemplate(dict):
 
         :returns: A new :class:`BarTemplate` instance
         :rtype: :class:`BarTemplate`
-        :raises: :class:`AskWriteNewFile` to ask the user for write
-            permission when the requested file path does not exist
+        :raises: :class:`OSError` for issues with accessing the file
         '''
         if defaults is None:
             defaults = Bar._default_params
@@ -132,12 +130,8 @@ class BarTemplate(dict):
 
         file_spec = {}
         absolute = os.path.abspath(os.path.expanduser(file))
-        if os.path.exists(absolute):
-            file_spec, text = cls.read_file(absolute)
-        elif file_given:
-            raise AskWriteNewFile(absolute)
-        else:
-            cls.write_file(absolute, overrides, defaults)
+        # if os.path.exists(absolute):
+        file_spec, text = cls.read_file(absolute)  # May raise OSError
 
         options = file_spec | overrides
         t = cls(options, defaults)
@@ -167,17 +161,16 @@ class BarTemplate(dict):
             parser.error(e.msg)
 
         except OSError as e:
-            err = f"{parser.prog}: error: {e}"
-            parser.quit(err)
+            parser.quit(e)
 
         try:
             template = cls.from_file(overrides=bar_options)
 
-        except AskWriteNewFile as e:
-            file = e.requested_file
+        except OSError as e:
+            file = e.filename
             errmsg = (
-                f"{parser.prog}: error: \n"
-                f"The config file at {file} does not exist."
+                f"{parser.prog}: error:\n"
+                f"The config file at {file!r} does not exist."
             )
             question = "Would you like to make it now?"
             write_options = {'y': True, 'n': False}
@@ -188,7 +181,7 @@ class BarTemplate(dict):
             write_new_file = handler.ask()
             if write_new_file:
                 cls.write_file(file, bar_options)
-                print(f"Wrote new config file at {file}")
+                print(f"Wrote new config file at {file!r}")
                 template = cls.from_file(file)
             else:
                 parser.quit()
@@ -442,8 +435,8 @@ class Bar:
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_dict(cls: Bar,
-        dct: BarSpec,
+    def from_template(cls: Bar,
+        tmpl: BarSpec,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> Bar:
         '''Make a :class:`Bar` using a dict of :class:`Bar` parameters.
@@ -451,8 +444,8 @@ class Bar:
         which is ``'//'`` by default.
         If :param ignore_with: is ``None``, do not remove any values.
 
-        :param dct: The :class:`dict` to convert
-        :type dct: :class:`dict`
+        :param tmpl: The :class:`dict` to convert
+        :type tmpl: :class:`dict`
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
         :type ignore_with: Pattern | tuple[Pattern] | None, optional
         :returns: A new :class:`Bar`
@@ -467,13 +460,13 @@ class Bar:
         :raises: :class:`InvalidFieldSpecError` when
             a field definition is not of the form :class:`FieldSpec`
 
-        .. note:: `dct` must match the form :class:`BarSpec`.
+        .. note:: `tmpl` must match the form :class:`BarSpec`.
 
         '''
         if ignore_with is None:
-            data = deepcopy(dct)
+            data = deepcopy(tmpl)
         else:
-            data = utils.scrub_comments(dct, ignore_with)
+            data = utils.scrub_comments(tmpl, ignore_with)
 
         bar_params = cls._default_params | data
         field_defs = bar_params.pop('field_definitions', {})
@@ -555,15 +548,29 @@ class Bar:
         return cls(fields=fields, **bar_params)
 
     @classmethod
-    def from_file(cls: Bar, file: os.PathLike) -> Bar:
+    def from_file(cls: Bar, file: os.PathLike = None) -> Bar:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
-        :param file: The config file to read
+        :param file: The config file to read, defaults to :obj:`mybar.CONFIG_FILE`
         :type file: :class:`os.PathLike`
+
+        :returns: A new :class:`Bar`
+        :rtype: :class:`Bar`
         '''
         template = BarTemplate.from_file(file)
-        return cls.from_dict(template)
+        return cls.from_template(template)
+
+    @classmethod
+    def from_cli(cls: Bar) -> Bar:
+        '''
+        Return a new :class:`Bar` using command line arguments.
+
+        :returns: a new :class:`Bar` using command line arguments
+        :rtype: :class:`Bar`
+        '''
+        template = BarTemplate.from_stdin()
+        return cls.from_template(template)
 
     @property
     def clearline_char(self) -> str:
@@ -878,17 +885,6 @@ class Bar:
         stream.flush()
 
 
-def from_cli() -> Bar:
-    '''
-    Return a new :class:`Bar` using command line arguments.
-
-    :returns: a new :class:`Bar` using command line arguments
-    :rtype: :class:`Bar`
-    '''
-    template = BarTemplate.from_stdin()
-    return Bar.from_dict(template)
-
-
 def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
     '''
     Generate a new :class:`Bar` from the default config file and run it in STDOUT.
@@ -899,7 +895,7 @@ def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
     :param file: The config file to source, defaults to :attr:`mybar.CONFIG_FILE`
     :type file: :class:`os.PathLike`
     '''
-    template = BarTemplate.from_file(CONFIG_FILE)
-    bar = Bar.from_dict(template)
+    template = BarTemplate.from_file(file)
+    bar = Bar.from_template(template)
     bar.run(once=once)
 
