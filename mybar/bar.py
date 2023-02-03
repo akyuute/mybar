@@ -25,30 +25,28 @@ from . import utils
 from .errors import *
 from .field import Field
 from ._types import (
+    Args,
     BarSpec,
     BarTemplateSpec,
-    Separator,
-    PTY_Separator,
-    TTY_Separator,
-    Line,
-    FieldName,
-    Icon,
-    PTY_Icon,
-    TTY_Icon,
     ConsoleControlCode,
+    FieldName,
     FormatStr,
-    Pattern,
-    Args,
-    Kwargs,
+    Icon,
     JSONText,
+    Kwargs,
+    Line,
+    PTY_Icon,
+    PTY_Separator,
+    Pattern,
+    Separator,
+    TTY_Icon,
+    TTY_Separator,
 )
 
 from collections.abc import Iterable, Sequence
 from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 
-B = TypeVar('B')
 Bar = TypeVar('Bar')
-T = TypeVar('T')
 BarTemplate = TypeVar('BarTemplate')
 
 # Unix terminal escape code (control sequence introducer):
@@ -83,7 +81,7 @@ class BarTemplate(dict):
             self.defaults = defaults.copy()
         self.options = options.copy()
 
-        # self.bar_spec = self.defaults | self.options
+        # This is why we subclass dict:
         self.update(self.defaults | self.options)
         self.file = None
         debug = self.options.pop('debug', None) or DEBUG
@@ -92,8 +90,8 @@ class BarTemplate(dict):
         cls = type(self).__name__
         file = self.file
         maybe_file = f"{file=}, " if file else ""
-        bar_spec = {**self}
-        return f"<{cls} {maybe_file}{bar_spec=}>"
+        params = {**self}
+        return f"<{cls} {maybe_file}{params}>"
 
     @classmethod
     def from_file(cls: BarTemplate,
@@ -124,14 +122,15 @@ class BarTemplate(dict):
             defaults = Bar._default_params
         overrides = overrides.copy()
 
-        file_given = True if file or 'config_file' in overrides else False
         if file is None:
             file = overrides.pop('config_file', CONFIG_FILE)
 
         file_spec = {}
         absolute = os.path.abspath(os.path.expanduser(file))
-        # if os.path.exists(absolute):
-        file_spec, text = cls.read_file(absolute)  # May raise OSError
+        try:
+            file_spec, text = cls.read_file(absolute)
+        except OSError as e:
+            raise e.with_traceback(None)
 
         options = file_spec | overrides
         t = cls(options, defaults)
@@ -146,7 +145,7 @@ class BarTemplate(dict):
         Prompt the user before writing a new config file if one does
         not exist.
 
-        :param write_new_file_dft: Write new files by default,
+        :param write_new_file_dft: Automatically write new files,
             defaults to ``False``
         :type write_new_file_dft: :class:`bool`
 
@@ -156,16 +155,14 @@ class BarTemplate(dict):
         parser = cli.Parser()
         try:
             bar_options = parser.parse_args()
-
         except FatalError as e:
-            parser.error(e.msg)
+            parser.error(e.msg)  # Shows usage
 
-        except OSError as e:
-            parser.quit(e)
+##        except OSError as e:
+##            parser.quit(e)
 
         try:
             template = cls.from_file(overrides=bar_options)
-
         except OSError as e:
             file = e.filename
             errmsg = (
@@ -197,6 +194,7 @@ class BarTemplate(dict):
 
         :param file: The file to convert
         :type file: :class:`PathLike`
+
         :returns: The converted file and its raw text
         :rtype: tuple[:class:`BarTemplateSpec`, :class:`JSONText`]
         '''
@@ -211,34 +209,37 @@ class BarTemplate(dict):
         obj: BarTemplateSpec = {},
         defaults: BarSpec = None
     ) -> None:
-        '''Write :class:`BarTemplateSpec` params to a JSON file.
+        '''Write :class:`BarTemplate` params to a JSON file.
 
         :param file: The file to write to
         :type file: :class:`PathLike`
+
         :param obj: The :class:`BarTemplateSpec` to write
         :type obj: :class:`BarTemplateSpec`, optional
+
         :param defaults: Any default parameters that `obj` should override,
-            defaults to :attr:`Bar._default_params`
+            defaults to :obj:`Bar._default_params`
         :type defaults: :class:`BarSpec`
         '''
         if defaults is None:
             defaults = Bar._default_params.copy()
 
         obj = obj.copy()
-        obj.pop('config_file', None)
+        del obj['config_file']
         obj = defaults | obj
 
-        dft_fields = Field._default_fields.copy()
+        fields = Field._default_fields.copy()
 
-        for name, field in dft_fields.items():
-            new = dft_fields[name] = field.copy()
+        # Clean the dict of irrelevant Field implementation details:
+        for name, field in fields.items():
+            new = fields[name] = field.copy()
             for param in ('name', 'func', 'setup'):
                 try:
                     del new[param]
                 except KeyError:
                     pass
 
-        obj['field_definitions'] = dft_fields
+        obj['field_definitions'] = fields
 
         with open(os.path.expanduser(file), 'w') as f:
             json.dump(obj, f, indent=4, ) #separators=(',\n', ': '))
@@ -246,7 +247,7 @@ class BarTemplate(dict):
 
 class Bar:
     '''
-    The class used for creating highly customizable status bars.
+    Create highly customizable status bars.
 
     :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
     :type fields: :class:`Iterable[Field | str]`
@@ -321,7 +322,7 @@ class Bar:
     }
 
     def __init__(self,
-        fields: Iterable[Field|str] = None,
+        fields: Iterable[Field | str] = None,
         *,
         fmt: str = None,
         separator: str = '|',
@@ -339,13 +340,7 @@ class Bar:
         debug: bool = DEBUG,  # Not yet implemented!
     ) -> None:
         # Ensure the output stream has the required methods:
-        io_methods = ('write', 'flush', 'isatty')
-        if not all(hasattr(stream, a) for a in io_methods):
-            io_method_calls = [a + '()' for a in io_methods]
-            joined = utils.join_options(io_method_calls, final_sep=' and ')
-            raise InvalidOutputStreamError(
-                f"Output stream {stream!r} needs {joined} methods."
-            )
+        self._check_stream(stream)
         self._stream = stream
 
         # Ensure required parameters are defined if no fmt is given:
@@ -377,37 +372,38 @@ class Bar:
             )
 
         else:
+            # Use the format string to gather field names:
             field_order = self.parse_fmt(fmt)
             if fields is None:
                 fields = list(field_order)
 
         self._field_order = field_order
-        self._fields = self.convert_fields(fields)
-        self._buffers = {name: '' for name in self._fields}
+        self._fields = self._convert_fields(fields)
+        self._buffers = dict.fromkeys(self._fields, '')
 
         self.fmt = fmt
 
         if separators is None:
             separators = (separator, separator)
         self._separators = separators
-        # self._separator = None
 
         # Whether empty fields are joined when fmt is None:
         # (True shows two separators together for every blank field.)
         self.join_empty_fields = join_empty_fields
 
-        # Set how often in seconds the bar is normally printed.
+        # How often in seconds the bar is regularly printed:
         self.refresh_rate = refresh_rate
 
         # Whether the bar should exit after printing once:
         self.run_once = run_once
 
-        # Whether the bar should start at the top of a clock second:
+        # Whether the bar is printed at the top of every clock second:
         self.align_to_seconds = align_to_seconds
 
         # Make a queue to which fields with overrides_refresh send updates.
         # Process only one item per refresh cycle to reduce flickering in a PTY.
         self._override_queue = asyncio.Queue(maxsize=1)
+
         # How long should the queue checker sleep before processing a new item?
         # (A longer cooldown means less flickering):
         self._override_cooldown = override_cooldown
@@ -436,20 +432,25 @@ class Bar:
 
     @classmethod
     def from_template(cls: Bar,
-        tmpl: BarSpec,
+        tmpl: BarTemplate,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> Bar:
-        '''Make a :class:`Bar` using a dict of :class:`Bar` parameters.
+        '''
+        Return a new :class:`Bar` from a :class:`BarTemplate`
+        or a dict of :class:`Bar` parameters.
         Ignore keys and list elements starting with `ignore_with`,
         which is ``'//'`` by default.
         If :param ignore_with: is ``None``, do not remove any values.
 
         :param tmpl: The :class:`dict` to convert
         :type tmpl: :class:`dict`
+
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
         :type ignore_with: Pattern | tuple[Pattern] | None, optional
+
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
+
         :raises: :class:`IncompatibleArgsError` when
             no :attr:`field_order` or :attr:`fmt` is defined
         :raises: :class:`DefaultFieldNotFoundError` when a field
@@ -482,6 +483,7 @@ class Bar:
         else:
             field_order = cls.parse_fmt(fmt)
 
+        # Gather Field parameters and instantiate them:
         fields = []
         expctd_name="the name of a default or properly defined `custom` Field"
         for name in field_order:
@@ -489,13 +491,13 @@ class Bar:
 
             match field_params:
                 case None:
-                    # The field is strictly default:
+                    # The field is strictly default.
                     try:
                         field = Field.from_default(name)
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
-                            # doing_what="parsing 'field_order'",  # Only relevant in context file parsing
+                            # doing_what="parsing 'field_order'",  # Only relevant to config file parsing
                             blame=f"{name!r}",
                             expected=expctd_name
                         )
@@ -510,7 +512,7 @@ class Bar:
 
                 case {}:
                     # The field is a default overridden by the user.
-                    # Has the user given custom icons from the command line?
+                    # Are there custom icons, most common from the CLI?
                     if name in field_icons:
                         cust_icon = field_icons.pop(name)
                         field_params['icons'] = (cust_icon, cust_icon)
@@ -532,6 +534,7 @@ class Bar:
                         raise exc from None
 
                 case _:
+                    # Edge cases.
                     exc = utils.make_error_message(
                         InvalidFieldSpecError,
                         # doing_what="parsing 'field_definitions'",
@@ -574,7 +577,8 @@ class Bar:
 
     @property
     def clearline_char(self) -> str:
-        '''A special character printed to TTY streams between refreshes.
+        '''
+        A special character printed to TTY streams between refreshes.
         Its purpose is to clear characters left behind by longer lines.
         '''
         if self._stream is None:
@@ -596,7 +600,8 @@ class Bar:
 
     @property
     def separator(self) -> Separator:
-        '''The field separator as determined by the output stream.
+        '''
+        The field separator as determined by the output stream.
         It defaults to the TTY sep (self._separators[1]) if no stream is set.
         '''
         if self._stream is None:
@@ -606,12 +611,15 @@ class Bar:
 
     @staticmethod
     def parse_fmt(fmt: FormatStr) -> list[FieldName]:
-        '''Return a list of field names that should act as a field order.
+        '''
+        Return a list of field names that should act as a field order.
 
         :param fmt: A format string to parse
         :type fmt: :class:`str`
+
         :returns: A list of field names that were found
         :rtype: list[str]
+
         :raises: :class:`BrokenFormatStringError` when the format string
             is malformed or contains positional fields
         '''
@@ -629,18 +637,31 @@ class Bar:
             )
         return field_names
 
-    def convert_fields(self,
+    @staticmethod
+    def _check_stream(stream: IO) -> None | NoReturn:
+        '''Raise TypeError if the output stream has the required methods.'''
+        io_methods = ('write', 'flush', 'isatty')
+        if not all(hasattr(stream, a) for a in io_methods):
+            io_method_calls = [a + '()' for a in io_methods]
+            joined = utils.join_options(io_method_calls, final_sep=' and ')
+            raise TypeError(
+                f"Output stream {stream!r} needs {joined} methods."
+            )
+
+    def _convert_fields(self,
         fields: Iterable[FieldName | Field]
     ) -> dict[FieldName, Field]:
-        '''Convert a list of field names or :class:`Field` instances to
+        '''
+        Convert a list of field names or :class:`Field` instances to
         corresponding default Fields and return a dict mapping field
         names to Fields.
 
         :param fields: The iterable of fields to convert
         :type fields: :class:`Iterable[str]`
+
         :returns: A dict mapping field names to :class:`Field` instances
-        :rtype: dict[FieldName, Field] ####
         :rtype: :class:`dict`[:class:`str`, :class:`Field`]
+
         :raises: :class:`DefaultFieldNotFoundError` when a string
             element of `fields` is not the name of a default Field
         :raises: :class:`InvalidFieldError` when an element
@@ -663,13 +684,17 @@ class Bar:
         return converted
 
     def run(self, *, stream: IO = None, once: bool = None) -> None:
-        '''Run the bar in the specified output stream.
+        '''
+        Run the bar in the specified output stream.
         Block until an exception is raised and exit smoothly.
 
-        :param stream: The IO stream in which to run the bar
+        :param stream: The IO stream in which to run the bar,
+            defaults to :class:`Bar`._stream
         :type stream: :class:`IO`
+
         :param once: Whether to print the bar only once, defaults to ``False``
         :type once: :class:`bool`
+
         :returns: ``None``
 
         .. note::
@@ -677,15 +702,13 @@ class Bar:
         '''
         if stream is not None:
             self._stream = stream
-        if once is not None:
-            self.run_once = once
 
         # Allow the bar to run repeatedly in the same interpreter.
         if self._loop.is_closed():
             self._loop = asyncio.new_event_loop()
         try:
             self._can_run.set()
-            self._loop.run_until_complete(self._startup(self.run_once))
+            self._loop.run_until_complete(self._startup(once))
 
         except KeyboardInterrupt:
             pass
@@ -693,10 +716,10 @@ class Bar:
         finally:
             self._shutdown()
 
-
-    async def _startup(self, run_once: bool) -> None:
-        '''Schedule field coroutines, threads and the line printer to be run
-        in parallel.'''
+    async def _startup(self, run_once: bool = False) -> None:
+        '''
+        Run field coroutines, threads and the line printer in parallel.
+        '''
         overriding = False
         gathered = []
 
@@ -706,16 +729,14 @@ class Bar:
 
             if field.threaded:
                 await field.send_to_thread(run_once)
-
             else:
                 gathered.append(field.run(run_once))
 
         if run_once:
             await asyncio.gather(*gathered)
+            # Wait for threads to finish:
             while self._threads:
-                # Wait for threads to finish:
                 await asyncio.sleep(self._thread_cooldown)
-            # self._print_one_line(self._make_one_line())
             self._print_one_line()
 
         else:
@@ -727,7 +748,11 @@ class Bar:
             )
 
     def _shutdown(self) -> None:
-        '''Notify fields that the bar has stopped and join threads.'''
+        '''
+        Notify fields that the bar has stopped and join threads.
+        Also print a newline and unhide the cursor if the bar was
+        running in a TTY.
+        '''
         self._can_run.clear()
         for field in self._fields.values():
             if field.threaded and field._thread is not None:
@@ -738,10 +763,14 @@ class Bar:
             self._stream.write(CSI + UNHIDE_CURSOR)
 
     async def _continuous_line_printer(self, end: str = '\r') -> None:
-        '''The bar's primary line-printing mechanism.
+        '''
+        The bar's primary line-printing mechanism.
         Fields are responsible for sending data to the bar buffers.
-        This only writes using the current buffer contents.'''
-        # Again, local variables may save time:
+        This only writes using the current buffer contents.
+
+        :param end: The string appended to the end of each line
+        :type end: :class:`str`
+        '''
         using_format_str = (self.fmt is not None)
         sep = self.separator
         running = self._can_run.is_set
@@ -757,19 +786,7 @@ class Bar:
         self._stream.flush()
 
         # Print something right away just so that the bar is not empty:
-        # self._print_one_line(self._make_one_line())
         self._print_one_line()
-
-##        if using_format_str:
-##            line = self.fmt.format_map(self._buffers)
-##        else:
-##            line = sep.join(
-##                buf for field in self._field_order
-##                    if (buf := self._buffers[field])
-##                    or self.join_empty_fields
-##            )
-##        self._stream.write(beginning + line + end)
-##        self._stream.flush()
 
         if self.align_to_seconds:
             # Begin every refresh at the start of a clock second:
@@ -887,15 +904,15 @@ class Bar:
 
 def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
     '''
-    Generate a new :class:`Bar` from the default config file and run it in STDOUT.
+    Generate a new :class:`Bar` and run it in STDOUT.
+    Optionally generate the bar from a config file.
 
     :param once: Print the bar only once, defaults to ``False``
     :type once: :class:`bool`
 
-    :param file: The config file to source, defaults to :attr:`mybar.CONFIG_FILE`
+    :param file: The config file to source, defaults to :obj:`mybar.CONFIG_FILE`
     :type file: :class:`os.PathLike`
     '''
-    template = BarTemplate.from_file(file)
-    bar = Bar.from_template(template)
+    bar = Bar.from_file(file)
     bar.run(once=once)
 
