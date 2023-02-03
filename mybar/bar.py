@@ -813,23 +813,25 @@ class Bar:
                 # Time until next refresh:
                 self.refresh_rate - (
                     # Get the current latency, which can vary:
-                    # clock() % self.refresh_rate
                     (clock() - start_time) % self.refresh_rate  # Preserve offset
                 )
             )
 
     async def _handle_overrides(self, end: str = '\r') -> None:
-        '''Prints a line when fields with overrides_refresh send new data.'''
-        # Again, local variables may save time:
-        bar = self._bar
+        '''
+        Print a line when fields with overrides_refresh send new data.
+
+        :param end: The string appended to the end of each line
+        :type end: :class:`str`
+        '''
         sep = self.separator
         using_format_str = (self.fmt is not None)
         running = self._can_run.is_set
 
         if self.in_a_tty:
-            beginning = clearline_char + end
+            beginning = self.clearline_char + end
         else:
-            beginning = clearline_char
+            beginning = self.clearline_char
 
         start_time = time.time()
         while running():
@@ -837,15 +839,13 @@ class Bar:
             try:
                 # Wait until a field with overrides_refresh sends new
                 # data to be printed:
-                field, contents = await bar._override_queue.get()
+                field, contents = await self._override_queue.get()
                 # if DEBUG:
                     # logger.debug(f"handler: {field} {time.time() - start_time}")
 
-            except RuntimeError as exc:
+            except RuntimeError:
                 # asyncio raises RuntimeError if the event loop closes
                 # while queue.get() is waiting for a value.
-                # if DEBUG:
-                    # logger.debug(exc.args[0])
                 return
 
             if using_format_str:
@@ -859,8 +859,6 @@ class Bar:
 
             self._stream.write(beginning + line + end)
             self._stream.flush()
-            # if DEBUG:
-                # logger.debug(f"handler: sleeping for {self._override_cooldown}")
             await asyncio.sleep(self._override_cooldown)
 
     def _make_one_line(self) -> Line:
@@ -877,20 +875,15 @@ class Bar:
             )
         return line
 
-    def _print_one_line(self,
-        # line: str,
-        stream: IO = None,
-        end: str = '\r'
-    ) -> None:
+    def _print_one_line(self, end: str = '\r') -> None:
         '''Print a line to the buffer stream only once.
         This method is not meant to be called from within a loop.
-        '''
-        if stream is None:
-            stream = self._stream
 
+        :param end: The string appended to the end of each line
+        :type end: :class:`str`
+        '''
         if self.in_a_tty:
             beginning = self.clearline_char + end
-            # stream.write(CSI + HIDE_CURSOR)
         else:
             beginning = self.clearline_char
 
@@ -898,7 +891,6 @@ class Bar:
         stream.flush()
 
         stream.write(beginning + self._make_one_line() + end)
-        # stream.write(beginning + line + end)
         stream.flush()
 
 
