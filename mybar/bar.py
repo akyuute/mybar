@@ -888,10 +888,10 @@ class Bar:
             beginning = self.clearline_char
 
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
-        stream.flush()
+        self._stream.flush()
 
-        stream.write(beginning + self._make_one_line() + end)
-        stream.flush()
+        self._stream.write(beginning + self._make_one_line() + end)
+        self._stream.flush()
 
 
 def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:

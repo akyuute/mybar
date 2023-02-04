@@ -39,9 +39,11 @@ P = ParamSpec('P')
 
 class Field:
     '''
-    One part of a Bar.
+    Continuously generates and formats one bit of information in a Bar.
+    Pre-existing default Fields can be looked up by name.
+    # Custom fields used with functions to display the output of a function
 
-    :param name: A unique identifier for the new field, defaults to `func.`:attr:`__name__`
+    :param name: A unique identifier for the new field, defaults to `func```.__name__``
     :type name: :class:`str`
 
     :param func: The Python function to run at every `interval` if no `constant_output` is set
@@ -56,6 +58,9 @@ class Field:
         Valid placeholders:
             - ``{icon}`` references `icon`
             - ``{}`` references field contents
+        Example:
+            When the field's current contents are ``'69F'`` and its icon is ``'TEMP'``,
+            ``fmt='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
     :type fmt: :class:`FormatStr`
 
     :param interval: How often in seconds field contents are updated, defaults to ``1.0``
@@ -174,7 +179,6 @@ class Field:
     def __init__(self,
         *,
         name: FieldName = None,
-        # func: Callable[[*Args, *Kwargs], str],
         func: Callable[P, str],
         icon: str = '',
         fmt: FormatStr = None,
@@ -188,8 +192,6 @@ class Field:
         bar: Bar_T = None,
         args: Args = None,
         kwargs: Kwargs = None,
-        # setup: Callable[[*Args, *Kwargs], Kwargs] = None,
-        # setup: Callable[P, Kwargs]
         setup: Callable[P, P.kwargs] = None,
 
         # Set this to use different icons for different output streams:
@@ -217,11 +219,11 @@ class Field:
         self.kwargs = {} if kwargs is None else kwargs
 
         if setup is not None and not callable(setup):
+            # `setup` was given but is of the wrong type.
             raise TypeError(
                 f"Parameter 'setup' must be a callable, not {type(setup)}"
             )
         self._setupfunc = setup
-        # self._setupvars = {}
 
         if icons is None:
             icons = (icon, icon)
@@ -238,7 +240,7 @@ class Field:
         if asyncio.iscoroutinefunction(func) or threaded:
             self._callback = func
         else:
-            # Wrap a synchronous function call:
+            # Wrap a synchronous function if the field is not threaded:
             self._callback = self._asyncify
 
         self.align_to_seconds = align_to_seconds
@@ -251,7 +253,6 @@ class Field:
 
         self.threaded = threaded
         self._thread = None
-        # self.is_running = False
 
     def __repr__(self) -> str:
         cls = type(self).__name__
@@ -272,9 +273,11 @@ class Field:
 
         :param overrides: Custom parameters that override those of the default Field
         :type overrides: :class:`FieldSpec`, optional
+
         :param source: The :class:`dict` in which to look up default fields,
             defaults to :attr:`Field._default_fields`
         :type source: :class:`dict[FieldName, FieldSpec]`
+
         :returns: A new :class:`Field`
         :rtype: :class:`Field`
         :raises: :class:`DefaultFieldNotFoundError` when `name` is not in `source`
@@ -282,9 +285,8 @@ class Field:
         if source is None:
             source = cls._default_fields
 
-        default: dict = source.get(name)
+        default: FieldSpec = source.get(name)
         if default is None:
-            # return default
             raise DefaultFieldNotFoundError(
                 f"{name!r} is not the name of a default Field."
             )
@@ -322,8 +324,9 @@ class Field:
             return fmt.format(text, icon=icon)
 
     async def run(self, once: bool = False) -> None:
-        '''Asynchronously run a non-threaded field's callback
-        and send updates to the bar.'''
+        '''
+        Run an asynchronous field callback and send updates to the bar.
+        '''
         self._check_bar()
         bar = self._bar
         # Do not run fields which have a constant output;
@@ -412,9 +415,6 @@ class Field:
                 )
             )
 
-            # if DEBUG:
-                # logger.debug(f"{self.name}: New refresh cycle at {clock() - start_time}")
-
             if result == last_val:
                 continue
             last_val = result
@@ -487,7 +487,6 @@ class Field:
             # use it as the field's new constant_output and update the
             # bar buffer:
             except FailedSetup as e:
-                # self._handle_failed_setup(e)
                 backup = e.args[0]
                 contents = self._format_contents(
                     backup,
@@ -519,7 +518,6 @@ class Field:
         bar._buffers[self.name] = contents
 
         if self.run_once or once:
-            # logger.debug(self.name + str(local_loop.__dict__))
             local_loop.stop()
             local_loop.close()
             self._bar._threads.remove(self._thread)
@@ -527,8 +525,6 @@ class Field:
 
         count = 0
         needed = round(self.interval / step)
-        # if DEBUG:
-            # logger.debug(f"{self.name}: {needed = }")
 
         if self.align_to_seconds:
             # Sleep until the beginning of the next second.
@@ -544,8 +540,6 @@ class Field:
             # Thus, threads usually cancel `step` seconds after `func`
             # returns when the bar stops rather than after `interval` seconds.
 
-            # if DEBUG:
-                # logger.debug(f"{self.name}: {count = }")
             if count < needed:
                 count += 1
 
@@ -565,9 +559,6 @@ class Field:
                     )
                 )
                 continue
-
-            # if DEBUG:
-                # logger.debug(f"{self.name}: New refresh cycle at {clock() - start_time}")
 
             count = 0
 
@@ -595,16 +586,12 @@ class Field:
             # Send new field contents to the bar's override queue and print a
             # new line between refresh cycles.
             if self.overrides_refresh:
-                # if DEBUG:
-                    # logger.debug(f"{self.name}: Sending update @ {clock() - start_time}")
                 try:
                     bar._override_queue._loop.call_soon_threadsafe(
                         bar._override_queue.put_nowait, (self.name, contents)
                     )
 
                 except asyncio.QueueFull:
-                    # if DEBUG:
-                        # logger.debug(f"{self.name}: Failed update: QueueFull")
                     # Since the bar buffer was just updated, do nothing if the
                     # queue is full. The update may still show while the queue
                     # handles the current override.

@@ -12,6 +12,10 @@ from .utils import join_options, make_error_message
 
 from typing import Generic, Literal, NewType, TypeAlias, TypeVar, TypeVarTuple
 
+
+Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
+RepCount: TypeAlias = int
+
 FormatterLiteral: TypeAlias = str|None
 FormatterFname: TypeAlias = str|None
 FormatterFormatSpec: TypeAlias = str|None
@@ -23,30 +27,12 @@ FmtStrStructure: TypeAlias = tuple[tuple[tuple[
     FormatterConversion
 ]]]
 
-Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
-
-
-T = TypeVar('T')
-Ts = TypeVarTuple('Ts')
-# class SetupVars(Generic[Ts]):
-class SetupVars:
-    def __class_getitem__(cls, keys):
-        # return f"{cls.__name__}[{', '.join(type(i).__name__ for i in items)}]"
-        cls.__args__ = keys
-        return cls
-
-# SetupVars: TypeAlias = dict[*Ts]
-# SetupVars: TypeAlias = dict[str, T]
-SetupVars = NewType('SetupVars', dict[str, T])
-
-
 async def setup_uptime(
-    # kwargs: dict,
     fmt: FormatStr,
     sep: str = None,
     *args,
     **kwargs
-    ) -> SetupVars :#[list[Duration], int, FmtStrStructure]:
+    ) -> list[Duration, RepCount, FmtStrStructure]:
     setupvars = {}
 
     fnames = [name for tup in Formatter().parse(fmt) if (name := tup[1])]
