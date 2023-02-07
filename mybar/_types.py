@@ -1,27 +1,6 @@
-__all__ = (
-    'BarSpec',
-    'BarTemplateSpec',
-    'Contents'
-    'Separator',
-    'PTY_Separator',
-    'TTY_Separator',
-    'Line',
-    'FieldName',
-    'Icon',
-    'PTY_Icon',
-    'TTY_Icon',
-    'ConsoleControlCode',
-    'FormatStr',
-    'Pattern',
-    'Args',
-    'Kwargs',
-    'JSONText',
-)
-
-
 from collections.abc import Callable, Sequence
-from enum import Enum
-from typing import ParamSpec, Required, TypeAlias, TypedDict, TypeVar
+from enum import Enum, IntEnum
+from typing import Literal, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 from os import PathLike
 
 
@@ -47,6 +26,28 @@ Kwargs: TypeAlias = dict
 
 Bar = TypeVar('Bar')
 P = ParamSpec('P')
+
+
+# Used by field_funcs:
+Duration: TypeAlias = Literal[
+    'secs',
+    'mins',
+    'hours',
+    'days',
+    'weeks',
+    'months',
+    'years'
+]
+FormatterLiteral: TypeAlias = str|None
+FormatterFname: TypeAlias = str|None
+FormatterFormatSpec: TypeAlias = str|None
+FormatterConversion: TypeAlias = str|None
+FmtStrStructure: TypeAlias = tuple[tuple[tuple[
+    FormatterLiteral,
+    FormatterFname,
+    FormatterFormatSpec,
+    FormatterConversion
+]]]
 
 
 class ColorEscaping(Enum):

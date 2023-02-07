@@ -23,7 +23,7 @@ from string import Formatter
 import psutil
 
 from .errors import *
-from .utils import join_options
+from .utils import join_options, ElapsedTime, DynamicFormatStr
 from ._types import Contents, FieldName, FormatStr
 
 from collections.abc import Callable, Iterable
@@ -305,116 +305,94 @@ async def get_net_stats(
 
 # Uptime
 
-async def get_uptime(
+def get_uptime(
     *,
     fmt: FormatStr,
-    sep: str = None,
     dynamic: bool = True,
-    reps: int = 4,
-    fnames: Iterable[FieldName] = None,
-    deconstructed: Iterable = None,
+    sep: str = ':',
+    setupvars = None,
 ) -> Contents:
-    # n = time.time() - psutil.boot_time()
-    n = int(time.time() - psutil.boot_time())
-    lookup_table = _secs_to_dhms_dict(n, reps)
-    if not dynamic or sep is None:
-        return fmt.format_map(lookup_table)
+    secs = round(time.time() - psutil.boot_time())
 
-    out = _format_numerical_fields(
-        lookup_table=lookup_table,
-        fmt=fmt,
-        sep=sep,
-        # **setupvars
-        fnames=fnames,
-        deconstructed=deconstructed,
-        dynamic=dynamic,
-    )
-    return out
+    if not setupvars:
+        fnames, groups = DynamicFormatStr(fmt, sep).deconstruct()
 
-def _secs_to_dhms_dict(secs: int, reps: int) -> dict[Duration, int]:
-    table = {'secs': secs}
-    # Get the field names in the right order:
-    # indexes = tuple(keys.index(f) for f in fields)
-    # granularity = keys[min(indexes)]
-    # reps = max(indexes)
-    duration_switch = (
-        ('mins', 'secs', 60),
-        ('hours', 'mins', 60),
-        ('days', 'hours', 24),
-        ('weeks', 'days', 7),
-    )
+        setupvars = {
+            'fnames': fnames,
+            'groups': groups,
+            'sep': sep,
+        }
+    lookup_table = ElapsedTime.in_desired_units(setupvars['fnames'], secs)
+    setupvars['namespace'] = lookup_table
 
-    for i in range(reps):
-        fname, prev, mod = duration_switch[i]
-        table[fname], table[prev] = divmod(table[prev], mod)
-    return table
+    if dynamic:
+        out = format_uptime(secs, **setupvars)
+        return out
 
-def _format_numerical_fields(
-    lookup_table: dict[str, int|float],
-    fmt: FormatStr,
+    return fmt.format_map(setupvars['namespace'])
+
+
+def format_uptime(
+    secs: int,
+    # fmt: FormatStr,
     sep: str,
-
-    # setup_uptime() supplies the following two args to avoid having to parse
-    # the format string at each interval.
-
-    # The list of format string field names:
-    fnames: Iterable[FormatterFname],
-    # The nested tuple of deconstructed format string field data after going
-    # through sep.split() and string.Formatter().parse():
-    deconstructed: FmtStrStructure,
-    dynamic: bool = True
+    namespace: dict[str],
+    groups,
+    # predicate: Callable = bool,
+    *args, **kwargs
 ) -> str:
     '''Fornat a dict of numbers according to a format string by parsing
     fields delineated by a separator.
     '''
-    last_was_nonzero = True
-    buffers = []
-    for i, between_seps in enumerate(deconstructed):
-        section = []
+    newgroups = []
+    for i, group in enumerate(groups):
+        if not group:
+            # Just an extraneous separator.
+            newgroups.append(())
+            continue
+
+        newgroup = []
         
-        for tup in between_seps:
+        for maybe_field in group:
+            # Skip over groups that do not pass the predicate:
+            if (val := namespace.get(maybe_field[1])
+                ) == 0:
+                break
+
             buf = ""
 
-            match tup:
+            match maybe_field:
                 case [lit, None, None, None]:
                     # A trailing literal.
-                    # Only append if the previous field was valid.
-                    if last_was_nonzero:
-                        buf += lit
+                    # Only append if the previous field was valid:
+                    buf += lit
 
                 case [lit, field, spec, conv]:
-                    # A veritable field!
-                    val = lookup_table.get(field)
-
-                    # Should it be displayed?
-                    if not val and dynamic:
-                        last_was_nonzero = False
-                        continue
-
-                    # The text right before the field:
+                    # A veritable format string field!
+                    # Add the text right before the field:
                     if lit is not None:
                         buf += lit
 
+                    # Format the value if necessary:
                     if spec:
                         buf += format(val, spec)
                     else:
                         buf += str(val)
 
-                    last_was_nonzero = True
-
-                case spam:
+                case _:
                     raise ValueError(
                         f"\n"
                         f"Invalid structure in tuple\n"
-                        f"  {i} {tup}:\n"
+                        f"  {i} {maybe_field}:\n"
                         f"  {spam!r}"
                     )
 
             if buf:
-                section.append(buf)
-        if section:
-            buffers.append(section)
+                newgroup.append(buf)
+        if newgroup:
+            newgroups.append(newgroup)
 
-    # Join nested buffers.
-    return sep.join(''.join(b) for b in buffers)
+    # Join everything.
+    return sep.join(''.join(g) for g in newgroups)
+
 

@@ -374,7 +374,7 @@ class Field:
                 return
 
             # On success, give new values to kwargs to pass to func().
-            self.kwargs.update(setupvars)
+            self.kwargs['setupvars'] = setupvars
 
         # Run at least once at the start to ensure the bar is not empty:
         result = await func(*self.args, **self.kwargs)
@@ -499,7 +499,7 @@ class Field:
                 return
 
             # On success, give new values to kwargs to pass to func().
-            self.kwargs.update(setupvars)
+            self.kwargs['setupvars'] = setupvars
 
         # Run at least once at the start to ensure the bar is not empty:
         if is_async:

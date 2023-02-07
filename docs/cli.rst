@@ -46,7 +46,7 @@ Options
     Use debug mode.
 
 
-Options for :option:`--fields`:
+Options for :option:`--fields`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The following options are not valid when using --format/-m:
@@ -74,7 +74,7 @@ Run the bar using your default config file:
 .. code:: bash
 
     $ python -m mybar
-    rutherford|Up 6d:11h:20m|CPU 02%|34C|Mem 5.2G|/:99.3G|Bat CHG100|WiFi|2022-12-27 10:21:09
+    rutherford|Up 5d:11h:20m|CPU 02%|34C|Mem 5.2G|/:99.3G|Bat CHG100|wifi|2022-12-27 10:21:09
 
 
 
@@ -84,6 +84,15 @@ Run the bar using specific fields:
 
     $ python -m mybar -f uptime cpu_temp mem_usage
     Up 6d:11h:32m|37C|Mem 5.3G
+
+
+Run the bar with a custom field separator:
+
+.. code:: bash
+
+    $ python -m mybar -f uptime cpu_temp mem_usage -s '//'
+    Up 7d:9h:17m//27C//Mem 5.1G
+
 
 
 
