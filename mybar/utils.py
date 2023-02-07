@@ -233,7 +233,7 @@ class DynamicFormatStr:
         except StopIteration:
             exc = make_error_message(
                 BrokenFormatStringError,
-                doing_what="parsing get_uptime() format string {fmt!r}",
+                doing_what=f"parsing {self!r} format string {fmt!r}",
                 details=[
                     f"Invalid fmt substring begins near ->{piece!r}"
                 ]

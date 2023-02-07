@@ -14,16 +14,14 @@ async def setup_uptime(
     sep: str = None,
     *args,
     **kwargs
-) -> dict:
-    setupvars = {}
-    fnames, groups = DynamicFormatStr(fmt, sep).deconstruct()
-
-    setupvars = {
-        'fmt': fmt,
-        'sep': sep,
-        'fnames': fnames,
-        'groups': groups,
-    }
+) -> dict[str]:
+    setupvars = {'fmt': fmt, 'sep': sep}
+    try:
+        fnames, groups = DynamicFormatStr(fmt, sep).deconstruct()
+    except BrokenFormatStringError:
+        raise FailedSetup(backup=fmt)
+    else:
+        setupvars.update({'fnames': fnames, 'groups': groups})
     return setupvars
 
 
