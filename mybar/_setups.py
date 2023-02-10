@@ -6,7 +6,8 @@ from .errors import (
     IncompatibleArgsError,
     InvalidFormatStringFieldError,
 )
-from .utils import join_options, make_error_message, DynamicFormatStr
+from .formatable import DynamicFormatStr
+from .utils import join_options, make_error_message 
 from ._types import FormatStr
 
 async def setup_uptime(

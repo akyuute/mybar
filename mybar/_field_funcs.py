@@ -23,7 +23,8 @@ from string import Formatter
 import psutil
 
 from .errors import *
-from .utils import join_options, ElapsedTime, DynamicFormatStr
+from .formatable import ElapsedTime, DynamicFormatStr
+from .utils import join_options
 from ._types import Contents, FieldName, FormatStr
 
 from collections.abc import Callable, Iterable
@@ -322,7 +323,7 @@ def get_uptime(
             'groups': groups,
             'sep': sep,
         }
-    lookup_table = ElapsedTime.in_desired_units(setupvars['fnames'], secs)
+    lookup_table = ElapsedTime.in_desired_units(secs, setupvars['fnames'])
     setupvars['namespace'] = lookup_table
 
     if dynamic:
@@ -334,11 +335,9 @@ def get_uptime(
 
 def format_uptime(
     secs: int,
-    # fmt: FormatStr,
     sep: str,
     namespace: dict[str],
     groups,
-    # predicate: Callable = bool,
     *args, **kwargs
 ) -> str:
     '''Fornat a dict of numbers according to a format string by parsing
@@ -354,7 +353,7 @@ def format_uptime(
         newgroup = []
         
         for maybe_field in group:
-            # Skip over groups that do not pass the predicate:
+            # Skip groups that should appear blank:
             if (val := namespace.get(maybe_field[1])
                 ) == 0:
                 break
@@ -364,7 +363,6 @@ def format_uptime(
             match maybe_field:
                 case [lit, None, None, None]:
                     # A trailing literal.
-                    # Only append if the previous field was valid:
                     buf += lit
 
                 case [lit, field, spec, conv]:
