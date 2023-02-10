@@ -1,5 +1,6 @@
 from string import Formatter
 
+from .utils import join_options, make_error_message
 from ._types import Duration, FormatStr, FmtStrStructure, FormatterFname 
 
 from collections.abc import Callable, Iterable
@@ -187,13 +188,36 @@ class ElapsedTime:
         secs: int,
         units: tuple[Duration]
     ) -> dict[Duration, int]:
+        '''
+        '''
+        #TODO: Docstring!!
+
+        if not all(u in cls.conversions_to_secs for u in units):
+            exptd = join_options(cls.conversions_to_secs, quote=True)
+            exc = make_error_message(
+                KeyError,
+                # doing_what="finding units to convert",
+                blame=repr(units),
+                expected=f"a sequence of units from {exptd}",
+                details=[
+                    f"One or more time unit names in {units!r} "
+                    "are not recognized."]
+            )
+            raise exc
 
         # Get the units in order of largest first:
-        ordered = (u for u in cls.conversions_to_secs if u in units)
+        ordered = tuple(u for u in cls.conversions_to_secs if u in units)
 
         table = {}
-        for unit in ordered:
-            table[unit], secs = divmod(secs, cls.conversions_to_secs[unit])
-        return table
+        if len(ordered) == 1:
+            unit = ordered[0]
+            # Avoid robbing the only unit of its precision. Just divide:
+            table[unit] = secs / cls.conversions_to_secs[unit]
+            return table
 
+        for unit in ordered[:-1]:
+            table[unit], secs = divmod(secs, cls.conversions_to_secs[unit])
+        # table[unit] += secs  # Give the decimal back.  #NOTE THIS DON'T WORKKKKK
+        table[ordered[-1]] = secs / cls.conversions_to_secs[ordered[-1]]  #NOTE Works. Pls simplify.
+        return table
 

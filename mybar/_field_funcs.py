@@ -313,7 +313,7 @@ def get_uptime(
     sep: str = ':',
     setupvars = None,
 ) -> Contents:
-    secs = round(time.time() - psutil.boot_time())
+    secs = time.time() - psutil.boot_time()
 
     if not setupvars:
         fnames, groups = DynamicFormatStr(fmt, sep).deconstruct()
@@ -375,7 +375,11 @@ def format_uptime(
                     if spec:
                         buf += format(val, spec)
                     else:
-                        buf += str(val)
+                        try:
+                            # Round floats by default:
+                            buf += str(round(val))
+                        except TypeError:
+                            buf += str(val)
 
                 case _:
                     raise ValueError(
