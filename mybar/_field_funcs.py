@@ -306,7 +306,7 @@ async def get_net_stats(
 
 # Uptime
 
-def get_uptime(
+async def get_uptime(
     *,
     fmt: FormatStr,
     dynamic: bool = True,

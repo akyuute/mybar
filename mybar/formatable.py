@@ -1,5 +1,6 @@
 from string import Formatter
 
+from .errors import InvalidFormatStringFieldError
 from .utils import join_options, make_error_message
 from ._types import Duration, FormatStr, FmtStrStructure, FormatterFname 
 
@@ -194,14 +195,18 @@ class ElapsedTime:
 
         if not all(u in cls.conversions_to_secs for u in units):
             exptd = join_options(cls.conversions_to_secs, quote=True)
+            valid = set(cls.conversions_to_secs)
+            unrec = set(units) - valid
             exc = make_error_message(
-                KeyError,
+                LookupError,
+                # InvalidFormatStringFieldError,
                 # doing_what="finding units to convert",
                 blame=repr(units),
-                expected=f"a sequence of units from {exptd}",
+                expected=f"a sequence of unit names from {exptd}",
                 details=[
-                    f"One or more time unit names in {units!r} "
-                    "are not recognized."]
+                    f"The following unit names are not recognized:",
+                    f"{unrec!r}",
+                ]
             )
             raise exc
 
@@ -217,7 +222,8 @@ class ElapsedTime:
 
         for unit in ordered[:-1]:
             table[unit], secs = divmod(secs, cls.conversions_to_secs[unit])
-        # table[unit] += secs  # Give the decimal back.  #NOTE THIS DON'T WORKKKKK
-        table[ordered[-1]] = secs / cls.conversions_to_secs[ordered[-1]]  #NOTE Works. Pls simplify.
+        # Give the least significant unit a precise value:
+        last_u = ordered[-1]
+        table[last_u] = secs / cls.conversions_to_secs[last_u]
         return table
 
