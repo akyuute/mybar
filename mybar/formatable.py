@@ -34,11 +34,11 @@ class Icon(dict):
     # def __str__(self) -> str:
         # return self._registry[self._default]
 
-### class Fmt(str):
-##class Fmt:
-##    pass
 
 class DynamicFormatStr:
+    '''
+    '''
+        #TODO: Docstring!!
     def __init__(self,
         fmt: FormatStr,
         sep: str = ':'  # Other common values are , /
@@ -153,20 +153,18 @@ class DynamicFormatStr:
                         else:
                             buf += str(val)
 
-                    case _:
+                    case weird:
                         raise ValueError(
                             f"\n"
                             f"Invalid structure in tuple\n"
                             f"  {i} {maybe_field}:\n"
-                            f"  {spam!r}"
+                            f"  {weird!r}"
                         )
 
                 if buf:
                     newgroup.append(buf)
             if newgroup:
                 newgroups.append(newgroup)
-
-        # return tuple(''.join(g) for g in newgroups)
 
         # Join everything.
         return sep.join(''.join(g) for g in newgroups)
