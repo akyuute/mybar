@@ -176,7 +176,7 @@ async def get_disk_usage(
         raise InvalidArgError(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
-            f"{join_options(POWERS_OF_1K, quote=True)}."
+            f"{join_options(POWERS_OF_1K)}."
         )
 
     disk = psutil.disk_usage(path)
@@ -184,7 +184,7 @@ async def get_disk_usage(
         raise InvalidArgError(
             f"Invalid measure on this operating system: {measure!r}.\n"
             f"measure must be one of "
-            f"{join_options(disk._fields, quote=True)}"
+            f"{join_options(disk._fields)}"
         )
 
     statistic = getattr(disk, measure, None)
@@ -210,7 +210,7 @@ async def get_mem_usage(
         raise InvalidArgError(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
-            f"{join_options(POWERS_OF_1K, quote=True)}."
+            f"{join_options(POWERS_OF_1K)}."
         )
 
     memory = psutil.virtual_memory()
@@ -219,7 +219,7 @@ async def get_mem_usage(
         raise InvalidArgError(
             f"Invalid measure on this operating system: {measure!r}\n"
             f"'measure' must be one of "
-            f"{join_options(memory._fields, quote=True)}."
+            f"{join_options(memory._fields)}."
         )
 
     statistic = getattr(memory, measure, None)

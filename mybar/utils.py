@@ -9,22 +9,65 @@ from typing import Any
 
 
 def join_options(
-    it: Iterable[str],
+    it: Iterable[object],
     /,
     sep: str = ', ',
-    final_sep: str = 'or ',
-    quote: bool = False,
-    oxford: bool = False,
+    final_sep: str = 'or',
+    quote: bool = True,
+    oxford: bool = True,
     limit: int = None,
     overflow: str = '...',
+    metasep: str = ' '
 ) -> str:
+    '''
+    Tie together a list of objects for use in natural sentences.
+    Commonly used to present valid variable options or expected values
+    in error messages.
+
+    :param it: The iterable of objects to join
+    :type it: :class:`Iterable`[``object``]
+
+    :param sep: The string separating every option,
+        defaults to ``', '``
+    :type sep: :class:`str`
+
+    :param final_sep: The string separating the last two options,
+        defaults to ``'or'``
+    :type final_sep: :class:`str`
+
+    :param quote: Put each option in quotes,
+        defaults to ``True``
+    :type quote: :class:`bool`
+
+    :param oxford: Put `sep` between second-last option and `final_sep`,
+        otherwise `metasep`, defualts to ``True``
+    :type oxford: :class:`bool`
+
+    :param limit: Show this many options before appending `overflow`,
+        defaults to ``None``
+    :type limit: :class:`int`
+
+    :param overflow: The string appended when `limit` options are joined,
+        defaults to ``'...'``
+    :type sep: :class:`str`
+
+    :param metasep: Separates `final_sep` and the last option
+    :type metasep: :class:`str`
+    '''
     if not hasattr(it, '__iter__'):
         raise TypeError(f"Can only join an iterable, not {type(it)}.")
+    match tuple(it):
+        case ():
+            return ""
+        case (only,):
+            return repr(str(only)) if quote else str(only)
     opts = [repr(str(item)) if quote else str(item) for item in it][:limit]
     if limit is not None and len(opts) >= limit:
         opts.append(overflow)
+    elif oxford:
+        opts[-1] = metasep.join((final_sep, opts[-1]))
     else:
-        opts[-1] = final_sep + opts[-1]
+        opts[-1] = metasep.join((opts.pop(-2), final_sep, opts[-1]))
     return sep.join(opts)
 
 

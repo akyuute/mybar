@@ -426,7 +426,7 @@ class Bar:
 
     def __repr__(self) -> str:
         names = self._field_order
-        fields = utils.join_options(names, final_sep='', quote=True, limit=3)
+        fields = utils.join_options(names, final_sep='', limit=3)
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
@@ -643,7 +643,7 @@ class Bar:
         io_methods = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_methods):
             io_method_calls = [a + '()' for a in io_methods]
-            joined = utils.join_options(io_method_calls, final_sep=' and ')
+            joined = utils.join_options(io_method_calls, final_sep='and')
             raise TypeError(
                 f"Output stream {stream!r} needs {joined} methods."
             )

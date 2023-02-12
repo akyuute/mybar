@@ -194,9 +194,9 @@ class ElapsedTime:
         #TODO: Docstring!!
 
         if not all(u in cls.conversions_to_secs for u in units):
-            exptd = join_options(cls.conversions_to_secs, quote=True)
+            exptd = join_options(cls.conversions_to_secs)
             valid = set(cls.conversions_to_secs)
-            unrec = set(units) - valid
+            unrec = join_options(set(units) - valid)
             exc = make_error_message(
                 LookupError,
                 # InvalidFormatStringFieldError,
@@ -205,7 +205,7 @@ class ElapsedTime:
                 expected=f"a sequence of unit names from {exptd}",
                 details=[
                     f"The following unit names are not recognized:",
-                    f"{unrec!r}",
+                    f"{unrec}",
                 ]
             )
             raise exc
