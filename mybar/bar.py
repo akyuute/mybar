@@ -19,7 +19,7 @@ import time
 from copy import deepcopy
 from string import Formatter
 
-from . import CONFIG_FILE, DEBUG
+from .constants import CONFIG_FILE, DEBUG
 from . import cli
 from . import utils
 from .errors import *
@@ -48,6 +48,7 @@ from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 
 Bar = TypeVar('Bar')
 BarTemplate = TypeVar('BarTemplate')
+# from .templates import BarTemplate
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
@@ -60,14 +61,16 @@ class BarTemplate(dict):
     '''
     Build and transport Bar configs between files, dicts and command line args.
 
-    :param options: Optional :class:`BarTemplateSpec` parameters that override those of `defaults`
-    :type options: :class:`BarTemplateSpec`
+    :param options: Optional :class:`_types.BarTemplateSpec` parameters
+        that override those of `defaults`
+    :type options: :class:`_types.BarTemplateSpec`
 
     :param defaults: Parameters to use by default,
         defaults to :attr:`Bar._default_params`
     :type defaults: :class:`dict`
 
-    .. note:: `options` and `defaults` must be :class:`dict` instances of form :class:`BarTemplateSpec`
+    .. note:: `options` and `defaults` must be :class:`dict` instances
+        of form :class:`_types.BarTemplateSpec`
 
     '''
 
@@ -106,17 +109,17 @@ class BarTemplate(dict):
             defaults to ``'~/.mybar.json'``
         :type file: :class:`PathLike`
 
-        :param defaults: The base :class:`BarTemplateSpec` dict whose
+        :param defaults: The base :class:`_types.BarTemplateSpec` dict whose
             params the new :class:`BarTemplate` will override,
             defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`BarTemplateSpec`
+        :type defaults: :class:`_types.BarTemplateSpec`
 
         :param overrides: Additional param overrides to the config file
-        :type overrides: :class:`BarTemplateSpec`
+        :type overrides: :class:`_types.BarTemplateSpec`
 
         :returns: A new :class:`BarTemplate` instance
         :rtype: :class:`BarTemplate`
-        :raises: :class:`OSError` for issues with accessing the file
+        :raises: :exc:`OSError` for issues with accessing the file
         '''
         if defaults is None:
             defaults = Bar._default_params
@@ -196,7 +199,7 @@ class BarTemplate(dict):
         :type file: :class:`PathLike`
 
         :returns: The converted file and its raw text
-        :rtype: tuple[:class:`BarTemplateSpec`, :class:`JSONText`]
+        :rtype: tuple[:class:`_types.BarTemplateSpec`, :class:`_types.JSONText`]
         '''
         with open(file, 'r') as f:
             data = json.load(f)
@@ -214,12 +217,12 @@ class BarTemplate(dict):
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param obj: The :class:`BarTemplateSpec` to write
-        :type obj: :class:`BarTemplateSpec`, optional
+        :param obj: The :class:`_types.BarTemplateSpec` to write
+        :type obj: :class:`_types.BarTemplateSpec`, optional
 
         :param defaults: Any default parameters that `obj` should override,
-            defaults to :obj:`Bar._default_params`
-        :type defaults: :class:`BarSpec`
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`_types.BarSpec`
         '''
         if defaults is None:
             defaults = Bar._default_params.copy()
@@ -253,10 +256,10 @@ class Bar:
     :type fields: :class:`Iterable[Field | str]`
 
     :param fmt: A curly-bracket format string with field names, defaults to ``None``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
-    :type separator: :class:`PTY_Separator` | :class:`TTY_Separator`
+    :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
 
     :param run_once: Whether the bar should print once and return, defaults to ``False``
     :type run_once: :class:`bool`
@@ -287,20 +290,19 @@ class Bar:
         The first string is used in graphical (PTY) environments where support for Unicode is more likely.
         The second string is used in terminal (TTY) environments where only ASCII is supported.
         This enables the same :class:`Bar` instance to use the most optimal separator automatically.
-    :type separators: tuple[:class:`PTY_Separator`, :class:`TTY_Separator`], optional
+    :type separators: tuple[:class:`_types.PTY_Separator`, :class:`_types.TTY_Separator`], optional
 
     :param stream: The bar's output stream, defaults to :attr:`sys.stdout`
     :type stream: :class:`IO`
 
 
-    :raises: :class:`InvalidOutputStreamError` when `stream` does
-        not implement the IO protocol.
-    :raises: :class:`IncompatibleArgsError` when
+    :raises: :exc:`errors.InvalidOutputStreamError` when `stream` does
+        not implement the IO protocol
+    :raises: :exc:`errors.IncompatibleArgsError` when
         neither `fmt` nor `fields` are given
-    :raises: :class:`IncompatibleArgsError` when `fmt`
-        is ``None`` but no `separator` or `separators`
-        are given
-    :raises: :class:`TypeError` when `fields` is not iterable, or when `fmt` is not a string
+    :raises: :exc:`errors.IncompatibleArgsError` when
+        `fmt` is ``None`` but no `separator` or `separators` are given
+    :raises: :exc:`TypeError` when `fields` is not iterable, or when `fmt` is not a string
     '''
 
     _default_field_order = [
@@ -446,22 +448,27 @@ class Bar:
         :type tmpl: :class:`dict`
 
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
-        :type ignore_with: Pattern | tuple[Pattern] | None, optional
+        :type ignore_with: :class:`_types.Pattern` | tuple[:class:`_types.Pattern`] | ``None``, optional
 
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
 
-        :raises: :class:`IncompatibleArgsError` when
-            no :attr:`field_order` or :attr:`fmt` is defined
-        :raises: :class:`DefaultFieldNotFoundError` when a field
-            in :attr:`field_order` or :attr:`fmt` cannot be found
-            in :attr:`Field._default_fields`
-        :raises: :class:`UndefinedFieldError` when a field
-            in :attr:`field_order` or :attr:`fmt` is not properly defined in :attr:`field_definitions`
-        :raises: :class:`InvalidFieldSpecError` when
-            a field definition is not of the form :class:`FieldSpec`
+        :raises: :exc:`errors.IncompatibleArgsError` when
+            no `field_order` is defined
+            or when no `fmt` is defined
+        :raises: :exc:`errors.DefaultFieldNotFoundError` when
+            a field in `field_order` or
+            a field in `fmt`
+            cannot be found in :attr:`Field._default_fields`
+        :raises: :exc:`errors.UndefinedFieldError` when
+            a custom field name in `field_order` or
+            a custom field name in `fmt`
+            is not properly defined in `field_definitions`
+        :raises: :exc:`errors.InvalidFieldSpecError` when
+            a field definition is not of the form :class:`_types.FieldSpec`
 
-        .. note:: `tmpl` must match the form :class:`BarSpec`.
+        .. note:: `tmpl` can be a regular :class:`dict`
+        as long as it matches the form :class:`_types.BarSpec`.
 
         '''
         if ignore_with is None:
@@ -555,7 +562,7 @@ class Bar:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
-        :param file: The config file to read, defaults to :obj:`mybar.CONFIG_FILE`
+        :param file: The config file to read, defaults to :obj:`constants.CONFIG_FILE`
         :type file: :class:`os.PathLike`
 
         :returns: A new :class:`Bar`
@@ -618,9 +625,9 @@ class Bar:
         :type fmt: :class:`str`
 
         :returns: A list of field names that were found
-        :rtype: list[str]
+        :rtype: :class:`list[str]`
 
-        :raises: :class:`BrokenFormatStringError` when the format string
+        :raises: :exc:`errors.BrokenFormatStringError` when the format string
             is malformed or contains positional fields
         '''
         try:
@@ -662,10 +669,10 @@ class Bar:
         :returns: A dict mapping field names to :class:`Field` instances
         :rtype: :class:`dict`[:class:`str`, :class:`Field`]
 
-        :raises: :class:`DefaultFieldNotFoundError` when a string
-            element of `fields` is not the name of a default Field
-        :raises: :class:`InvalidFieldError` when an element
-            of `fields` is neither the name of a default Field
+        :raises: :exc:`errors.DefaultFieldNotFoundError` when a string
+            element of `fields` is not the name of a default :class:`Field`
+        :raises: :exc:`errors.InvalidFieldError` when an element
+            of `fields` is neither the name of a default :class:`Field`
             nor an instance of :class:`Field`
         '''
         converted = {}
@@ -689,7 +696,7 @@ class Bar:
         Block until an exception is raised and exit smoothly.
 
         :param stream: The IO stream in which to run the bar,
-            defaults to :class:`Bar`._stream
+            defaults to :attr:`Bar._stream`
         :type stream: :class:`IO`
 
         :param once: Whether to print the bar only once, defaults to ``False``
@@ -902,7 +909,7 @@ def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
     :param once: Print the bar only once, defaults to ``False``
     :type once: :class:`bool`
 
-    :param file: The config file to source, defaults to :obj:`mybar.CONFIG_FILE`
+    :param file: The config file to source, defaults to :obj:`constants.CONFIG_FILE`
     :type file: :class:`os.PathLike`
     '''
     bar = Bar.from_file(file)

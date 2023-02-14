@@ -17,10 +17,7 @@ Bars
 
 .. autoclass:: Bar
    :members:
-   :exclude-members: __init__
-
-.. autoclass:: Template
-   :members:
+   :undoc-members:
    :exclude-members: __init__
 
 
@@ -32,10 +29,35 @@ Fields
    :exclude-members: __init__
 
 
+Templates
+----------
+
+.. autoclass:: mybar.templates.BarTemplate
+   :show-inheritance:
+   :members:
+   :exclude-members: __init__
+
+
 Command Line Tools
 -------------------
 
 .. automodule:: mybar.cli
+   :members:
+   :exclude-members: __init__
+
+
+Constants
+----------
+
+.. automodule:: mybar.constants
+   :show-inheritance:
+   :members:
+   :undoc-members:
+
+
+Utilities
+----------
+.. automodule:: mybar.utils
    :members:
    :exclude-members: __init__
 
@@ -51,7 +73,10 @@ Exceptions
 Custom Types
 -------------
 
-.. automodule:: mybar.types
+.. automodule:: mybar._types
+   :show-inheritance:
    :members:
+   :undoc-members:
+
 
 

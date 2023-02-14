@@ -12,7 +12,7 @@ import sphinx_rtd_theme
 project = 'mybar'
 copyright = '2022, SleepyAbsol'
 author = 'SleepyAbsol'
-release = '0.3'
+release = '0.4'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -28,9 +28,19 @@ sys.path.insert(0, os.path.abspath('../'))
 # sys.path.insert(0, os.path.abspath('./mybar'))
 # sys.path.insert(0, os.path.abspath('.'))
 
-autodoc_member_order = 'groupwise'
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    # 'imported-members': True,
+    'exclude-members': '__init__',
+##    'autodoc_class_content': 'class',
+}
+
+# autodoc_member_order = 'groupwise'
+autodoc_member_order = 'bysource'
 autodoc_class_content = 'class'
 autodoc_class_signature = 'separated'
+# autodoc_class_signature = 'mixed'
 
 
 templates_path = ['_templates']

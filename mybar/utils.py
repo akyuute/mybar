@@ -1,5 +1,7 @@
 '''Utility functions'''
 
+#TODO Examples!
+
 from copy import deepcopy
 
 from ._types import FmtStrStructure, FormatStr, FormatterFname 
@@ -25,7 +27,7 @@ def join_options(
     in error messages.
 
     :param it: The iterable of objects to join
-    :type it: :class:`Iterable`[``object``]
+    :type it: :class:`Iterable[object]`
 
     :param sep: The string separating every option,
         defaults to ``', '``

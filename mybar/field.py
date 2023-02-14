@@ -43,7 +43,7 @@ class Field:
     Pre-existing default Fields can be looked up by name.
     # Custom fields used with functions to display the output of a function
 
-    :param name: A unique identifier for the new field, defaults to `func```.__name__``
+    :param name: A unique identifier for the new field, defaults to `func.`:attr:`__name__`
     :type name: :class:`str`
 
     :param func: The Python function to run at every `interval` if no `constant_output` is set
@@ -61,7 +61,7 @@ class Field:
         Example:
             When the field's current contents are ``'69F'`` and its icon is ``'TEMP'``,
             ``fmt='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param interval: How often in seconds field contents are updated, defaults to ``1.0``
     :type interval: :class:`float`
@@ -93,7 +93,7 @@ class Field:
     :param kwargs: Keyword args passed to `func`
     :type kwargs: :class:`Kwargs`, optional
 
-    :param setup: A special callback that updates `kwargs` with static data that `func` would have to evaluate every time it runs
+    :param setup: A special callback that updates `kwargs` with static data that `func` would otherwise have to evaluate every time it runs
     :type setup: :class:`Callable[P, Kwargs]`, optional
 
     :param icons: A pair of icons used in different cases.
@@ -101,8 +101,15 @@ class Field:
         The first string is intended for graphical (PTY) environments where support for Unicode is more likely.
         The second string is intended for terminal (TTY) environments where only ASCII is supported.
         This enables the same :class:`Field` instance to use the most optimal icon automatically.
-    :type icons: tuple[:class:`PTY_Icon`, :class:`TTY_Icon`], optional
+    :type icons: tuple[:class:`_types.PTY_Icon`, :class:`_types.TTY_Icon`], optional
 
+
+    :raises: :exc:`errors.IncompatibleArgsError` when
+        neither `func` nor `constant_output` are given
+    :raises: :exc:`errors.IncompatibleArgsError` when
+        neither `icon` nor `fmt` are given
+    :raises: :exc:`TypeError` when `func` is not callable
+    :raises: :exc:`TypeError` when `setup`, if given, is not callable
     '''
 
     _default_fields = {
@@ -221,7 +228,7 @@ class Field:
         if setup is not None and not callable(setup):
             # `setup` was given but is of the wrong type.
             raise TypeError(
-                f"Parameter 'setup' must be a callable, not {type(setup)}"
+                f"Type of 'setup' must be callable, not {type(setup)}"
             )
         self._setupfunc = setup
 
@@ -272,15 +279,15 @@ class Field:
         :type name: :class:`str`
 
         :param overrides: Custom parameters that override those of the default Field
-        :type overrides: :class:`FieldSpec`, optional
+        :type overrides: :class:`_types.FieldSpec`, optional
 
         :param source: The :class:`dict` in which to look up default fields,
             defaults to :attr:`Field._default_fields`
-        :type source: :class:`dict[FieldName, FieldSpec]`
+        :type source: dict[:class:`_types.FieldName`, :class:`_types.FieldSpec`]
 
         :returns: A new :class:`Field`
         :rtype: :class:`Field`
-        :raises: :class:`DefaultFieldNotFoundError` when `name` is not in `source`
+        :raises: :exc:`errors.DefaultFieldNotFoundError` when `source` does not contain `name`
         '''
         if source is None:
             source = cls._default_fields
@@ -297,7 +304,7 @@ class Field:
     @property
     def icon(self) -> str:
         '''The field icon as determined by the output stream of its bar.
-        It defaults to the TTY icon (self._icons[1]) if no bar is set.
+        It defaults to the TTY icon (:attr:`self._icons[1]`) if no bar is set.
         '''
         if self._bar is None:
             return self._icons[1]  # Default to using the terminal icon.

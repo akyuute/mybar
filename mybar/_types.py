@@ -1,7 +1,49 @@
+__all__ = (
+
+    'ColorEscaping',
+    'FieldSpec',
+    'BarSpec',
+    'BarTemplateSpec',
+
+    'Separator',
+    'PTY_Separator',
+    'TTY_Separator',
+    'Line',
+    'ConsoleControlCode',
+    'JSONText',
+
+    'Contents',
+    'FieldName',
+    'FormatStr',
+    'Icon',
+    'Pattern',
+    'PTY_Icon',
+    'TTY_Icon',
+
+    'OptName',
+    'OptSpec',
+
+    'Args',
+    'Kwargs',
+
+    'Duration',
+    'FormatterLiteral',
+    'FormatterFname',
+    'FormatterFormatSpec',
+    'FormatterConversion',
+    'FmtStrStructure',
+
+)
+
+
 from collections.abc import Callable, Sequence
 from enum import Enum, IntEnum
-from typing import Literal, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
+from typing import Any, Literal, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 from os import PathLike
+
+
+Bar = TypeVar('Bar')
+P = ParamSpec('P')
 
 
 # Used by Bar and bar.Template:
@@ -21,11 +63,13 @@ Pattern: TypeAlias = str
 PTY_Icon: TypeAlias = str
 TTY_Icon: TypeAlias = str
 
+# Used by cli.OptionsAsker:
+OptName: TypeAlias = str
+OptSpec: TypeAlias = dict[OptName, Any]
+
+
 Args: TypeAlias = list
 Kwargs: TypeAlias = dict
-
-Bar = TypeVar('Bar')
-P = ParamSpec('P')
 
 
 # Used by field_funcs:
@@ -38,16 +82,40 @@ Duration: TypeAlias = Literal[
     'months',
     'years'
 ]
-FormatterLiteral: TypeAlias = str|None
-FormatterFname: TypeAlias = str|None
-FormatterFormatSpec: TypeAlias = str|None
-FormatterConversion: TypeAlias = str|None
+'''Possible names for units of elapsed time.'''
+
+FormatterLiteral: TypeAlias = str | None
+'''The `literal_text` part of one tuple in the iterable returned
+by :func:`string.Formatter().parse()`.
+'''
+
+FormatterFname: TypeAlias = str | None
+'''The `field_name` part of one tuple in the iterable returned
+by :func:`string.Formatter().parse()`.
+'''
+
+FormatterFormatSpec: TypeAlias = str | None
+'''The `format_spec` part of one tuple in the iterable returned
+by :func:`string.Formatter().parse()`.
+'''
+
+FormatterConversion: TypeAlias = str | None
+'''The `conversion` part of one tuple in the iterable returned
+by :func:`string.Formatter().parse()`.
+'''
+
 FmtStrStructure: TypeAlias = tuple[tuple[tuple[
     FormatterLiteral,
     FormatterFname,
     FormatterFormatSpec,
     FormatterConversion
 ]]]
+'''
+:class:`tuple[tuple[tuple[FormatterLiteral, FormatterFname, FormatterFormatSpec, FormatterConversion]]]`
+
+The structure of a whole format string as broken up
+by :class:`string.Formatter`.
+'''
 
 
 class ColorEscaping(Enum):
@@ -56,7 +124,7 @@ class ColorEscaping(Enum):
 
 
 class FieldSpec(TypedDict, total=False):
-    '''A dict representation of Field constructor parameters.'''
+    '''A dict representation of :class:`mybar.Field` constructor parameters.'''
     name: Required[FieldName]
     func: Callable[P, str]
     icon: Icon
@@ -78,7 +146,7 @@ class FieldSpec(TypedDict, total=False):
 
 
 class BarSpec(TypedDict, total=False):
-    '''A dict representation of Bar constructor parameters.'''
+    '''A dict representation of :class:`mybar.Bar` constructor parameters.'''
     refresh_rate: float
     run_once: bool
     align_to_seconds: bool
@@ -93,12 +161,12 @@ class BarSpec(TypedDict, total=False):
     separator: Separator
     separators: Sequence[PTY_Separator, TTY_Separator]
 
-    # The `fmt` params is mutually exclusive with all field params.
+    # The `fmt` param is mutually exclusive with all field params.
     fmt: FormatStr
 
 
 class BarTemplateSpec(BarSpec, total=False):
-    '''A dict representation of bar.Template constructor parameters.'''
+    '''A dict representation of :class:`mybar.templates.BarTemplate` constructor parameters.'''
     config_file: PathLike
     debug: bool
 

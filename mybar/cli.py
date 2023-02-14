@@ -8,12 +8,9 @@ from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
 
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
-from ._types import BarTemplateSpec
+from ._types import BarTemplateSpec, OptName, OptSpec
 
 from typing import Any, Callable, NoReturn, TypeAlias
-
-OptName: TypeAlias = str
-OptSpec: TypeAlias = dict[OptName, Any]
 
 
 ### Constants ###
@@ -93,6 +90,7 @@ class Parser(ArgumentParser):
             title="Options for fields",
             description="These options are not valid when using --format/-m."
         )
+
         fields_group.add_argument(
             '--icons',
             action='extend',

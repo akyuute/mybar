@@ -17,10 +17,11 @@ __license__ = 'MIT'
 __copyright__ = "Copyright (c) 2021-present SleepyAbsol"
 
 
-CONFIG_FILE: str = '~/.mybar.json'  # The default bar config file path
-DEBUG: bool = False
+# CONFIG_FILE: str = '~/.mybar.json'  # The default bar config file path
+# DEBUG: bool = False
 
 
+from .constants import *
 from . import utils
 from .bar import *
 from .field import *
