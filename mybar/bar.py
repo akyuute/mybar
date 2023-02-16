@@ -681,7 +681,7 @@ class Bar:
                 case str():
                     converted[field] = Field.from_default(
                         name=field,
-                        params={'bar': self}
+                        overrides={'bar': self}
                     )
                 case Field():
                     field._bar = self
