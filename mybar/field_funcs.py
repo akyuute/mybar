@@ -1,14 +1,14 @@
 __all__ = (
-    'get_datetime',
-    'get_hostname',
-    'get_uptime',
-    'get_cpu_usage',
-    'get_cpu_temp',
-    'get_mem_usage',
-    'get_disk_usage',
-    'get_battery_info',
-    'get_net_stats',
     # 'get_audio_volume'
+    'get_battery_info',
+    'get_cpu_temp',
+    'get_cpu_usage',
+    'get_datetime',
+    'get_disk_usage',
+    'get_hostname',
+    'get_mem_usage',
+    'get_net_stats',
+    'get_uptime',
 )
 
 
@@ -25,7 +25,7 @@ import psutil
 from .errors import *
 from .formatable import ElapsedTime, DynamicFormatStr
 from .utils import join_options
-from ._types import Contents, FieldName, FormatStr
+from ._types import Contents, FormatStr, NmConnFilterSpec
 
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias
@@ -42,17 +42,15 @@ FmtStrStructure: TypeAlias = tuple[tuple[tuple[
     FormatterConversion
 ]]]
 
-NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
-NmConnFilterSpec: TypeAlias = Iterable[NmConnIDSpecifier]
-
-Duration: TypeAlias = Literal['secs', 'mins', 'hours', 'days', 'weeks']
-
-POWERS_OF_1K = {
-    'G': 3,
-    'M': 2,
-    'K': 1
+POWERS_OF_1024 = {
+    'K': 1024**1,
+    'M': 1024**2,
+    'G': 1024**3,
+    'P': 1024**4,
 }
+MetricSymbol = Literal[*POWERS_OF_1024.keys()]
 
+DiskMeasure = Literal['total', 'used', 'free', 'percent']
 
 
 ##class Func:
@@ -60,9 +58,13 @@ POWERS_OF_1K = {
 ##    s: Setup
 ##    pass
 
+
 # Field functions
 
-async def get_audio_volume(fmt="{:02.0f}{state}", *args, **kwargs) -> Contents:
+async def get_audio_volume(
+    fmt: FormatStr = "{:02.0f}{state}",
+    *args, **kwargs
+) -> Contents:
     '''Currently awaiting a more practical implementation that supports
     instantaneous updates. A socket would be quite nice for that.'''
 ##    '''Returns system audio volume from ALSA amixer. SIGUSR1 is used to
@@ -87,14 +89,21 @@ async def get_audio_volume(fmt="{:02.0f}{state}", *args, **kwargs) -> Contents:
     state = "" if is_on else "M"
     return fmt.format(avg_pct, state=state)
 
+
 async def get_battery_info(
-    prec: int = 0, 
-    fmt: str = "{:02.{}f}",
-    *args,
-    **kwargs
+    fmt: FormatStr = "{pct:02.0f}{state}",
+    *args, **kwargs
 ) -> Contents:
-    '''Returns battery capacity as a percent and whether it is charging
-    or discharging.'''
+    '''
+    Battery capacity as a percent and whether or not it is charging.
+
+    :param fmt: A curly-brace format string with
+        two optional named fields:
+            - ``pct``: Current battery percent as a :class:`float`
+            - ``state``: Whether or not the battery is charging
+        Defaults to ``"{pct:02.0f}{state}"``
+    :type fmt: :class:`FormatStr`
+    '''
 
     # Progressive/dynamic battery icons!
         # 
@@ -108,20 +117,33 @@ async def get_battery_info(
     if not battery:
         return ""
 ##        # return (None, None)
-    info = fmt.format(battery.percent, prec)
     state = "CHG" if battery.power_plugged else ''
+    info = fmt.format_map({'pct': battery.percent, 'state': state})
 ##    return battery.power_plugged, info
-    return state + info
+    return info
+
 
 async def get_cpu_temp(
-    fmt: str = "{:02.0f}{}",
+    fmt: str = "{temp:02.0f}{scale}",
     in_fahrenheit=False,
-    *args,
-    **kwargs
+    *args, **kwargs
 ) -> Contents:
-    '''Returns current CPU temperature in Celcius or Fahrenheit.'''
-    symbols = ('C', 'F')
-    symbol = symbols[in_fahrenheit]
+    '''
+    Current CPU temperature in Celcius or Fahrenheit.
+
+    :param fmt: A curly-brace format string with
+        two optional named fields:
+            - ``temp``: Current CPU temperature as a :class:`float`
+            - ``scale``: ``'C'`` or ``'F'``, depending on `in_fahrenheit`
+        Defaults to ``"{temp:02.0f}{scale}"``
+    :type fmt: :class:`FormatStr`
+
+    :param in_fahrenheit: Display the temperature in Fahrenheit instead of Celcius,
+        defaults to ``False``
+    :type in_fahrenheit: :class:`bool`
+    '''
+    scales = ('C', 'F')
+    scale = scales[in_fahrenheit]
 
     temps = psutil.sensors_temperatures(in_fahrenheit)
     match temps:
@@ -129,29 +151,48 @@ async def get_cpu_temp(
             current = t[0].current
         case _:
             current = '??'
-    return fmt.format(current, symbol)
+    return fmt.format_map({'temp': current, 'scale': scale})
+
 
 async def get_cpu_usage(
+    fmt: FormatStr = "{:02.0f}%",
     interval: float = None,
-    fmt = "{:02.0f}%",
-    *args,
-    **kwargs
+    *args, **kwargs
 ) -> Contents:
-    '''Returns system CPU usage in percent over a specified interval.'''
+    '''
+    System CPU usage in percent over a specified interval.
+
+    :param fmt: A curly-brace format string with one positional field,
+        defaults to ``"{:02.0f}%"``
+    :type fmt: :class:`FormatStr`
+
+    :param interval: Time to block before returning a result.
+        Only set this in a threaded :class:`Field`.
+    :type interval: :class:`float`, optional
+    '''
     return fmt.format(psutil.cpu_percent(interval))
+
 
 async def get_datetime(
     fmt: str = "%Y-%m-%d %H:%M:%S",
-    *args,
-    **kwargs
+    *args, **kwargs
 ) -> Contents:
-    '''Return the current time as formatted with `fmt`.'''
+    '''
+    Current time as formatted with `fmt`.
+
+    :param fmt: A format string with %-based format codes used by ``datetime.strftime()``,
+        defaults to ``"%Y-%m-%d %H:%M:%S"``
+    :type fmt: :class:`str`
+
+    .. seealso:: `strftime() format codes <https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes>`_
+
+    '''
     return datetime.now().strftime(fmt)
+
 
 def precision_datetime(
     fmt: str = "%Y-%m-%d %H:%M:%S.%f",
-    *args,
-    **kwargs
+    *args, **kwargs
 ) -> Contents:
     '''Return the current time as formatted with `fmt`.
     Being synchronous, a threaded Field can run this with
@@ -159,73 +200,76 @@ def precision_datetime(
     '''
     return datetime.now().strftime(fmt)
 
-async def get_disk_usage(
-    path='/',
-    measure='free',
-    unit='G',
-    fmt: str = "{:.{}f}{}",
-    prec: int = 1,
-    *args,
-    **kwargs
-) -> Contents:
-    '''Returns disk usage for a given path.
-    Measure can be 'total', 'used', 'free', or 'percent'.
-    Units can be 'G', 'M', or 'K'.'''
 
-    if unit not in POWERS_OF_1K:
+async def get_disk_usage(
+    fmt: FormatStr = "{free:.1f}{unit}",
+    path: os.PathLike = '/',
+    unit: MetricSymbol = 'G',
+    *args, **kwargs
+) -> Contents:
+    '''
+    Disk usage of a partition at a given path.
+
+    :param fmt: A curly-brace format string with
+        five optional named fields:
+            - ``unit``: The same value as `unit`
+            - ``total``: Total disk partition size
+            - ``used``: Used disk partition size
+            - ``free``: Free disk partition size
+            - ``percent``: ``used``/``total`` as a :class:`float`
+        Defaults to ``"{free:.1f}{unit}"``
+    :type fmt: :class:`FormatStr`
+
+    :param path: The path to a directory or file on a disk partition,
+        defaults to ``'/'``
+    :type path: :class:`os.PathLike`
+
+    :param unit: The unit prefix symbol representing...
+    :type unit: :class:`MetricSymbol`
+    '''
+
+    if unit not in POWERS_OF_1024:
         raise InvalidArgError(
             f"Invalid unit: {unit!r}\n"
             f"'unit' must be one of "
-            f"{join_options(POWERS_OF_1K)}."
+            f"{join_options(POWERS_OF_1024)}."
         )
 
     disk = psutil.disk_usage(path)
-    if measure not in disk._fields:
-        raise InvalidArgError(
-            f"Invalid measure on this operating system: {measure!r}.\n"
-            f"measure must be one of "
-            f"{join_options(disk._fields)}"
-        )
+    factor = POWERS_OF_1024[unit]
+    converted = {
+        meas: (val if meas == 'percent' else val/factor)
+        for meas, val in disk._asdict().items()
+    }
+    converted['unit'] = unit
+    usage = fmt.format_map(converted)
 
-    statistic = getattr(disk, measure, None)
-    converted = statistic / 1024**POWERS_OF_1K[unit]
-    usage = fmt.format(converted, prec, unit)
+    # statistic = getattr(disk, measure, None)
+    converted = statistic / POWERS_OF_1024[unit]
+    usage = fmt.format(converted, unit)
     return usage
 
 
 async def get_hostname(*args, **kwargs) -> Contents:
     return os.uname().nodename
 
+
 async def get_mem_usage(
-    prec: int = 1,
-    measure: str = 'used',
-    unit: str = 'G',
-    fmt: str = "{:.{}f}{}",
-    *args,
-    **kwargs
+    fmt: FormatStr = "{used:.1f}{unit}",
+    unit: MetricSymbol = 'G',
+    *args, **kwargs
 ) -> Contents:
     '''Returns total RAM used including buffers and cache in GiB.'''
-
-    if unit not in POWERS_OF_1K:
-        raise InvalidArgError(
-            f"Invalid unit: {unit!r}\n"
-            f"'unit' must be one of "
-            f"{join_options(POWERS_OF_1K)}."
-        )
-
     memory = psutil.virtual_memory()
+    factor = POWERS_OF_1024[unit]
+    converted = {
+        meas: (val if meas == 'percent' else val/factor)
+        for meas, val in memory._asdict().items()
+    }
+    converted['unit'] = unit
+    usage = fmt.format_map(converted)
+    return usage
 
-    if measure not in memory._fields:
-        raise InvalidArgError(
-            f"Invalid measure on this operating system: {measure!r}\n"
-            f"'measure' must be one of "
-            f"{join_options(memory._fields)}."
-        )
-
-    statistic = getattr(memory, measure, None)
-    converted = statistic / 1024 ** POWERS_OF_1K[unit]
-    mem = fmt.format(converted, prec, unit)
-    return mem
 
 #NOTE: This is most optimal as a threaded function.
 async def get_net_stats(
@@ -234,8 +278,7 @@ async def get_net_stats(
     nm_filt: NmConnFilterSpec = None,
     fmt: FormatStr = "{name}",
     default: str = "",
-    *args,
-    **kwargs
+    *args, **kwargs
 ) -> Contents:
     '''Returns active network name (and later, stats) from either
     NetworkManager or iwconfig.
@@ -245,7 +288,7 @@ async def get_net_stats(
 
         if nm_filt:
             # We use --terse for easier parsing.
-            cmd = f"nmcli --terse connection show {shlex.join(nm_filt)}"
+            cmd = f"nmcli --terse connection show {shlex.join(nm_filt.items())}"
         else:
             cmd = "nmcli --terse connection show --active"
 
@@ -257,21 +300,18 @@ async def get_net_stats(
         out, err = await proc.communicate()
         results = out.decode().splitlines()
 
-        conns = tuple(
-            # Split in reverse to avoid butchering names with colons:
-            c.rsplit(':', 3)
-            for c in results
-        )
-
-        # Don't bother parsing an empty tuple:
-        if not conns:
-            keynames = ('name', 'uuid', 'typ', 'device')
-            return fmt.format_map({key: default for key in keynames})
+        # Split in reverse to avoid butchering names with colons:
+        conns = (c.rsplit(':', 3) for c in results)
 
         # By default, nmcli sorts connections by type:
         #   ethernet, wifi, tun, ...
-        # We only need the top result.
-        match conns[0]:
+        # We only need the first result.
+        match next(conns):
+
+            case None:
+                keynames = ('name', 'uuid', 'typ', 'device')
+                return fmt.format_map({key: default for key in keynames})
+
             case (name, uuid, typ, device):
                 profile = {
                     # The command output duplicates all backslashes to
@@ -286,7 +326,7 @@ async def get_net_stats(
                 return fmt.format_map(profile)
 
             case _:
-                return ""
+                return default
 
     else:
         cmd = await aiosp.create_subprocess_shell(
@@ -307,11 +347,11 @@ async def get_net_stats(
 # Uptime
 
 async def get_uptime(
-    *,
     fmt: FormatStr,
     dynamic: bool = True,
     sep: str = ':',
     setupvars = None,
+    *args, **kwargs
 ) -> Contents:
     secs = time.time() - psutil.boot_time()
 

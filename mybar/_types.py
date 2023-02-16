@@ -33,6 +33,9 @@ __all__ = (
     'FormatterConversion',
     'FmtStrStructure',
 
+    'NmConnIDSpecifier',
+    'NmConnFilterSpec',
+
 )
 
 
@@ -86,22 +89,22 @@ Duration: TypeAlias = Literal[
 
 FormatterLiteral: TypeAlias = str | None
 '''The `literal_text` part of one tuple in the iterable returned
-by :func:`string.Formatter().parse()`.
+by :func:`string.Formatter.parse()`.
 '''
 
 FormatterFname: TypeAlias = str | None
 '''The `field_name` part of one tuple in the iterable returned
-by :func:`string.Formatter().parse()`.
+by :func:`string.Formatter.parse()`.
 '''
 
 FormatterFormatSpec: TypeAlias = str | None
 '''The `format_spec` part of one tuple in the iterable returned
-by :func:`string.Formatter().parse()`.
+by :func:`string.Formatter.parse()`.
 '''
 
 FormatterConversion: TypeAlias = str | None
 '''The `conversion` part of one tuple in the iterable returned
-by :func:`string.Formatter().parse()`.
+by :func:`string.Formatter.parse()`.
 '''
 
 FmtStrStructure: TypeAlias = tuple[tuple[tuple[
@@ -115,6 +118,34 @@ FmtStrStructure: TypeAlias = tuple[tuple[tuple[
 
 The structure of a whole format string as broken up
 by :class:`string.Formatter`.
+'''
+
+NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
+'''One of several keywords NetworkManager provides to narrow down connection results.
+From the ``nmcli`` man page:
+
+.. code-block:: none
+
+   id, uuid, path and apath keywords can be used if ID is
+   ambiguous. Optional ID-specifying keywords are:
+
+   id
+       the ID denotes a connection name.
+
+   uuid
+       the ID denotes a connection UUID.
+
+   path
+       the ID denotes a D-Bus static connection path in the format of
+       /org/freedesktop/NetworkManager/Settings/num or just num.
+
+   apath
+       the ID denotes a D-Bus active connection path in the format of
+       /org/freedesktop/NetworkManager/ActiveConnection/num or just num.
+'''
+
+NmConnFilterSpec: TypeAlias = dict[NmConnIDSpecifier, str]
+'''A dict passed to :func:`get_net_stats()` to filter multiple connections.
 '''
 
 

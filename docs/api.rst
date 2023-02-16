@@ -29,6 +29,13 @@ Fields
    :exclude-members: __init__
 
 
+Field Functions
+----------------
+Field Functions are evaluated at each `interval` to create content for Fields_.
+
+.. automodule:: mybar.field_funcs
+
+
 Templates
 ----------
 
