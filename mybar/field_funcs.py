@@ -46,7 +46,8 @@ POWERS_OF_1024 = {
     'K': 1024**1,
     'M': 1024**2,
     'G': 1024**3,
-    'P': 1024**4,
+    'T': 1024**4,
+    'P': 1024**5,
 }
 MetricSymbol = Literal[*POWERS_OF_1024.keys()]
 
@@ -214,9 +215,9 @@ async def get_disk_usage(
         five optional named fields:
             - ``unit``: The same value as `unit`
             - ``total``: Total disk partition size
-            - ``used``: Used disk partition size
-            - ``free``: Free disk partition size
-            - ``percent``: ``used``/``total`` as a :class:`float`
+            - ``used``: Used disk space
+            - ``free``: ``total``-``used`` disk space
+            - ``percent``: ``used``/``total`` disk space as a :class:`float`
         Defaults to ``"{free:.1f}{unit}"``
     :type fmt: :class:`FormatStr`
 
@@ -224,7 +225,7 @@ async def get_disk_usage(
         defaults to ``'/'``
     :type path: :class:`os.PathLike`
 
-    :param unit: The unit prefix symbol representing...
+    :param unit: The unit prefix symbol representing...binary 
     :type unit: :class:`MetricSymbol`
     '''
 
@@ -243,10 +244,6 @@ async def get_disk_usage(
     }
     converted['unit'] = unit
     usage = fmt.format_map(converted)
-
-    # statistic = getattr(disk, measure, None)
-    converted = statistic / POWERS_OF_1024[unit]
-    usage = fmt.format(converted, unit)
     return usage
 
 
