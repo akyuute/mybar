@@ -5,6 +5,7 @@ __all__ = (
     'get_cpu_usage',
     'get_datetime',
     'get_disk_usage',
+    'get_host',
     'get_hostname',
     'get_mem_usage',
     'get_net_stats',
@@ -225,10 +226,9 @@ async def get_disk_usage(
         defaults to ``'/'``
     :type path: :class:`os.PathLike`
 
-    :param unit: The unit prefix symbol representing...binary 
+    :param unit: The unit prefix symbol
     :type unit: :class:`MetricSymbol`
     '''
-
     if unit not in POWERS_OF_1024:
         raise InvalidArgError(
             f"Invalid unit: {unit!r}\n"
@@ -247,7 +247,30 @@ async def get_disk_usage(
     return usage
 
 
+async def get_host(
+    fmt: FormatStr = "{nodename}",
+    *args, **kwargs
+) -> Contents:
+    '''
+    System host information using :func:`os.uname()`.
+
+    :param fmt: A curly-brace format string with
+        five optional named fields:
+            - ``nodename``: System hostname
+            - ``sysname``: Operating system kernel name
+            - ``release``: Kernel release
+            - ``version``: Kernel version
+            - ``machine``: Machine architecture
+        Defaults to ``"{nodename}"``
+    :type fmt: :class:`FormatStr`
+    '''
+    keys = ('sysname', 'nodename', 'release', 'version', 'machine')
+    host = fmt.format_map(dict(zip(keys, os.uname())))
+    return host
+
+
 async def get_hostname(*args, **kwargs) -> Contents:
+    '''System hostname.'''
     return os.uname().nodename
 
 
@@ -256,7 +279,27 @@ async def get_mem_usage(
     unit: MetricSymbol = 'G',
     *args, **kwargs
 ) -> Contents:
-    '''Returns total RAM used including buffers and cache in GiB.'''
+    '''
+    Disk usage of a partition at a given path.
+
+    :param fmt: A curly-brace format string with
+        five optional named fields:
+            - ``unit``: The same value as `unit`
+            - ``total``: Total disk partition size
+            - ``used``: Used disk space
+            - ``free``: ``total``-``used`` disk space
+            - ``percent``: ``used``/``total`` disk space as a :class:`float`
+        Defaults to ``"{free:.1f}{unit}"``
+    :type fmt: :class:`FormatStr`
+
+    :param path: The path to a directory or file on a disk partition,
+        defaults to ``'/'``
+    :type path: :class:`os.PathLike`
+
+    :param unit: The unit prefix symbol
+    :type unit: :class:`MetricSymbol`
+    '''
+    # '''Returns total RAM used including buffers and cache in GiB.'''
     memory = psutil.virtual_memory()
     factor = POWERS_OF_1024[unit]
     converted = {
