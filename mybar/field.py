@@ -120,6 +120,15 @@ class Field:
             'run_once': True
         },
 
+        'host': {
+            'name': 'host',
+            'func': field_funcs.get_host,
+            'kwargs': {
+                'fmt': '{nodename}',
+            },
+            'run_once': True
+        },
+
         'uptime': {
             'name': 'uptime',
             'func': field_funcs.get_uptime,

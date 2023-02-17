@@ -314,14 +314,32 @@ async def get_mem_usage(
 #NOTE: This is most optimal as a threaded function.
 async def get_net_stats(
     # device: str = None,
+    fmt: FormatStr = "{name}",
     nm: bool = True,
     nm_filt: NmConnFilterSpec = None,
-    fmt: FormatStr = "{name}",
     default: str = "",
     *args, **kwargs
 ) -> Contents:
-    '''Returns active network name (and later, stats) from either
-    NetworkManager or iwconfig.
+    '''
+    Active network info from either `NetworkManager` or `iwconfig`.
+
+    :param fmt: A curly-brace format string with
+        five optional named fields:
+            - ``name``: The connection name
+            - ``uuid``: The connection uuid
+            - ``type``: The connection type
+            - ``device``: The connection device
+        Defaults to ``"{name}"``
+    :type fmt: :class:`FormatStr`
+
+    :param nm: Use `NetworkManager`, defaults to ``True``
+    :type nm: :class:`bool`
+
+    :param nm_filt: Filter from active `NetworkManager` connections
+    :type nm_filt: :class:`NmConnFilterSpec`, optional
+
+    :param default: The string to replace `fmt` fields when there is no active connection.
+    :type default: :class:`str`
     '''
     # If the user has NetworkManager, get the active connections:
     if nm:
@@ -393,6 +411,30 @@ async def get_uptime(
     setupvars = None,
     *args, **kwargs
 ) -> Contents:
+    '''
+    System uptime.
+
+    This function does some neat things.
+    When `dynamic` is ``True``, the format string is split into groups using `sep`.
+    If any format string fields in a group evaluate to 0, the whole group is hidden.
+    For example, using the format string ``"{days}d:{hours}h:{mins}m"``, 86580 seconds is represented as ``"1d:0h:3m"`` with `dynamic` = ``False``, but would be shortened to ``"1d:3m"`` with `dynamic` = ``True``.
+    ``"{hours}"`` will round `hours` to an integer by default.
+    If :class:`float` values are desired, a format spec must be used:
+        ``"{hours:.4f}"``
+    Format specs can be used to great effect, like in all other field functions which accept `fmt`:
+        ``"{hours:_^10.4f}"``
+
+    :param fmt: A curly-brace format string with seven optional named fields:
+        ``secs``, ``mins``, ``hours``, ``days``, ``weeks``, ``months``, and ``years``
+    :type fmt: :class:`FormatStr`
+
+    :param dynamic: Given `sep`, automatically hide groups of units when they are ``0``.
+    :type dynamic: :class:`bool`
+
+    :param sep: Delimits groups of format fields to be hidden/shown together,
+        defaults to ``":"``
+    :type sep: :class:`str`
+    '''
     secs = time.time() - psutil.boot_time()
 
     if not setupvars:
@@ -476,5 +518,4 @@ def format_uptime(
 
     # Join everything.
     return sep.join(''.join(g) for g in newgroups)
-
 
