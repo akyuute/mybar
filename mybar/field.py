@@ -301,12 +301,17 @@ class Field:
         if source is None:
             source = cls._default_fields
 
-        default: FieldSpec = source.get(name)
-        if default is None:
+        try:
+            default: FieldSpec = source[name].copy()
+        except KeyError:
             raise DefaultFieldNotFoundError(
                 f"{name!r} is not the name of a default Field."
             )
 
+        if 'kwargs' in overrides and 'kwargs' in default:
+            # default['kwargs'].update(overrides['kwargs'])
+            # default['kwargs'] |= overrides['kwargs']
+            overrides['kwargs'] = default['kwargs'] | overrides['kwargs']
         spec = default | overrides
         return cls(**spec)
 
