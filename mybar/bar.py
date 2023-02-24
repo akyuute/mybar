@@ -732,6 +732,8 @@ class Bar:
         '''
         if stream is not None:
             self._stream = stream
+        if once is None:
+            once = self.run_once
 
         # Allow the bar to run repeatedly in the same interpreter.
         if self._loop.is_closed():
