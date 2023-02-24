@@ -31,6 +31,7 @@ from ._types import (
     ConsoleControlCode,
     FieldName,
     FormatStr,
+    FormatterFieldSig,
     Icon,
     JSONText,
     Kwargs,
@@ -48,7 +49,6 @@ from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
 
 Bar = TypeVar('Bar')
 BarTemplate = TypeVar('BarTemplate')
-# from .templates import BarTemplate
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
@@ -361,26 +361,16 @@ class Bar:
                     "A separator is required when 'fmt' is None."
                 )
 
-            # Gather a list of field names:
-            field_order = [
-                getattr(f, 'name') if isinstance(f, Field)
-                else f
-                for f in fields
-            ]
-
         elif not isinstance(fmt, str):
             raise TypeError(
                 f"Format string 'fmt' must be a string, not {type(fmt)}"
             )
 
-        else:
-            # Use the format string to gather field names:
-            field_order = self.parse_fmt(fmt)
-            if fields is None:
-                fields = list(field_order)
+        elif fields is None:
+            fields = self.parse_fmt(fmt)
 
-        self._field_order = field_order
         self._fields = self._convert_fields(fields)
+        self._field_order = list(self._fields)  # Indulge in ordered dict
         self._buffers = dict.fromkeys(self._fields, '')
 
         self.fmt = fmt
@@ -493,6 +483,7 @@ class Bar:
         # Gather Field parameters and instantiate them:
         fields = []
         expctd_name="the name of a default or properly defined `custom` Field"
+        # for name in field_order:
         for name in field_order:
             field_params = field_defs.get(name)
 
@@ -500,7 +491,7 @@ class Bar:
                 case None:
                     # The field is strictly default.
                     try:
-                        field = Field.from_default(name)
+                        field = Field.from_default(name, fmt_sig)
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
@@ -617,32 +608,57 @@ class Bar:
         return self._separators[self._stream.isatty()]
 
     @staticmethod
-    def parse_fmt(fmt: FormatStr) -> list[FieldName]:
+    def parse_fmt(fmt: FormatStr) -> dict[FieldName, FormatterFieldSig]:
         '''
-        Return a list of field names that should act as a field order.
+        Return a dict mapping field names to :class:`FormatterFieldSig`.
+        Keys of the dict can act as a field order.
 
         :param fmt: A format string to parse
-        :type fmt: :class:`str`
+        :type fmt: :class:`FormatStr`
 
-        :returns: A list of field names that were found
-        :rtype: :class:`list[str]`
+        :returns: A dict of fields found in the format string
+        :rtype: :class:`dict[FieldName, FormatterFieldSig]`
 
-        :raises: :exc:`errors.BrokenFormatStringError` when the format string
+        :raises: :exc:`errors.BrokenFormatStringError` when `fmt`
             is malformed or contains positional fields
         '''
         try:
-            field_names = [
-                name for m in Formatter().parse(fmt)
-                if (name := m[1]) is not None
-            ]
+            fields = {
+                name: FormatterFieldSig(lit, name, spec, conv)
+                for lit, name, spec, conv in Formatter().parse(fmt)
+            }
+
         except ValueError:
             err = f"Invalid bar format string: {fmt!r}"
             raise BrokenFormatStringError(err) from None
-        if '' in field_names:
-            raise BrokenFormatStringError(
-                "Bar format strings cannot contain positional fields ('{}')."
-            )
-        return field_names
+
+        if '' in fields:
+            # A positional field. Issue an actionable error message.
+            new_fmt = ""
+            bad_field_start = -1
+            bad_field_len = 0
+
+            for field in fields:
+                unparsed = field.unparse()
+                new_fmt += unparsed
+
+                if field.name == '':
+                    # Add 1 to account for the first repr quotation mark:
+                    bad_field_start = len(new_fmt) + 1
+                    bad_field_len = len(unparsed)
+
+            underline = " " * bad_field_start + "^" * bad_field_len
+
+            err = '\n'.join((
+                "This field is missing a fieldname:",
+                repr(new_fmt),
+                underline,
+                "Bar format string fields must all have fieldnames.",
+                "Positional fields ('{}' for example) are not allowed.",
+            ))
+            raise BrokenFormatStringError(err)
+
+        return fields
 
     @staticmethod
     def _check_stream(stream: IO) -> None | NoReturn:
@@ -656,15 +672,15 @@ class Bar:
             )
 
     def _convert_fields(self,
-        fields: Iterable[FieldName | Field]
+        fields: Iterable[FieldName | Field | FormatterFieldSig]
     ) -> dict[FieldName, Field]:
         '''
         Convert a list of field names or :class:`Field` instances to
         corresponding default Fields and return a dict mapping field
         names to Fields.
 
-        :param fields: The iterable of fields to convert
-        :type fields: :class:`Iterable[str]`
+        :param fields: An iterable of :class:`Field` primitives to convert
+        :type fields: :class:`Iterable[FieldName | Field | FormatterFieldSig]`
 
         :returns: A dict mapping field names to :class:`Field` instances
         :rtype: :class:`dict`[:class:`str`, :class:`Field`]
@@ -681,11 +697,18 @@ class Bar:
                 case str():
                     converted[field] = Field.from_default(
                         name=field,
-                        overrides={'bar': self}
+                        overrides={'bar': self},
                     )
                 case Field():
                     field._bar = self
                     converted[field.name] = field
+                case FmtStrStructure():
+                    converting = Field.from_default(
+                        name=field.name,
+                        overrides={'bar': self}
+                    )
+                    converting._fmtsig = field.unparse()
+                    converted[field.name] = converting
                 case _:
                     raise InvalidFieldError(f"Invalid field: {field}")
         return converted

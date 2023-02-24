@@ -6,7 +6,7 @@ from .errors import (
     IncompatibleArgsError,
     InvalidFormatStringFieldError,
 )
-from .formatable import DynamicFormatStr
+from .formatable import ConditionalFormatStr
 from .utils import join_options, make_error_message 
 from ._types import FormatStr
 
@@ -18,7 +18,7 @@ async def setup_uptime(
 ) -> dict[str]:
     setupvars = {'fmt': fmt, 'sep': sep}
     try:
-        fnames, groups = DynamicFormatStr(fmt, sep).deconstruct()
+        fnames, groups = ConditionalFormatStr(fmt, sep).deconstruct()
     except BrokenFormatStringError:
         raise FailedSetup(backup=fmt)
     else:

@@ -36,7 +36,7 @@ class Icon(dict):
         # return self._registry[self._default]
 
 
-class DynamicFormatStr:
+class ConditionalFormatStr:
     '''
     '''
         #TODO: Docstring!!
@@ -54,13 +54,12 @@ class DynamicFormatStr:
         '''
         Break up a format string using its format fields and a separator.
         '''
-        fmt = self.fmt
         if sep is None:
             sep = self.sep
 
         sections = []
         # Split fmt for parsing, but join any format specs that get broken:
-        pieces = (p for p in fmt.split(sep))
+        pieces = (p for p in self.fmt.split(sep))
 
         def _is_malformed(piece: FormatStr):
             '''Return whether a format string is malformed.'''
@@ -81,7 +80,7 @@ class DynamicFormatStr:
         except StopIteration:
             exc = make_error_message(
                 BrokenFormatStringError,
-                doing_what=f"parsing {self!r} format string {fmt!r}",
+                doing_what=f"parsing {self!r} format string {self.fmt!r}",
                 details=[
                     f"Invalid fmt substring begins near ->{piece!r}"
                 ]
@@ -106,13 +105,16 @@ class DynamicFormatStr:
         namespace: dict[FormatterFname],
         predicate: Callable = bool,
         sep: str = None,
-        replace: str = None,
+        substitute: str = None,
+        round_by_default: bool = True,
     ) -> str:
-        '''Fornat a dict of numbers according to a format string by parsing
+        '''Format a dict of numbers according to a format string by parsing
         fields delineated by a separator `sep`.
         Field groups which fail the `predicate` are not shown in the
         final format string.
-        If specified or ``None``, `replace` will be shown instead.
+        If specified, `substitute` will replace invalid fields instead.
+
+        :param namespace: The namespace from which 
         '''
         if sep is None:
             sep = self.sep
@@ -127,11 +129,15 @@ class DynamicFormatStr:
             newgroup = []
             
             for maybe_field in group:
-                # Skip over sections that do not pass the predicate:
-                if (val := namespace.get(maybe_field[1])
-                    ) is not None and not predicate(val):
-                    if replace is not None:
-                        newgroups.append(replace)
+                # Handle sections that do not pass the predicate:
+                if not predicate(val := namespace[maybe_field[1]]):
+
+                    ##
+                    # Maybe check the length to see if a regular .format() can be used!
+                    ##
+
+                    if substitute is not None:
+                        newgroups.append(substitute)
                     break
 
                 buf = ""
@@ -151,6 +157,8 @@ class DynamicFormatStr:
                         # Format the value if necessary:
                         if spec:
                             buf += format(val, spec)
+                        elif round_by_default and isinstance(val, float):
+                            buf += str(round(val))
                         else:
                             buf += str(val)
 
@@ -180,7 +188,8 @@ class ElapsedTime:
         'days': 24*60*60,
         'hours': 60*60,
         'mins': 60,
-        'secs': 1
+        'secs': 1,
+        'femtofortnights': 14*24*60*60 * 10**(-15)
     }
 
     @classmethod
@@ -193,8 +202,10 @@ class ElapsedTime:
         #TODO: Docstring!!
 
         if not all(u in cls.conversions_to_secs for u in units):
-            exptd = join_options(cls.conversions_to_secs)
-            valid = set(cls.conversions_to_secs)
+            dememed = cls.conversions_to_secs.copy()
+            dememed.pop('femtofortnights')
+            exptd = join_options(dememed)
+            valid = set(exptd)
             unrec = join_options(set(units) - valid)
             exc = make_error_message(
                 LookupError,

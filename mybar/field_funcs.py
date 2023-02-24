@@ -24,7 +24,7 @@ from string import Formatter
 import psutil
 
 from .errors import *
-from .formatable import ElapsedTime, DynamicFormatStr
+from .formatable import ElapsedTime, ConditionalFormatStr
 from .utils import join_options
 from ._types import Contents, FormatStr, NmConnFilterSpec
 
@@ -217,8 +217,8 @@ async def get_disk_usage(
             - ``unit``: The same value as `unit`
             - ``total``: Total disk partition size
             - ``used``: Used disk space
-            - ``free``: ``total``-``used`` disk space
-            - ``percent``: ``used``/``total`` disk space as a :class:`float`
+            - ``free``: Free disk space (``total - used``)
+            - ``percent``: Percent of total disk space that is used (``used / total``, a :class:`float`)
         Defaults to ``"{free:.1f}{unit}"``
     :type fmt: :class:`FormatStr`
 
@@ -438,7 +438,7 @@ async def get_uptime(
     secs = time.time() - psutil.boot_time()
 
     if not setupvars:
-        fnames, groups = DynamicFormatStr(fmt, sep).deconstruct()
+        fnames, groups = ConditionalFormatStr(fmt, sep).deconstruct()
 
         setupvars = {
             'fnames': fnames,
@@ -462,7 +462,7 @@ def format_uptime(
     groups,
     *args, **kwargs
 ) -> str:
-    '''Fornat a dict of numbers according to a format string by parsing
+    '''Format a dict of numbers according to a format string by parsing
     fields delineated by a separator.
     '''
     newgroups = []

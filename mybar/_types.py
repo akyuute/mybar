@@ -41,7 +41,7 @@ __all__ = (
 
 from collections.abc import Callable, Sequence
 from enum import Enum, IntEnum
-from typing import Any, Literal, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
+from typing import Any, Literal, NamedTuple, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 from os import PathLike
 
 
@@ -107,17 +107,32 @@ FormatterConversion: TypeAlias = str | None
 by :func:`string.Formatter.parse()`.
 '''
 
-FmtStrStructure: TypeAlias = tuple[tuple[tuple[
-    FormatterLiteral,
-    FormatterFname,
-    FormatterFormatSpec,
-    FormatterConversion
-]]]
+class FormatterFieldSig(NamedTuple):
+    lit: FormatterLiteral
+    name: FormatterFname
+    spec: FormatterFormatSpec
+    # params: str
+    conv: FormatterConversion
+    # icon: str
+    # pos: int
+    # before: str
+    # after: str
+    # hide: bool
+
+    def unparse(self) -> FormatStr:
+        inside_brackets = self.name
+        if self.conv is not None:
+            inside_brackets += '!' + self.conv
+        inside_brackets += ':' + self.spec if self.spec else self.spec
+        return self.lit + '{' + inside_brackets + '}'
+
+
+FmtStrStructure: TypeAlias = tuple[tuple[FormatterFieldSig]]
 '''
-:class:`tuple[tuple[tuple[FormatterLiteral, FormatterFname, FormatterFormatSpec, FormatterConversion]]]`
+:class:`tuple[tuple[FormatterFieldSig]]`
 
 The structure of a whole format string as broken up
-by :class:`string.Formatter`.
+by :func:`string.Formatter.parse()`
 '''
 
 NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']

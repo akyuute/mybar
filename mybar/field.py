@@ -21,6 +21,7 @@ from .errors import *
 from ._types import (
     FieldName,
     FieldSpec,
+    FormatterFieldSig,
     Icon,
     PTY_Icon,
     TTY_Icon,
@@ -30,7 +31,7 @@ from ._types import (
 )
 
 from collections.abc import Callable, Sequence
-from typing import NoReturn, ParamSpec, Required, TypeVar
+from typing import NamedTuple, NoReturn, ParamSpec, Required, TypeVar
 
 Bar_T = TypeVar('Bar')
 Field = TypeVar('Field')
@@ -280,7 +281,8 @@ class Field:
     def from_default(cls: Field,
         name: str,
         overrides: FieldSpec = {},
-        source: dict[FieldName, FieldSpec] = None
+        source: dict[FieldName, FieldSpec] = None,
+        fmt_sig: FormatStr = None
     ) -> Field:
         '''Quickly get a default Field and customize its parameters.
 
@@ -312,8 +314,11 @@ class Field:
             # default['kwargs'].update(overrides['kwargs'])
             # default['kwargs'] |= overrides['kwargs']
             overrides['kwargs'] = default['kwargs'] | overrides['kwargs']
+
         spec = default | overrides
-        return cls(**spec)
+        field = cls(**spec)
+        field._fmt_sig = fmt_sig
+        return field
 
     @property
     def icon(self) -> str:
