@@ -1,56 +1,74 @@
 from os import PathLike
 from typing import Any, IO
 
-from ._types import Contents, FieldSpec
+from ._types import (
+    Contents,
+    FieldSpec,
+    FormatStringError,
+    BrokenFormatStringError,
+    MissingFieldnameError
+)
 
-
-class BrokenFormatStringError(ValueError):
-    '''Raised when a format string cannot be properly parsed or contains
-    positional fields (``'{}'``).'''
-    pass
 
 class DefaultFieldNotFoundError(LookupError):
-    '''Raised for references to an undefined default :class:`Field`.'''
+    '''
+    Raised for references to an undefined default :class:`Field`.
+    '''
     pass
 
 class IncompatibleArgsError(ValueError):
-    '''Raised when a class is instantiated with one or more missing or
-    incompatible parameters.'''
+    '''
+    Raised when a class is instantiated with one or more missing or
+    incompatible parameters.
+    '''
     pass
 
 class InvalidArgError(ValueError):
-    '''Raised by a field function when it receives an invalid argument.'''
+    '''
+    Raised by a field function when it receives an invalid argument.
+    '''
     pass
 
 class InvalidFieldError(TypeError):
-    '''Raised when a field is either not an instance of :class:`Field` or a string not
-    found in the default fields container.'''
+    '''
+    Raised when a field is either not an instance of :class:`Field` or a string not
+    found in the default fields container.
+    '''
     pass
 
 class InvalidFieldSpecError(TypeError):
-    '''Raised when an expected :class:`FieldSpec` has the wrong type or an invalid structure.
+    '''
+    Raised when an expected :class:`FieldSpec` has the wrong type or an invalid structure.
     '''
     pass
 
 class InvalidFormatStringFieldError(LookupError):
-    '''Raised when a format string has a field name not allowed or
-    not defined by kwargs in a :meth:`str.format()` call.'''
+    '''
+    Raised when a format string has a field name not allowed or
+    not defined by kwargs in a :meth:`str.format()` call.
+    '''
     pass
 
 class InvalidOutputStreamError(AttributeError):
-    '''Raised when an :class:`IO` stream lacks ``write()``,
-    ``flush()`` and ``isatty()`` methods.'''
+    '''
+    Raised when an :class:`IO` stream lacks ``write()``,
+    ``flush()`` and ``isatty()`` methods.
+    '''
     pass
 
 class MissingBarError(AttributeError):
-    '''Raised when :meth:`Field.run()` is called before its instance is passed to the
-    `fields` parameter in :meth:`Bar.__init__()`.'''
+    '''
+    Raised when :meth:`Field.run()` is called before its instance is passed to the
+    `fields` parameter in :meth:`Bar.__init__()`.
+    '''
     pass
 
 class UndefinedFieldError(LookupError):
-    '''Raised if, when parsing a config file, a field name appears in the
+    '''
+    Raised if, when parsing a config file, a field name appears in the
     `field_order` item of the :class:`dict` passed to :meth:`Bar.from_dict()` that is neither
-    found in its `field_definitions` parameter nor in :attr:`Field._default_fields`.'''
+    found in its `field_definitions` parameter nor in :attr:`Field._default_fields`.
+    '''
     pass
 
 
@@ -66,7 +84,9 @@ class FatalError(Exception):
         self.msg = msg
 
 class CLIUsageError(FatalError):
-    '''Raised when the CLI program is used incorrectly.'''
+    '''
+    Raised when the CLI program is used incorrectly.
+    '''
     pass
 
 

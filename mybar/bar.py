@@ -1,6 +1,5 @@
-#TODO: NewType()!
+#TODO: Bar(synchronous=True)!
 #TODO: Bar.as_generator()!
-#TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Finish Mocp line!
 
 
@@ -99,6 +98,7 @@ class BarTemplate(dict):
     @classmethod
     def from_file(cls: BarTemplate,
         file: PathLike = None,
+        *,
         defaults: BarTemplateSpec = None,
         overrides: BarTemplateSpec = {},
     ) -> BarTemplate:
@@ -210,6 +210,7 @@ class BarTemplate(dict):
     def write_file(
         file: PathLike,
         obj: BarTemplateSpec = {},
+        *,
         defaults: BarSpec = None
     ) -> None:
         '''Write :class:`BarTemplate` params to a JSON file.
@@ -425,6 +426,7 @@ class Bar:
     @classmethod
     def from_template(cls: Bar,
         tmpl: BarTemplate,
+        *,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> Bar:
         '''
@@ -656,7 +658,7 @@ class Bar:
                 "Bar format string fields must all have fieldnames.",
                 "Positional fields ('{}' for example) are not allowed.",
             ))
-            raise BrokenFormatStringError(err)
+            raise MissingFieldnameError(err)
 
         return fields
 
@@ -675,9 +677,11 @@ class Bar:
         fields: Iterable[FieldName | Field | FormatterFieldSig]
     ) -> dict[FieldName, Field]:
         '''
-        Convert a list of field names or :class:`Field` instances to
-        corresponding default Fields and return a dict mapping field
-        names to Fields.
+        Convert :class:`Field` primitives to :class:`Field` instances.
+
+        Convert a list of field names, :class:`Field` instances, or
+        :class:`FormatterFieldSig` tuples to corresponding default
+        Fields and return a dict mapping field names to Fields.
 
         :param fields: An iterable of :class:`Field` primitives to convert
         :type fields: :class:`Iterable[FieldName | Field | FormatterFieldSig]`

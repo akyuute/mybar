@@ -1,5 +1,3 @@
-#TODO: NewType()! TypedDict()!
-#TODO: collections.defaultdict, dict.fromkeys!
 #TODO: Finish Mocp line!
 #TODO: Implement dynamic icons!
 
@@ -280,6 +278,7 @@ class Field:
     @classmethod
     def from_default(cls: Field,
         name: str,
+        *,
         overrides: FieldSpec = {},
         source: dict[FieldName, FieldSpec] = None,
         fmt_sig: FormatStr = None
@@ -320,6 +319,19 @@ class Field:
         field._fmt_sig = fmt_sig
         return field
 
+    @classmethod
+    def from_format_string(cls, fmt: FormatStr) -> Field:
+        '''
+        Get a :class:`Field` from a curly-brace field in a format string.
+
+        :param fmt: The format string to convert
+        :type fmt: :class`FormatStr`
+        '''
+        sig = FormatterFieldSig.from_str(fmt)
+        field = cls.from_default(sig.name)
+        field._fmtsig = fmt
+        return field
+
     @property
     def icon(self) -> str:
         '''The field icon as determined by the output stream of its bar.
@@ -349,7 +361,7 @@ class Field:
         else:
             return fmt.format(text, icon=icon)
 
-    async def run(self, once: bool = False) -> None:
+    async def run(self, *, once: bool = False) -> None:
         '''
         Run an asynchronous field callback and send updates to the bar.
         '''
@@ -468,7 +480,7 @@ class Field:
                     # If not, the line will update at the next refresh cycle.
                     pass
 
-    def run_threaded(self, once: bool = False) -> None:
+    def run_threaded(self, *, once: bool = False) -> None:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()
@@ -637,8 +649,14 @@ class Field:
             )
         return True
 
-    async def send_to_thread(self, run_once: bool = True) -> None:
-        '''Make and start a thread in which to run the field's callback.'''
+    async def send_to_thread(self, *, run_once: bool = True) -> None:
+        '''
+        Make and start a thread in which to run the :class:`Field` callback.
+
+        :param run_once: Only run the :class:`Field` callback once,
+            defaults to ``True`` to prevent uncontrolled thread spawning
+        :type run_once: :class:`bool`
+        '''
         self._thread = threading.Thread(
             target=self.run_threaded,
             name=self.name,

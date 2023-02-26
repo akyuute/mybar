@@ -31,6 +31,7 @@ __all__ = (
     'FormatterFname',
     'FormatterFormatSpec',
     'FormatterConversion',
+    'FormatterFieldSig',
     'FmtStrStructure',
 
     'NmConnIDSpecifier',
@@ -41,6 +42,7 @@ __all__ = (
 
 from collections.abc import Callable, Sequence
 from enum import Enum, IntEnum
+from string import Formatter
 from typing import Any, Literal, NamedTuple, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
 from os import PathLike
 
@@ -87,6 +89,27 @@ Duration: TypeAlias = Literal[
 ]
 '''Possible names for units of elapsed time.'''
 
+
+class FormatStringError(ValueError):
+    '''
+    Base class for exceptions involving format strings.
+    '''
+    pass
+
+class BrokenFormatStringError(FormatStringError):
+    '''
+    Raised when a format string cannot be properly parsed or contains
+    positional fields (``'{}'``).
+    '''
+    pass
+
+class MissingFieldnameError(FormatStringError):
+    '''
+    Raised when a format string field lacks a fieldname when one is expected.
+    '''
+    pass
+
+
 FormatterLiteral: TypeAlias = str | None
 '''The `literal_text` part of one tuple in the iterable returned
 by :func:`string.Formatter.parse()`.
@@ -108,16 +131,56 @@ by :func:`string.Formatter.parse()`.
 '''
 
 class FormatterFieldSig(NamedTuple):
+    '''
+    '''
+
     lit: FormatterLiteral
     name: FormatterFname
     spec: FormatterFormatSpec
-    # params: str
     conv: FormatterConversion
+    # params: str
     # icon: str
     # pos: int
     # before: str
     # after: str
     # hide: bool
+
+    @classmethod
+    def from_str(cls, fmt: FormatStr) : #-> FormatterFieldSig:
+        '''
+        Convert a format string field to a field signature.
+
+        :param fmt: The format string to convert
+        :type fmt: :class:`FormatStr`
+        '''
+        try:
+            parsed = tuple(Formatter().parse(fmt))
+
+        except ValueError:
+            err = f"Invalid format string: {fmt!r}"
+            raise BrokenFormatStringError(err) from None
+
+        if not parsed:
+            err = f"The format string {fmt!r} contains no fields."
+            raise FormatStringError(err)
+
+        field = parsed[0]
+
+        # Does the field have a fieldname?
+        if field[1] == '':
+            # No; it's positional.
+            start = len(field[0])
+            err = (
+                f"The format string field at character {start} in {fmt!r} is "
+                f"missing a fieldname.\n"
+                 "Positional fields ('{}' for example) are not allowed "
+                 "for this operation."
+            )
+            raise MissingFieldnameError(err)
+
+        sig = cls(*field)
+        return sig
+
 
     def unparse(self) -> FormatStr:
         inside_brackets = self.name
