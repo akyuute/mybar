@@ -44,10 +44,9 @@ from ._types import (
 )
 
 from collections.abc import Iterable, Sequence
-from typing import IO, NoReturn, Required, TypeAlias, TypedDict, TypeVar
+from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
 
 Bar = TypeVar('Bar')
-BarTemplate = TypeVar('BarTemplate')
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
@@ -96,12 +95,12 @@ class BarTemplate(dict):
         return f"<{cls} {maybe_file}{params}>"
 
     @classmethod
-    def from_file(cls: BarTemplate,
+    def from_file(cls,
         file: PathLike = None,
         *,
         defaults: BarTemplateSpec = None,
         overrides: BarTemplateSpec = {},
-    ) -> BarTemplate:
+    ) -> Self:
         '''
         Return a new :class:`BarTemplate` from a config file path.
 
@@ -141,9 +140,9 @@ class BarTemplate(dict):
         return t
 
     @classmethod
-    def from_stdin(cls: BarTemplate,
+    def from_stdin(cls,
         write_new_file_dft: bool = False
-    ) -> BarTemplate:
+    ) -> Self:
         '''Return a new :class:`BarTemplate` using args from STDIN.
         Prompt the user before writing a new config file if one does
         not exist.
@@ -424,11 +423,11 @@ class Bar:
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_template(cls: Bar,
+    def from_template(cls,
         tmpl: BarTemplate,
         *,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
-    ) -> Bar:
+    ) -> Self:
         '''
         Return a new :class:`Bar` from a :class:`BarTemplate`
         or a dict of :class:`Bar` parameters.
@@ -551,7 +550,7 @@ class Bar:
         return cls(fields=fields, **bar_params)
 
     @classmethod
-    def from_file(cls: Bar, file: os.PathLike = None) -> Bar:
+    def from_file(cls, file: os.PathLike = None) -> Self:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
@@ -565,7 +564,7 @@ class Bar:
         return cls.from_template(template)
 
     @classmethod
-    def from_cli(cls: Bar) -> Bar:
+    def from_cli(cls) -> Self:
         '''
         Return a new :class:`Bar` using command line arguments.
 

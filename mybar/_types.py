@@ -43,7 +43,17 @@ __all__ = (
 from collections.abc import Callable, Sequence
 from enum import Enum, IntEnum
 from string import Formatter
-from typing import Any, Literal, NamedTuple, ParamSpec, Required, Self, TypeAlias, TypedDict, TypeVar
+from typing import (
+    Any,
+    Literal,
+    NamedTuple,
+    ParamSpec,
+    Required,
+    Self,
+    TypeAlias,
+    TypedDict,
+    TypeVar
+)
 from os import PathLike
 
 
