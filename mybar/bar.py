@@ -622,43 +622,30 @@ class Bar:
         :rtype: :class:`dict[FieldName, FormatterFieldSig]`
 
         :raises: :exc:`errors.BrokenFormatStringError` when `fmt`
-            is malformed or contains positional fields
+            is malformed
+        :raises: :exc:`errors.MissingFieldnameError` when `fmt`
+            contains positional fields
         '''
         try:
-            fields = {
-                name: FormatterFieldSig(lit, name, spec, conv)
-                for lit, name, spec, conv in Formatter().parse(fmt)
-            }
+            sigs = tuple(
+                FormatterFieldSig(*field)
+                for field in Formatter().parse(fmt)
+            )
 
         except ValueError:
             err = f"Invalid bar format string: {fmt!r}"
             raise BrokenFormatStringError(err) from None
 
+        fields = {sig.name: sig for sig in sigs}
+
         if '' in fields:
-            # A positional field. Issue an actionable error message.
-            new_fmt = ""
-            bad_field_start = -1
-            bad_field_len = 0
-
-            for field in fields:
-                unparsed = field.unparse()
-                new_fmt += unparsed
-
-                if field.name == '':
-                    # Add 1 to account for the first repr quotation mark:
-                    bad_field_start = len(new_fmt) + 1
-                    bad_field_len = len(unparsed)
-
-            underline = " " * bad_field_start + "^" * bad_field_len
-
-            err = '\n'.join((
-                "This field is missing a fieldname:",
-                repr(new_fmt),
-                underline,
-                "Bar format string fields must all have fieldnames.",
-                "Positional fields ('{}' for example) are not allowed.",
-            ))
-            raise MissingFieldnameError(err)
+            # There's a positional field somewhere.
+            # Issue an actionable error message:
+            epilogue = (
+                "Bar format string fields must all have fieldnames."
+                "\nPositional fields ('{}' for example) are not allowed."
+            )
+            raise MissingFieldnameError.with_highlighting(sigs, epilogue)
 
         return fields
 
@@ -711,7 +698,7 @@ class Bar:
                         name=field.name,
                         overrides={'bar': self}
                     )
-                    converting._fmtsig = field.unparse()
+                    converting._fmtsig = field.as_string()
                     converted[field.name] = converting
                 case _:
                     raise InvalidFieldError(f"Invalid field: {field}")

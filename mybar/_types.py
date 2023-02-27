@@ -43,7 +43,7 @@ __all__ = (
 from collections.abc import Callable, Sequence
 from enum import Enum, IntEnum
 from string import Formatter
-from typing import Any, Literal, NamedTuple, ParamSpec, Required, TypeAlias, TypedDict, TypeVar
+from typing import Any, Literal, NamedTuple, ParamSpec, Required, Self, TypeAlias, TypedDict, TypeVar
 from os import PathLike
 
 
@@ -90,25 +90,7 @@ Duration: TypeAlias = Literal[
 '''Possible names for units of elapsed time.'''
 
 
-class FormatStringError(ValueError):
-    '''
-    Base class for exceptions involving format strings.
-    '''
-    pass
-
-class BrokenFormatStringError(FormatStringError):
-    '''
-    Raised when a format string cannot be properly parsed or contains
-    positional fields (``'{}'``).
-    '''
-    pass
-
-class MissingFieldnameError(FormatStringError):
-    '''
-    Raised when a format string field lacks a fieldname when one is expected.
-    '''
-    pass
-
+### Format String Wonderland ###
 
 FormatterLiteral: TypeAlias = str | None
 '''The `literal_text` part of one tuple in the iterable returned
@@ -130,6 +112,65 @@ FormatterConversion: TypeAlias = str | None
 by :func:`string.Formatter.parse()`.
 '''
 
+
+class FormatStringError(ValueError):
+    '''
+    Base class for exceptions involving format strings.
+    '''
+    pass
+
+class BrokenFormatStringError(FormatStringError):
+    '''
+    Raised when a format string cannot be properly parsed or contains
+    positional fields (``'{}'``).
+    '''
+    pass
+
+
+FormatterFieldSig = TypeVar('FormatterFieldSig')
+class MissingFieldnameError(FormatStringError):
+    '''
+    Raised when a format string field lacks a fieldname (i.e. is positional)
+    when one is expected.
+
+    '''
+    @classmethod
+    def with_highlighting(cls,
+        sigs: FormatterFieldSig,
+        epilogue: str
+    ) -> Self:
+        '''
+        '''
+        rebuilt = ""
+        highlight = " "  # Account for the repr quotation mark.
+
+        for sig in sigs:
+            field = sig.as_string()
+            rebuilt += field
+
+            if sig.name == '':  # For each positional field...
+                # Skip over the part not in brackets:
+                highlight += " " * len(sig.lit)
+
+                # Only highlight the part in brackets.
+                bad_field_len = len(field) - len(sig.lit)
+                highlight += "^" * bad_field_len
+
+            else:
+                # Skip the whole field.
+                highlight += " " * len(field)
+
+        err = '\n'.join((
+            "",
+            "The following fields are missing fieldnames:",
+            repr(rebuilt),
+            highlight,
+            epilogue
+        ))
+
+        return cls(err)
+
+
 class FormatterFieldSig(NamedTuple):
     '''
     '''
@@ -138,15 +179,9 @@ class FormatterFieldSig(NamedTuple):
     name: FormatterFname
     spec: FormatterFormatSpec
     conv: FormatterConversion
-    # params: str
-    # icon: str
-    # pos: int
-    # before: str
-    # after: str
-    # hide: bool
 
     @classmethod
-    def from_str(cls, fmt: FormatStr) : #-> FormatterFieldSig:
+    def from_str(cls, fmt: FormatStr) -> Self:
         '''
         Convert a format string field to a field signature.
 
@@ -181,22 +216,42 @@ class FormatterFieldSig(NamedTuple):
         sig = cls(*field)
         return sig
 
+    def as_string(self,
+        with_literal: bool = True,
+        with_conv: bool = True,
+    ) -> FormatStr:
+        '''
+        Recreate a format string field from a single field signature.
 
-    def unparse(self) -> FormatStr:
+        :param with_literal: Include the signature's :class:`FormatterLiteral`,
+            defaults to ``True``
+        :type with_literal: :class:`bool`
+
+        :param with_conv: Include the signature's :class:`FormatterConversion`,
+            defaults to ``True``
+        :type with_conv: :class:`bool`
+
+        :returns: The format string represented by the signature
+        :rtype: :class:`FormatStr`
+        '''
         inside_brackets = self.name
-        if self.conv is not None:
+        if with_conv and self.conv is not None:
             inside_brackets += '!' + self.conv
         inside_brackets += ':' + self.spec if self.spec else self.spec
-        return self.lit + '{' + inside_brackets + '}'
+        fmt = '{' + inside_brackets + '}'
+        if with_literal:
+            return self.lit + fmt
+        return fmt
 
 
-FmtStrStructure: TypeAlias = tuple[tuple[FormatterFieldSig]]
+FmtStrStructure: TypeAlias = tuple[FormatterFieldSig]
 '''
-:class:`tuple[tuple[FormatterFieldSig]]`
+:class:`tuple[FormatterFieldSig]`
 
 The structure of a whole format string as broken up
 by :func:`string.Formatter.parse()`
 '''
+
 
 NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
 '''One of several keywords NetworkManager provides to narrow down connection results.
