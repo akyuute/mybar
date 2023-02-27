@@ -361,7 +361,7 @@ class Field:
         else:
             return fmt.format(text, icon=icon)
 
-    async def run(self, *, once: bool = False) -> None:
+    async def run(self, once: bool = False) -> None:
         '''
         Run an asynchronous field callback and send updates to the bar.
         '''
@@ -480,7 +480,7 @@ class Field:
                     # If not, the line will update at the next refresh cycle.
                     pass
 
-    def run_threaded(self, *, once: bool = False) -> None:
+    def run_threaded(self, once: bool = False) -> None:
         '''Run a blocking function in a thread
         and send its updates to the bar.'''
         self._check_bar()

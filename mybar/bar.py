@@ -492,7 +492,7 @@ class Bar:
                 case None:
                     # The field is strictly default.
                     try:
-                        field = Field.from_default(name, fmt_sig)
+                        field = Field.from_default(name) #, fmt_sig=fmt_sig)
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
@@ -517,7 +517,7 @@ class Bar:
                         field_params['icons'] = (cust_icon, cust_icon)
 
                     try:
-                        field = Field.from_default(name, field_params)
+                        field = Field.from_default(name, overrides=field_params)
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             UndefinedFieldError,
@@ -663,7 +663,7 @@ class Bar:
         fields: Iterable[FieldName | Field | FormatterFieldSig]
     ) -> dict[FieldName, Field]:
         '''
-        Convert :class:`Field` primitives to :class:`Field` instances.
+        Convert :class:`Field` precursors to :class:`Field` instances.
 
         Convert a list of field names, :class:`Field` instances, or
         :class:`FormatterFieldSig` tuples to corresponding default
@@ -703,7 +703,7 @@ class Bar:
                     raise InvalidFieldError(f"Invalid field: {field}")
         return converted
 
-    def run(self, *, stream: IO = None, once: bool = None) -> None:
+    def run(self, once: bool = None, stream: IO = None) -> None:
         '''
         Run the bar in the specified output stream.
         Block until an exception is raised and exit smoothly.
@@ -750,7 +750,7 @@ class Bar:
                 overriding = True
 
             if field.threaded:
-                await field.send_to_thread(run_once)
+                await field.send_to_thread(run_once=run_once)
             else:
                 gathered.append(field.run(run_once))
 
