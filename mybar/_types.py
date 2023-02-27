@@ -159,10 +159,10 @@ class MissingFieldnameError(FormatStringError):
             rebuilt += field
 
             if sig.name == '':  # For each positional field...
-                # Skip over the part not in brackets:
+                # Skip over the part not in braces:
                 highlight += " " * len(sig.lit)
 
-                # Only highlight the part in brackets.
+                # Only highlight the part in braces.
                 bad_field_len = len(field) - len(sig.lit)
                 highlight += "^" * bad_field_len
 
@@ -244,11 +244,11 @@ class FormatterFieldSig(NamedTuple):
         :returns: The format string represented by the signature
         :rtype: :class:`FormatStr`
         '''
-        inside_brackets = self.name
+        inside_braces = self.name
         if with_conv and self.conv is not None:
-            inside_brackets += '!' + self.conv
-        inside_brackets += ':' + self.spec if self.spec else self.spec
-        fmt = '{' + inside_brackets + '}'
+            inside_braces += '!' + self.conv
+        inside_braces += ':' + self.spec if self.spec else self.spec
+        fmt = '{' + inside_braces + '}'
         if with_literal:
             return self.lit + fmt
         return fmt

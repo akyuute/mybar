@@ -256,7 +256,7 @@ class Bar:
     :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
     :type fields: :class:`Iterable[Field | str]`
 
-    :param fmt: A curly-bracket format string with field names, defaults to ``None``
+    :param fmt: A curly-brace format string with field names, defaults to ``None``
     :type fmt: :class:`_types.FormatStr`
 
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
