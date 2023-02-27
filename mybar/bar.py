@@ -44,6 +44,7 @@ from ._types import (
 )
 
 from collections.abc import Iterable, Sequence
+from os import PathLike
 from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
 
 Bar = TypeVar('Bar')
@@ -550,12 +551,12 @@ class Bar:
         return cls(fields=fields, **bar_params)
 
     @classmethod
-    def from_file(cls, file: os.PathLike = None) -> Self:
+    def from_file(cls, file: PathLike = None) -> Self:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
         :param file: The config file to read, defaults to :obj:`constants.CONFIG_FILE`
-        :type file: :class:`os.PathLike`
+        :type file: :class:`PathLike`
 
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
@@ -916,7 +917,7 @@ class Bar:
         self._stream.flush()
 
 
-def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
+def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
     '''
     Generate a new :class:`Bar` and run it in STDOUT.
     Optionally generate the bar from a config file.
@@ -925,7 +926,7 @@ def run(once: bool = False, file: os.PathLike = None) -> NoReturn | None:
     :type once: :class:`bool`
 
     :param file: The config file to source, defaults to :obj:`constants.CONFIG_FILE`
-    :type file: :class:`os.PathLike`
+    :type file: :class:`PathLike`
     '''
     bar = Bar.from_file(file)
     bar.run(once=once)

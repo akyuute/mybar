@@ -75,6 +75,24 @@ Exceptions
 .. automodule:: mybar.errors
    :members:
    :exclude-members: __init__
+   :undoc-members:
+
+..
+   autoclass:: mybar.errors.FormatStringError
+   :show-inheritance:
+   :members:
+   :exclude-members: __init__
+
+   autoclass:: mybar.errors.BrokenFormatStringError,
+   :show-inheritance:
+   :members:
+   :exclude-members: __init__
+
+   autoclass:: mybar.errors.MissingFieldnameError
+   :show-inheritance:
+   :members:
+   :exclude-members: __init__
+
 
 
 Custom Types
