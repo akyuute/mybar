@@ -438,11 +438,11 @@ async def get_uptime(
     secs = time.time() - psutil.boot_time()
 
     if not setupvars:
-        fnames, groups = ConditionalFormatStr(fmt, sep).deconstruct()
+        conditional = ConditionalFormatStr(fmt, sep)
 
         setupvars = {
-            'fnames': fnames,
-            'groups': groups,
+            'fnames': conditional.fnames,
+            'groups': conditional.groups,
             'sep': sep,
         }
     lookup_table = ElapsedTime.in_desired_units(secs, setupvars['fnames'])

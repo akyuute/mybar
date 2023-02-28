@@ -18,11 +18,14 @@ async def setup_uptime(
 ) -> dict[str]:
     setupvars = {'fmt': fmt, 'sep': sep}
     try:
-        fnames, groups = ConditionalFormatStr(fmt, sep).deconstruct()
+        conditional = ConditionalFormatStr(fmt, sep)
     except BrokenFormatStringError:
         raise FailedSetup(backup=fmt)
     else:
-        setupvars.update({'fnames': fnames, 'groups': groups})
+        setupvars.update({
+            'fnames': conditional.fnames,
+            'groups': conditional.groups,
+        })
     return setupvars
 
 

@@ -181,82 +181,9 @@ class MissingFieldnameError(FormatStringError):
         return cls(err)
 
 
-class FormatterFieldSig(NamedTuple):
-    '''
-    '''
-
-    lit: FormatterLiteral
-    name: FormatterFname
-    spec: FormatterFormatSpec
-    conv: FormatterConversion
-
-    @classmethod
-    def from_str(cls, fmt: FormatStr) -> Self:
-        '''
-        Convert a format string field to a field signature.
-
-        :param fmt: The format string to convert
-        :type fmt: :class:`FormatStr`
-        '''
-        try:
-            parsed = tuple(Formatter().parse(fmt))
-
-        except ValueError:
-            err = f"Invalid format string: {fmt!r}"
-            raise BrokenFormatStringError(err) from None
-
-        if not parsed:
-            err = f"The format string {fmt!r} contains no fields."
-            raise FormatStringError(err)
-
-        field = parsed[0]
-
-        # Does the field have a fieldname?
-        if field[1] == '':
-            # No; it's positional.
-            start = len(field[0])
-            err = (
-                f"The format string field at character {start} in {fmt!r} is "
-                f"missing a fieldname.\n"
-                 "Positional fields ('{}' for example) are not allowed "
-                 "for this operation."
-            )
-            raise MissingFieldnameError(err)
-
-        sig = cls(*field)
-        return sig
-
-    def as_string(self,
-        with_literal: bool = True,
-        with_conv: bool = True,
-    ) -> FormatStr:
-        '''
-        Recreate a format string field from a single field signature.
-
-        :param with_literal: Include the signature's :class:`FormatterLiteral`,
-            defaults to ``True``
-        :type with_literal: :class:`bool`
-
-        :param with_conv: Include the signature's :class:`FormatterConversion`,
-            defaults to ``True``
-        :type with_conv: :class:`bool`
-
-        :returns: The format string represented by the signature
-        :rtype: :class:`FormatStr`
-        '''
-        inside_braces = self.name
-        if with_conv and self.conv is not None:
-            inside_braces += '!' + self.conv
-        inside_braces += ':' + self.spec if self.spec else self.spec
-        fmt = '{' + inside_braces + '}'
-        if with_literal:
-            return self.lit + fmt
-        return fmt
-
-
 FmtStrStructure: TypeAlias = tuple[FormatterFieldSig]
 '''
-:class:`tuple[FormatterFieldSig]`
+:class:`tuple[formatting.FormatterFieldSig]`
 
 The structure of a whole format string as broken up
 by :func:`string.Formatter.parse()`

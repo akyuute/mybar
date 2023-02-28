@@ -1,5 +1,5 @@
-#TODO: Finish Mocp line!
 #TODO: Implement dynamic icons!
+#TODO: Finish Mocp line!
 
 
 __all__ = (

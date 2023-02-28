@@ -62,6 +62,13 @@ Constants
    :undoc-members:
 
 
+String Formatting
+------------------
+.. automodule:: mybar.formatting
+    :members:
+    :exclude-members: __init__, conversions_to_secs
+
+
 Utilities
 ----------
 .. automodule:: mybar.utils
