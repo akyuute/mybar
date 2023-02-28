@@ -23,7 +23,7 @@ from . import cli
 from . import utils
 from .errors import *
 from .field import Field
-from .formatable import FormatterFieldSig
+from .formatting import FormatterFieldSig
 from ._types import (
     Args,
     BarSpec,

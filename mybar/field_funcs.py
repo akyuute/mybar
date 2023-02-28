@@ -24,7 +24,7 @@ from string import Formatter
 import psutil
 
 from .errors import *
-from .formatable import ElapsedTime, ConditionalFormatStr
+from .formatting import ElapsedTime, ConditionalFormatStr
 from .utils import join_options
 from ._types import Contents, FormatStr, NmConnFilterSpec
 
