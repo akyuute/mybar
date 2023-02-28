@@ -25,28 +25,33 @@
                 "sep": ":"
             },
             "align_to_seconds": true,
+            "icons": [" ", "Up "],
             "icon": "Up "
         },
 
         "cpu_usage": {
             "interval": 2,
             "threaded": false,
+            "icons": [" ", "CPU "],
             "icon": "CPU "
         },
 
         "cpu_temp": {
             "interval": 2,
             "threaded": false,
+            "icons": [" ", ""],
             "icon": ""
         },
 
         "mem_usage": {
             "interval": 2,
+            "icons": [" ", "Mem "],
             "icon": "Mem "
         },
 
         "disk_usage": {
             "interval": 4,
+            "icons": [" ", "/:"],
             "icon": "/:"
         },
 
@@ -55,11 +60,13 @@
             "interval": 1,
             "threaded": true,
             "align_to_seconds": false,
+            "icons": [" ", "Bat "],
             "icon": "Bat "
         },
 
         "net_stats": {
-            "interval": 4
+            "interval": 4,
+            "icons": [" ", ""]
         },
 
         "datetime": {
