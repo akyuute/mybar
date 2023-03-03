@@ -194,7 +194,7 @@ class Field:
     def __init__(self,
         *,
         name: FieldName = None,
-        func: Callable[P, str],
+        func: Callable[P, str] = None,
         icon: str = '',
         fmt: FormatStr = None,
         interval: float = 1.0,
