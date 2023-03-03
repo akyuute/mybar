@@ -2,6 +2,7 @@ __all__ = (
     'AskWriteNewFile',
     'BrokenFormatStringError',
     'CLIUsageError',
+    'DefaultFieldNotFoundError',
     'FailedSetup',
     'FatalError',
     'FormatStringError',

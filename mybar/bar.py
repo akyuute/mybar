@@ -229,7 +229,7 @@ class BarTemplate(dict):
             defaults = Bar._default_params.copy()
 
         obj = obj.copy()
-        del obj['config_file']
+        obj.pop('config_file', None)
         obj = defaults | obj
 
         fields = Field._default_fields.copy()
