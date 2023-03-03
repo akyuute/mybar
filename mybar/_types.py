@@ -258,7 +258,6 @@ class BarSpec(TypedDict, total=False):
     # The following field params are mutually exclusive with `fmt`.
     field_order: Required[list[FieldName]]
     field_definitions: dict[FieldName, FieldSpec]
-    field_icons: dict[FieldName, Icon]
     separator: Separator
     separators: Sequence[PTY_Separator, TTY_Separator]
 
@@ -270,5 +269,5 @@ class BarTemplateSpec(BarSpec, total=False):
     '''A dict representation of :class:`mybar.templates.BarTemplate` constructor parameters.'''
     config_file: PathLike
     debug: bool
-
+    field_icons: dict[FieldName, Icon]
 

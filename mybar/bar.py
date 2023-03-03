@@ -371,7 +371,7 @@ class Bar:
             fields = self.parse_fmt(fmt)
 
         self._fields = self._convert_fields(fields)
-        self._field_order = list(self._fields)  # Indulge in ordered dict
+        self._field_order = list(self._fields)  # Indulge in ordered dict    NO! DUPLICATES NEED TO BE PRESERVED!!!
         self._buffers = dict.fromkeys(self._fields, '')
 
         self.fmt = fmt
@@ -471,7 +471,7 @@ class Bar:
         bar_params = cls._default_params | data
         field_defs = bar_params.pop('field_definitions', {})
         field_order = bar_params.pop('field_order', None)
-        field_icons = bar_params.pop('field_icons', {})
+        field_icons = bar_params.pop('field_icons', {})  # From the CLI
 
         if (fmt := bar_params.get('fmt')) is None:
             if field_order is None:
@@ -482,10 +482,22 @@ class Bar:
         else:
             field_order = cls.parse_fmt(fmt)
 
+        # Ensure icon assignments correspond to valid fields:
+        for name in field_icons:
+            if name not in field_order:
+                expctd_from_icons = utils.join_options(field_order)
+                exc = utils.make_error_message(
+                    InvalidFieldError,
+                    doing_what="parsing custom Field icons",
+                    blame=f"{name!r}",
+                    expected=f"a Field name found in {expctd_from_icons}"
+                )
+                raise exc from None
+
         # Gather Field parameters and instantiate them:
-        fields = []
         expctd_name="the name of a default or properly defined `custom` Field"
-        # for name in field_order:
+        fields = []
+
         for name in field_order:
             field_params = field_defs.get(name)
 
@@ -512,7 +524,7 @@ class Bar:
 
                 case {}:
                     # The field is a default overridden by the user.
-                    # Are there custom icons, most common from the CLI?
+                    # Are there custom icons given from the CLI?
                     if name in field_icons:
                         cust_icon = field_icons.pop(name)
                         field_params['icons'] = (cust_icon, cust_icon)

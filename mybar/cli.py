@@ -8,7 +8,7 @@ from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
 
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
-from ._types import BarTemplateSpec, OptName, OptSpec
+from ._types import BarTemplateSpec, FieldName, OptName, OptSpec
 
 from typing import Any, Callable, NoReturn, TypeAlias
 
@@ -45,7 +45,7 @@ class Parser(ArgumentParser):
 
     def process_assignment_args(self,
         opts: BarTemplateSpec,
-        assignments: dict[str, str] = None
+        assignments: dict[FieldName, str] = None
     ) -> BarTemplateSpec:
         '''Make dicts from key-value pairs in assignment args.'''
         if assignments is None:
