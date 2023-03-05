@@ -1,3 +1,4 @@
+#TODO: {'uptime1': {'dft': 'uptime', ...}, 'uptime2': {'dft': 'uptime', ...}}
 #TODO: Bar(synchronous=True)!
 #TODO: Bar.as_generator()!
 #TODO: Finish Mocp line!
@@ -30,6 +31,8 @@ from ._types import (
     BarTemplateSpec,
     ConsoleControlCode,
     FieldName,
+    FieldOrder,
+    FmtStrStructure,
     FormatStr,
     Icon,
     JSONText,
@@ -327,6 +330,7 @@ class Bar:
     def __init__(self,
         fields: Iterable[Field | str] = None,
         *,
+        field_order: Iterable[FieldName] = None,
         fmt: str = None,
         separator: str = '|',
         refresh_rate: float = 1.0,
@@ -354,13 +358,17 @@ class Bar:
                     f"or a format string 'fmt' is required."
                 )
 
-            if not hasattr(fields, '__iter__'):
+            elif not hasattr(fields, '__iter__'):
                 raise TypeError("The 'fields' argument must be iterable.")
 
-            if separator is None and separators is None:
+            elif separator is None and separators is None:
                 raise IncompatibleArgsError(
                     "A separator is required when 'fmt' is None."
                 )
+
+            elif field_order is None:
+                fields = self._normalize_fields(fields)
+                field_order = list(fields)
 
         elif not isinstance(fmt, str):
             raise TypeError(
@@ -368,10 +376,11 @@ class Bar:
             )
 
         elif fields is None:
-            fields = self.parse_fmt(fmt)
+            field_order, field_names = self.parse_fmt(fmt)
+            fields = self._normalize_fields(field_names)
 
-        self._fields = self._convert_fields(fields)
-        self._field_order = list(self._fields)  # Indulge in ordered dict    NO! DUPLICATES NEED TO BE PRESERVED!!!
+        self._fields = fields
+        self._field_order = field_order
         self._buffers = dict.fromkeys(self._fields, '')
 
         self.fmt = fmt
@@ -448,7 +457,7 @@ class Bar:
         :raises: :exc:`errors.IncompatibleArgsError` when
             no `field_order` is defined
             or when no `fmt` is defined
-        :raises: :exc:`errors.DefaultFieldNotFoundError` when
+        :raises: :exc:`errors.DefaultFieldNotFoundError` when either
             a field in `field_order` or
             a field in `fmt`
             cannot be found in :attr:`Field._default_fields`
@@ -460,7 +469,7 @@ class Bar:
             a field definition is not of the form :class:`_types.FieldSpec`
 
         .. note:: `tmpl` can be a regular :class:`dict`
-        as long as it matches the form :class:`_types.BarSpec`.
+        as long as it matches the form of :class:`_types.BarSpec`.
 
         '''
         if ignore_with is None:
@@ -469,9 +478,9 @@ class Bar:
             data = utils.scrub_comments(tmpl, ignore_with)
 
         bar_params = cls._default_params | data
-        field_defs = bar_params.pop('field_definitions', {})
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})  # From the CLI
+        field_defs = bar_params.pop('field_definitions', {})
 
         if (fmt := bar_params.get('fmt')) is None:
             if field_order is None:
@@ -480,7 +489,7 @@ class Bar:
                     "order list 'field_order' is undefined."
                 )
         else:
-            field_order = cls.parse_fmt(fmt)
+            field_order, field_sigs = cls.parse_fmt(fmt)
 
         # Ensure icon assignments correspond to valid fields:
         for name in field_icons:
@@ -495,8 +504,8 @@ class Bar:
                 raise exc from None
 
         # Gather Field parameters and instantiate them:
+        fields = {}
         expctd_name="the name of a default or properly defined `custom` Field"
-        fields = []
 
         for name in field_order:
             field_params = field_defs.get(name)
@@ -504,8 +513,11 @@ class Bar:
             match field_params:
                 case None:
                     # The field is strictly default.
+                    if name in fields:
+                        continue
+
                     try:
-                        field = Field.from_default(name) #, fmt_sig=fmt_sig)
+                        field = Field.from_default(name)
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
@@ -518,9 +530,9 @@ class Bar:
                 case {'custom': True}:
                     # The field is custom, so it is only defined in
                     # 'field_definitions' and will not be found as a default.
-                    custom_name = field_params.pop('name', name)
+                    name = field_params.pop('name', name)
                     del field_params['custom']
-                    field = Field(**field_params, name=custom_name)
+                    field = Field(**field_params, name=name)
 
                 case {}:
                     # The field is a default overridden by the user.
@@ -539,7 +551,7 @@ class Bar:
                             expected=expctd_name,
                             epilogue=(
                                 f"(In config files, remember to set "
-                                f"custom = true "
+                                f"`custom=true` "
                                 f"for custom field definitions.)"
                             ),
                         )
@@ -558,9 +570,14 @@ class Bar:
                     )
                     raise exc from None
 
-            fields.append(field)
+            fields[name] = field
 
-        return cls(fields=fields, **bar_params)
+        bar = cls(
+            fields=fields.values(),
+            field_order=field_order,
+            **bar_params
+        )
+        return bar
 
     @classmethod
     def from_file(cls, file: PathLike = None) -> Self:
@@ -622,7 +639,9 @@ class Bar:
         return self._separators[self._stream.isatty()]
 
     @staticmethod
-    def parse_fmt(fmt: FormatStr) -> dict[FieldName, FormatterFieldSig]:
+    def parse_fmt(
+        fmt: FormatStr
+    ) -> tuple[FieldOrder, FmtStrStructure]:
         '''
         Return a dict mapping field names to :class:`FormatterFieldSig`.
         Keys of the dict can act as a field order.
@@ -648,9 +667,7 @@ class Bar:
             err = f"Invalid bar format string: {fmt!r}"
             raise BrokenFormatStringError(err) from None
 
-        fields = {sig.name: sig for sig in sigs}
-
-        if '' in fields:
+        if any(sig.name == '' for sig in sigs):
             # There's a positional field somewhere.
             # Issue an actionable error message:
             epilogue = (
@@ -659,7 +676,9 @@ class Bar:
             )
             raise MissingFieldnameError.with_highlighting(sigs, epilogue)
 
-        return fields
+        names = tuple(sig.name for sig in sigs)
+
+        return names, sigs
 
     @staticmethod
     def _check_stream(stream: IO) -> None | NoReturn:
@@ -672,7 +691,7 @@ class Bar:
                 f"Output stream {stream!r} needs {joined} methods."
             )
 
-    def _convert_fields(self,
+    def _normalize_fields(self,
         fields: Iterable[FieldName | Field | FormatterFieldSig]
     ) -> dict[FieldName, Field]:
         '''
@@ -686,7 +705,7 @@ class Bar:
         :type fields: :class:`Iterable[FieldName | Field | FormatterFieldSig]`
 
         :returns: A dict mapping field names to :class:`Field` instances
-        :rtype: :class:`dict`[:class:`str`, :class:`Field`]
+        :rtype: :class:`dict[FieldName, Field]`
 
         :raises: :exc:`errors.DefaultFieldNotFoundError` when a string
             element of `fields` is not the name of a default :class:`Field`
@@ -694,27 +713,27 @@ class Bar:
             of `fields` is neither the name of a default :class:`Field`
             nor an instance of :class:`Field`
         '''
-        converted = {}
+        normalized = {}
         for field in fields:
             match field:
                 case str():
-                    converted[field] = Field.from_default(
+                    normalized[field] = Field.from_default(
                         name=field,
                         overrides={'bar': self},
                     )
                 case Field():
                     field._bar = self
-                    converted[field.name] = field
-                case FmtStrStructure():
+                    normalized[field.name] = field
+                case FormatterFieldSig():
                     converting = Field.from_default(
                         name=field.name,
                         overrides={'bar': self}
                     )
                     converting._fmtsig = field.as_string()
-                    converted[field.name] = converting
+                    normalized[field.name] = converting
                 case _:
                     raise InvalidFieldError(f"Invalid field: {field}")
-        return converted
+        return normalized
 
     def run(self, once: bool = None, stream: IO = None) -> None:
         '''

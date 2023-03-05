@@ -14,6 +14,7 @@ __all__ = (
 
     'Contents',
     'FieldName',
+    'FieldOrder',
     'FormatStr',
     'Icon',
     'Pattern',
@@ -72,6 +73,7 @@ JSONText: TypeAlias = str
 # Used by Field and Bar:
 Contents: TypeAlias = str
 FieldName: TypeAlias = str
+FieldOrder: TypeAlias = tuple[FieldName]
 FormatStr: TypeAlias = str
 Icon: TypeAlias = str
 Pattern: TypeAlias = str
