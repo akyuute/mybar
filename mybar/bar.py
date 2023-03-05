@@ -350,34 +350,42 @@ class Bar:
         self._check_stream(stream)
         self._stream = stream
 
-        # Ensure required parameters are defined if no fmt is given:
-        if fmt is None:
-            if fields is None:
+
+        # Check all the required parameters.
+        if fields is None:
+
+            if fmt is None:
                 raise IncompatibleArgsError(
                     f"Either a list of Fields 'fields' "
                     f"or a format string 'fmt' is required."
                 )
 
-            elif not hasattr(fields, '__iter__'):
-                raise TypeError("The 'fields' argument must be iterable.")
-
-            elif separator is None and separators is None:
-                raise IncompatibleArgsError(
-                    "A separator is required when 'fmt' is None."
+            elif not isinstance(fmt, str):
+                raise TypeError(
+                    f"Format string 'fmt' must be a string, not {type(fmt)}"
                 )
 
-            elif field_order is None:
-                fields = self._normalize_fields(fields)
-                field_order = list(fields)
+            # Good to use fmt:
+            else:
+                #NOTE: `fields` here are :class:`FormatterFieldSig`
+                # _normalize_fields() takes care of this later.
+                field_names, fields = self.parse_fmt(fmt)
+                field_order = None
 
-        elif not isinstance(fmt, str):
-            raise TypeError(
-                f"Format string 'fmt' must be a string, not {type(fmt)}"
+        # Fall back to using fields.
+        elif not hasattr(fields, '__iter__'):
+            raise TypeError("The 'fields' argument must be iterable.")
+
+        elif separator is None and separators is None:
+            raise IncompatibleArgsError(
+                "A separator is required when 'fmt' is None."
             )
 
-        elif fields is None:
-            field_order, field_names = self.parse_fmt(fmt)
-            fields = self._normalize_fields(field_names)
+        field_names, fields = self._normalize_fields(fields)
+
+        # Preserve custom field order, enabling duplicates:
+        if fmt is None and field_order is None:
+            field_order = field_names
 
         self._fields = fields
         self._field_order = field_order
@@ -426,10 +434,10 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
-    def __contains__(self, other) -> bool:
-        if isinstance(other, str):
-            return (other in self._field_order)
-        return (other in self._fields.values())
+##    def __contains__(self, other) -> bool:
+##        if isinstance(other, str):
+##            return (other in self._field_order)
+##        return (other in self._fields.values())
 
     def __len__(self) -> int:
         return len(self._field_order)
@@ -581,7 +589,7 @@ class Bar:
             fields[name] = field
 
         bar = cls(
-            fields=fields.values(),
+            fields=tuple(fields.values()),
             field_order=field_order,
             **bar_params
         )
@@ -701,7 +709,7 @@ class Bar:
 
     def _normalize_fields(self,
         fields: Iterable[FieldName | Field | FormatterFieldSig]
-    ) -> dict[FieldName, Field]:
+    ) -> tuple[FieldOrder, dict[FieldName, Field]]:
         '''
         Convert :class:`Field` precursors to :class:`Field` instances.
 
@@ -722,6 +730,8 @@ class Bar:
             nor an instance of :class:`Field`
         '''
         normalized = {}
+        names = []
+
         for field in fields:
             match field:
                 case str():
@@ -729,9 +739,13 @@ class Bar:
                         name=field,
                         overrides={'bar': self},
                     )
+                    names.append(field)
+
                 case Field():
                     field._bar = self
                     normalized[field.name] = field
+                    names.append(field.name)
+
                 case FormatterFieldSig():
                     converting = Field.from_default(
                         name=field.name,
@@ -739,9 +753,12 @@ class Bar:
                     )
                     converting._fmtsig = field.as_string()
                     normalized[field.name] = converting
+                    names.append(field.name)
+
                 case _:
-                    raise InvalidFieldError(f"Invalid field: {field}")
-        return normalized
+                    raise InvalidFieldError(f"Invalid field: {field!r}")
+
+        return names, normalized
 
     def run(self, once: bool = None, stream: IO = None) -> None:
         '''
