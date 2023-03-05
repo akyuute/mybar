@@ -426,6 +426,14 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
+    def __contains__(self, other) -> bool:
+        if isinstance(other, str):
+            return (other in self._field_order)
+        return (other in self._fields.values())
+
+    def __len__(self) -> int:
+        return len(self._field_order)
+
     def __repr__(self) -> str:
         names = self._field_order
         fields = utils.join_options(names, final_sep='', limit=3)
