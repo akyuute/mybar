@@ -52,6 +52,10 @@ from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
 
 Bar = TypeVar('Bar')
 
+#######
+FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig ############
+#######
+
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
 CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
@@ -457,6 +461,22 @@ class Bar:
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
+    #TODO: Docstrings
+    def append(self, field: FieldPrecursor) -> Self:
+        new_field = self._convert_field(field)
+        self._fields[new_field.name] = new_field
+        self._buffers[new_field.name] = ''
+        self._field_order.append(new_field.name)
+        return self
+
+    def extend(self, fields: Iterable[FieldPrecursor]) -> Self:
+        names, new_fields = self._normalize_fields(fields)  #TODO: Perhaps make normalize return a tuple, not a dict.
+        self._fields.update(new_fields)
+        self._buffers.update(dict.fromkeys(names, ''))
+        self._field_order.extend(names)
+        return self
+
+
     @classmethod
     def from_template(cls,
         tmpl: BarTemplate,
@@ -715,6 +735,31 @@ class Bar:
             raise TypeError(
                 f"Output stream {stream!r} needs {joined} methods."
             )
+
+    def _convert_field(self,
+        field: FieldName | Field | FormatterFieldSig
+    ) -> Field:
+        if isinstance(field, str):
+            converted = Field.from_default(
+                name=field,
+                overrides={'bar': self},
+            )
+
+        elif isinstance(field, Field):
+            converted = field  # Maybe consider copying `field`.
+            converted._bar = self
+
+        elif isinstance(field, FormatterFieldSig):
+            converted = Field.from_default(
+                name=field.name,
+                overrides={'bar': self}
+            )
+            converted._fmtsig = field.as_string()
+
+        else:
+            raise InvalidFieldError(f"Invalid field precursor: {field!r}")
+
+        return converted
 
     def _normalize_fields(self,
         fields: Iterable[FieldName | Field | FormatterFieldSig]
