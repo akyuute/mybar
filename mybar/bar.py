@@ -23,7 +23,7 @@ from .constants import CONFIG_FILE, DEBUG
 from . import cli
 from . import utils
 from .errors import *
-from .field import Field
+from .field import Field, FieldPrecursor
 from .formatting import FormatterFieldSig
 from ._types import (
     Args,
@@ -52,9 +52,6 @@ from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
 
 Bar = TypeVar('Bar')
 
-#######
-FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig ############
-#######
 
 # Unix terminal escape code (control sequence introducer):
 CSI: ConsoleControlCode = '\033['
@@ -736,9 +733,7 @@ class Bar:
                 f"Output stream {stream!r} needs {joined} methods."
             )
 
-    def _convert_field(self,
-        field: FieldName | Field | FormatterFieldSig
-    ) -> Field:
+    def _convert_field(self, field: FieldPrecursor) -> Field:
         if isinstance(field, str):
             converted = Field.from_default(
                 name=field,
@@ -761,8 +756,9 @@ class Bar:
 
         return converted
 
+    #TODO: Make this return normalized as a tuple, not dict
     def _normalize_fields(self,
-        fields: Iterable[FieldName | Field | FormatterFieldSig]
+        fields: FieldPrecursor
     ) -> tuple[FieldOrder, dict[FieldName, Field]]:
         '''
         Convert :class:`Field` precursors to :class:`Field` instances.

@@ -29,7 +29,7 @@ from ._types import (
 )
 
 from collections.abc import Callable, Sequence
-from typing import NamedTuple, NoReturn, ParamSpec, Required, TypeVar
+from typing import NamedTuple, NoReturn, ParamSpec, Required, TypeAlias, TypeVar
 
 Bar_T = TypeVar('Bar')
 Field = TypeVar('Field')
@@ -666,4 +666,6 @@ class Field:
         if self._bar is not None:
             self._bar._threads.add(self._thread)
         self._thread.start()
+
+FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig
 
