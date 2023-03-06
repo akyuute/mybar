@@ -434,10 +434,19 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
-##    def __contains__(self, other) -> bool:
-##        if isinstance(other, str):
-##            return (other in self._field_order)
-##        return (other in self._fields.values())
+    def __contains__(self, other) -> bool:
+        if isinstance(other, str):
+            weak_test = (other in self._field_order)
+            return weak_test
+
+        elif isinstance(other, Field):
+            less_weak_test = (other.name in self._field_order)
+            return less_weak_test
+
+        # Shall we test for identical objects?
+        else:
+            # No, too specific for a dunder-method.
+            return False
 
     def __len__(self) -> int:
         return len(self._field_order)
