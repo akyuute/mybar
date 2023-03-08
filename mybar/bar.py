@@ -382,11 +382,11 @@ class Bar:
                 "A separator is required when 'fmt' is None."
             )
 
-        names, fields = self._normalize_fields(fields)
+        field_names, fields = self._normalize_fields(fields)
 
         # Preserve custom field order, enabling duplicates:
         if fmt is None and field_order is None:
-            field_order = names
+            field_order = field_names
 
         self._fields = fields
         self._field_order = field_order
@@ -458,43 +458,17 @@ class Bar:
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
+    #TODO: Docstrings
     def append(self, field: FieldPrecursor) -> Self:
-        '''
-        Append a new Field to the bar.
-
-        `field` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
-
-        :param field: The field to append
-        :type field: :class:`FieldPrecursor`
-
-        :returns: The modified bar
-        :rtype: :class:`Bar`
-        '''
-        (name,), normalized = self._normalize_fields((field,))
-        self._fields.update(normalized)
-        self._buffers[name] = ''
-        self._field_order.append(name)
+        new_field = self._convert_field(field)
+        self._fields[new_field.name] = new_field
+        self._buffers[new_field.name] = ''
+        self._field_order.append(new_field.name)
         return self
 
     def extend(self, fields: Iterable[FieldPrecursor]) -> Self:
-        '''
-        Append several new Fields to the bar.
-        Field precursors in `fields` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
-        the fields are displayed.
-
-        :param field: The fields to append
-        :type field: :class:`FieldPrecursor`
-
-        :returns: The modified bar
-        :rtype: :class:`Bar`
-        '''
-        #TODO: Consider Bar.fmt += FormatterFieldSig(field).as_string()
-        names, normalized = self._normalize_fields(fields)
-        self._fields.update(normalized)
+        names, new_fields = self._normalize_fields(fields)  #TODO: Perhaps make normalize return a tuple, not a dict.
+        self._fields.update(new_fields)
         self._buffers.update(dict.fromkeys(names, ''))
         self._field_order.extend(names)
         return self
@@ -759,53 +733,80 @@ class Bar:
                 f"Output stream {stream!r} needs {joined} methods."
             )
 
+    def _convert_field(self, field: FieldPrecursor) -> Field:
+        if isinstance(field, str):
+            converted = Field.from_default(
+                name=field,
+                overrides={'bar': self},
+            )
+
+        elif isinstance(field, Field):
+            converted = field  # Maybe consider copying `field`.
+            converted._bar = self
+
+        elif isinstance(field, FormatterFieldSig):
+            converted = Field.from_default(
+                name=field.name,
+                overrides={'bar': self}
+            )
+            converted._fmtsig = field.as_string()
+
+        else:
+            raise InvalidFieldError(f"Invalid field precursor: {field!r}")
+
+        return converted
+
+    #TODO: Make this return normalized as a tuple, not dict
     def _normalize_fields(self,
-        fields: Iterable[FieldPrecursor],
+        fields: FieldPrecursor
     ) -> tuple[FieldOrder, dict[FieldName, Field]]:
         '''
         Convert :class:`Field` precursors to :class:`Field` instances.
 
-        Take an iterable of field names, :class:`Field` instances, or
-        :class:`FormatterFieldSig` tuples and convert them to
-        corresponding default Fields.
-        Return a dict mapping field names to Fields, along with a
-        duplicate-preserving list of field names that were found.
+        Convert a list of field names, :class:`Field` instances, or
+        :class:`FormatterFieldSig` tuples to corresponding default
+        Fields and return a dict mapping field names to Fields.
 
         :param fields: An iterable of :class:`Field` primitives to convert
-        :type fields: :class:`Iterable[FieldPrecursor]`
+        :type fields: :class:`Iterable[FieldName | Field | FormatterFieldSig]`
 
         :returns: A dict mapping field names to :class:`Field` instances
-        :rtype: :class:`tuple[FieldOrder, dict[FieldName, Field]]`
+        :rtype: :class:`dict[FieldName, Field]`
 
+        :raises: :exc:`errors.DefaultFieldNotFoundError` when a string
+            element of `fields` is not the name of a default :class:`Field`
         :raises: :exc:`errors.InvalidFieldError` when an element
-            of `fields` is not a :class:`FieldPrecursor`
+            of `fields` is neither the name of a default :class:`Field`
+            nor an instance of :class:`Field`
         '''
         normalized = {}
         names = []
 
         for field in fields:
-            if isinstance(field, Field):
-                new_field = field
-                new_field._bar = self
-
-            elif isinstance(field, str):
-                    new_field = Field.from_default(
+            match field:
+                case str():
+                    normalized[field] = Field.from_default(
                         name=field,
                         overrides={'bar': self},
                     )
+                    names.append(field)
 
-            elif isinstance(field, FormatterFieldSig):
-                    new_field = Field.from_default(
+                case Field():
+                    field._bar = self
+                    normalized[field.name] = field
+                    names.append(field.name)
+
+                case FormatterFieldSig():
+                    converting = Field.from_default(
                         name=field.name,
                         overrides={'bar': self}
                     )
-                    new_field._fmtsig = field.as_string()
+                    converting._fmtsig = field.as_string()
+                    normalized[field.name] = converting
+                    names.append(field.name)
 
-            else:
-                raise InvalidFieldError(f"Invalid field precursor: {field!r}")
-
-            normalized[new_field.name] = new_field
-            names.append(new_field.name)
+                case _:
+                    raise InvalidFieldError(f"Invalid field: {field!r}")
 
         return names, normalized
 
