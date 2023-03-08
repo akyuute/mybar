@@ -10,7 +10,7 @@ import sphinx_rtd_theme
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'mybar'
-copyright = '2022, SleepyAbsol'
+copyright = '2021-present SleepyAbsol'
 author = 'SleepyAbsol'
 release = '0.4'
 

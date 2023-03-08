@@ -185,6 +185,7 @@ class Field:
             'name': 'datetime',
             # 'func': field_funcs.precision_datetime,
             'func': field_funcs.get_datetime,
+            'align_to_seconds': True,
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
@@ -666,6 +667,7 @@ class Field:
         if self._bar is not None:
             self._bar._threads.add(self._thread)
         self._thread.start()
+
 
 FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig
 
