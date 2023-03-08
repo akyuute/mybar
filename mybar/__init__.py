@@ -11,7 +11,7 @@ An asynchronous status bar with an intuitive, highly customizable API.
 __title__ = 'mybar'
 __description__ = "An async status bar with a highly customizable API."
 __url__ = "https://github.com/sleepyabsol/mybar"
-__version__ = '0.5'
+__version__ = '0.5.1'
 __author__ = "SleepyAbsol"
 __license__ = 'MIT'
 __copyright__ = "Copyright (c) 2021-present SleepyAbsol"
