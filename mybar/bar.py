@@ -46,7 +46,7 @@ from ._types import (
     TTY_Separator,
 )
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from os import PathLike
 from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
 
@@ -329,10 +329,10 @@ class Bar:
     }
 
     def __init__(self,
+        fmt: str = None,
         fields: Iterable[Field | str] = None,
         *,
         field_order: Iterable[FieldName] = None,
-        fmt: str = None,
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
@@ -370,8 +370,7 @@ class Bar:
             else:
                 #NOTE: `fields` here are :class:`FormatterFieldSig`
                 # _normalize_fields() takes care of this later.
-                field_names, fields = self.parse_fmt(fmt)
-                field_order = None
+                field_order, fields = self.parse_fmt(fmt)
 
         # Fall back to using fields.
         elif not hasattr(fields, '__iter__'):
@@ -448,6 +447,9 @@ class Bar:
         else:
             # No, too specific for a dunder-method.
             return False
+
+    def __iter__(self) -> Iterator:
+        return iter(field for field in self._fields.values())
 
     def __len__(self) -> int:
         return len(self._field_order)
@@ -686,7 +688,7 @@ class Bar:
     @property
     def fields(self) -> tuple[Field]:
         '''A tuple of the bar's Field objects.'''
-        return tuple(self._fields.values())
+        return tuple(self)
 
     @property
     def in_a_tty(self) -> bool:
@@ -744,7 +746,7 @@ class Bar:
             )
             raise MissingFieldnameError.with_highlighting(sigs, epilogue)
 
-        names = tuple(sig.name for sig in sigs)
+        names = tuple(name for sig in sigs if (name := sig.name) is not None)
 
         return names, sigs
 
@@ -789,17 +791,19 @@ class Bar:
                 new_field._bar = self
 
             elif isinstance(field, str):
-                    new_field = Field.from_default(
-                        name=field,
-                        overrides={'bar': self},
-                    )
+                new_field = Field.from_default(
+                    name=field,
+                    overrides={'bar': self},
+                )
 
             elif isinstance(field, FormatterFieldSig):
-                    new_field = Field.from_default(
-                        name=field.name,
-                        overrides={'bar': self}
-                    )
-                    new_field._fmtsig = field.as_string()
+                if field.name is None:
+                    continue
+                new_field = Field.from_default(
+                    name=field.name,
+                    overrides={'bar': self}
+                )
+                new_field._fmtsig = field.as_string()
 
             else:
                 raise InvalidFieldError(f"Invalid field precursor: {field!r}")
@@ -851,7 +855,7 @@ class Bar:
         overriding = False
         gathered = []
 
-        for field in self._fields.values():
+        for field in self:
             if field.overrides_refresh:
                 overriding = True
 
@@ -882,7 +886,7 @@ class Bar:
         running in a TTY.
         '''
         self._can_run.clear()
-        for field in self._fields.values():
+        for field in self:
             if field.threaded and field._thread is not None:
                 field._thread.join()
 
