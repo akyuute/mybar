@@ -448,6 +448,22 @@ class Bar:
             # No, too specific for a dunder-method.
             return False
 
+    def __eq__(self, other: Bar) -> bool:
+        if not all(
+            getattr(self, attr) == getattr(other, attr)
+            for attr in (
+                '_fields',
+                '_field_order',
+                '_separators',
+                'join_empty_fields',
+            )
+        ):
+            return False
+
+        if self.fmt == other.fmt:
+            return True
+        return False
+
     def __iter__(self) -> Iterator:
         return iter(field for field in self._fields.values())
 

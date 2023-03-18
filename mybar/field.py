@@ -286,15 +286,12 @@ class Field:
                 'constant_output',
                 'fmt',
                 '_icons',
-                'interval',
-                'overrides_refresh',
-                'run_once'
             )
         ):
             return False
 
         if self._func is None:
-            if other.constant_output == self.constant_output:
+            if self.constant_output == other.constant_output:
                 return True
         elif (
             self._func is other._func
