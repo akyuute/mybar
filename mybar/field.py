@@ -277,6 +277,33 @@ class Field:
         # attrs = utils.join_options(...)
         return f"{cls}({name=})"
 
+    def __eq__(self, other: Field) -> bool:
+        if not all(
+            getattr(self, attr) == getattr(other, attr)
+            for attr in (
+                'align_to_seconds',
+                'always_show_icon',
+                'constant_output',
+                'fmt',
+                '_icons',
+                'interval',
+                'overrides_refresh',
+                'run_once'
+            )
+        ):
+            return False
+
+        if self._func is None:
+            if other.constant_output == self.constant_output:
+                return True
+        elif (
+            self._func is other._func
+            and self.args == other.args
+            and self.kwargs == other.kwargs
+        ):
+            return True
+        return False
+
     @classmethod
     def from_default(cls: Field,
         name: str,
