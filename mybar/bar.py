@@ -476,48 +476,6 @@ class Bar:
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
 
-    def append(self, field: FieldPrecursor) -> Self:
-        '''
-        Append a new Field to the bar.
-
-        `field` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
-
-        :param field: The field to append
-        :type field: :class:`FieldPrecursor`
-
-        :returns: The modified bar
-        :rtype: :class:`Bar`
-        '''
-        (name,), normalized = self._normalize_fields((field,))
-        self._fields.update(normalized)
-        self._buffers[name] = ''
-        self._field_order.append(name)
-        return self
-
-    def extend(self, fields: Iterable[FieldPrecursor]) -> Self:
-        '''
-        Append several new Fields to the bar.
-        Field precursors in `fields` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
-        the fields are displayed.
-
-        :param field: The fields to append
-        :type field: :class:`FieldPrecursor`
-
-        :returns: The modified bar
-        :rtype: :class:`Bar`
-        '''
-        #TODO: Consider Bar.fmt += FormatterFieldSig(field).as_string()
-        names, normalized = self._normalize_fields(fields)
-        self._fields.update(normalized)
-        self._buffers.update(dict.fromkeys(names, ''))
-        self._field_order.extend(names)
-        return self
-
-
     @classmethod
     def from_template(cls,
         tmpl: BarTemplate,
@@ -723,6 +681,48 @@ class Bar:
             # Default to using the terminal separator:
             return self._separators[1]
         return self._separators[self._stream.isatty()]
+
+    def append(self, field: FieldPrecursor) -> Self:
+        '''
+        Append a new Field to the bar.
+
+        `field` will be converted to :class:`Field`,
+        appended to the field list and joined to the end of the bar output.
+        If :attr:`Bar.fmt` is defined, it will override the new field order.
+
+        :param field: The field to append
+        :type field: :class:`FieldPrecursor`
+
+        :returns: The modified bar
+        :rtype: :class:`Bar`
+        '''
+        (name,), normalized = self._normalize_fields((field,))
+        self._fields.update(normalized)
+        self._buffers[name] = ''
+        self._field_order.append(name)
+        return self
+
+    def extend(self, fields: Iterable[FieldPrecursor]) -> Self:
+        '''
+        Append several new Fields to the bar.
+        Field precursors in `fields` will be converted to :class:`Field`,
+        appended to the field list and joined to the end of the bar output.
+        If :attr:`Bar.fmt` is defined, it will override the new field order.
+        the fields are displayed.
+
+        :param field: The fields to append
+        :type field: :class:`FieldPrecursor`
+
+        :returns: The modified bar
+        :rtype: :class:`Bar`
+        '''
+        #TODO: Consider Bar.fmt += FormatterFieldSig(field).as_string()
+        names, normalized = self._normalize_fields(fields)
+        self._fields.update(normalized)
+        self._buffers.update(dict.fromkeys(names, ''))
+        self._field_order.extend(names)
+        return self
+
 
     @staticmethod
     def parse_fmt(
