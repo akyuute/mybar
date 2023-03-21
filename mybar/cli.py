@@ -219,15 +219,20 @@ class OptionsAsker:
     def ask(self,
         prompt: str = None,
         highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
+        repeat_prompt: bool = True,
     ) -> Any:
         answer = self.MISSING
         options = f"[{'/'.join(self.optstrings)}]"
         if prompt is None:
             prompt = f"{self.question} {options} "
 
+        prompted = False
         while answer not in self.choices:
             answer = input(prompt)
             if not self.case_sensitive:
                 answer = answer.casefold()
+            if repeat_prompt or prompted:
+                continue
+            prompt = options + " "
         return self.choices.get(answer)
 
