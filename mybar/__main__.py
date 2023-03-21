@@ -9,7 +9,7 @@ from . import constants
 def main() -> NoReturn | None:
     '''Run the command line utility.'''
     first_use = not exists(expanduser(constants.CONFIG_FILE))
-    if not first_use:
+    if first_use:
         from .cli import OptionsAsker
 
         icon_examples = ' '.join(constants.FONTAWESOME_ICONS)
