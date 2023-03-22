@@ -10,17 +10,31 @@ from enum import Enum
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
 from ._types import BarTemplateSpec, FieldName, OptName, OptSpec
 
-from typing import Any, Callable, NoReturn, TypeAlias
+from typing import Any, Callable, NoReturn
 
 
-### Constants ###
 PROG = __package__
 
-def SplitFirst(char: str) -> Callable[[str], str]:
-    return (lambda f: f.split(char, 1))
 
-def ToTuple(length: int) -> Callable[[Any], tuple]:
-    return (lambda s: (s,) * length)
+class ArgFormatter:
+    '''
+    Methods for formatting args.
+    '''
+    @staticmethod
+    def SplitFirst(char: str) -> Callable[[str], str]:
+        '''
+        Give this to the `type` parameter of :func:`ArgumentParser.add_argument`
+        and it will split args using `char`.
+        '''
+        return (lambda f: f.split(char, 1))
+
+    @staticmethod
+    def ToTuple(length: int) -> Callable[[Any], tuple]:
+        '''
+        Give this to the `type` parameter of :func:`ArgumentParser.add_argument`
+        and it will fill tuples with `length` copies of the arg.
+        '''
+        return (lambda s: (s,) * length)
 
 
 class Parser(ArgumentParser):
@@ -37,7 +51,14 @@ class Parser(ArgumentParser):
         self.add_arguments()
 
     def parse_args(self, args: None | list[str] = None) -> BarTemplateSpec:
-        '''Parse command line arguments and return a dict of options.'''
+        '''
+        Parse command line arguments and return a dict of options.
+        This will additionally process args with key-value pairs.
+        If `args` is None, process from STDIN.
+
+        :param args: The args to parse, get from STDIN by default
+        :type args: :class:`list[str]`
+        '''
         # Use vars() because dict items are more portable than attrs.
         opts = vars(super().parse_args(args))
         params = self.process_assignment_args(opts)
@@ -47,7 +68,11 @@ class Parser(ArgumentParser):
         opts: BarTemplateSpec,
         assignments: dict[FieldName, str] = None
     ) -> BarTemplateSpec:
-        '''Make dicts from key-value pairs in assignment args.'''
+        '''
+        Make dicts from key-value pairs in assignment args.
+        How does it work?
+        I don't remember!
+        '''
         if assignments is None:
             assignments = self.assignment_arg_map
 
@@ -79,7 +104,7 @@ class Parser(ArgumentParser):
             nargs='+',
             metavar=('FIELDNAME1', 'FIELDNAME2'),
             dest='field_order',
-            # type=SplitFirst(','),
+            # type=ArgFormatter.SplitFirst(','),
             help=(
                 "A list of fields to be displayed. "
                 "Not valid with --format/-m options."
@@ -102,7 +127,7 @@ class Parser(ArgumentParser):
 
         fields_group.add_argument(
             '-s', '--separator',
-            type=ToTuple(length=2),
+            type=ArgFormatter.ToTuple(length=2),
             metavar="'FIELD_SEPARATOR'",
             dest='separators',
             help=(
@@ -155,22 +180,44 @@ class Parser(ArgumentParser):
         )
 
     def quit(self, message: str = "Exiting...") -> NoReturn:
+        '''Print a message and exit the program.'''
         self.exit(1, message + '\n')
 
 
 class HighlightMethod(Enum):
+    '''Ways to present default option names.'''
     CAPITALIZE = 'CAPITALIZE'
     # UNDERLINE = 'UNDERLINE'
     # BOLD = 'BOLD'
 
 
 class OptionsAsker:
+    '''
+    A tool for presenting options and gathering user input.
+
+    :param opts: A mapping of options
+    :type opts: :class:`OptSpec`
+
+    :param default: The default option name
+    :type default: :class:`str`
+
+    :param question: Give the user context, defaults to ``""``
+    :type question: :class:`str`
+
+    :param case_sensitive: Options are case-sensitive, defaults to ``False``
+    :type case_sensitive: :class:`bool`
+
+    :param highlight_method: How to differentiate the default option
+    :type highlight_method: :class:`HighlightMethod`
+
+    :raises: :exc:`ValueError` if `default` is not a key in `opts`
+    '''
     MISSING = None
 
     def __init__(self,
         opts: OptSpec,
-        default: str | tuple[str],
-        question: str = "Foo?",
+        default: str,
+        question: str = "",
         case_sensitive: bool = False,
         highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
     ) -> None:
@@ -194,16 +241,16 @@ class OptionsAsker:
     def gen_optstrings(self,
         highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
     ) -> tuple[OptName]:
+        '''
+        A tuple of option names with the default highlighted.
 
-        ### Only needed if matching OptName, not default_val:
-        default = self.default
-        if isinstance(default, str):
-            default = (default,)
-        elif hasattr(default, '__iter__'):
-            pass
-        else: raise TypeError()
-        ###
+        :param highlight_method: How the default option should be differentiated,
+            defaults to :obj:`HighlightMethod.CAPITALIZE`
+        :type highlight_method: :class:`HighlightMethod`
 
+        :returns: A tuple of option names
+        :rtype: :class:`tuple[OptName]`
+        '''
         match highlight_method:
             case HighlightMethod.CAPITALIZE:
                 optstrings = (
@@ -218,13 +265,27 @@ class OptionsAsker:
 
     def ask(self,
         prompt: str = None,
-        highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
         repeat_prompt: bool = True,
     ) -> Any:
+        '''
+        Show a prompt and get user input for an option.
+        Block until a valid option is given.
+
+        :param prompt: Shows possible option names for the user to input
+        :type prompt: :class:`string`, optional
+
+        :param repeat_prompt: Repeat the whole prompt if the user enters an invalid option,
+            defaults to ``True``
+            Setting this to ``False`` is useful if :attr:`OptionsAsker.question` is very long.
+        :type repeat_prompt: :class:`bool`
+
+        :returns: The option value chosen by the user
+        :rtype: :class:`Any`
+        '''
         answer = self.MISSING
         options = f"[{'/'.join(self.optstrings)}]"
         if prompt is None:
-            prompt = f"{self.question} {options} "
+            prompt = f"{self.question} {options} " if self.question else f"{options} "
 
         prompted = False
         while answer not in self.choices:
