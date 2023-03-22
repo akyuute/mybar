@@ -178,6 +178,7 @@ class Field:
             'name': 'net_stats',
             'func': field_funcs.get_net_stats,
             'interval': 4,
+            'threaded': True,
             'icons': [' ', ''],
         },
 

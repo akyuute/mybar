@@ -14,34 +14,7 @@ from ._types import (
 )
 
 from collections.abc import Callable, Iterable
-from typing import Any, NamedTuple, Self
-
-
-class Icon(dict):
-# class Icon:
-
-    def __init__(
-        self,
-        statemap: dict[Any, str] = {},
-        # default: 
-    ) -> None:
-        self._registry = statemap
-
-        # return self
-
-##    def __setitem__(self, state: Any, var: str) -> None:
-##        self._registry[id(state)] = var
-        # self[id(state)] = var
-
-##    def __getitem__(self, state: Any, ) -> str:
-##        return self._registry.get(state)
-
-    def __repr__(self) -> str:
-        # return self._registry[self._default]
-        return ', '.join(' on '.join((repr(v), repr(k))) for k, v in self.items())
-
-    # def __str__(self) -> str:
-        # return self._registry[self._default]
+from typing import Any, NamedTuple, Self, TypeAlias
 
 
 class FormatterFieldSig(NamedTuple):
@@ -307,6 +280,127 @@ class ConditionalFormatStr:
 
         # Join everything.
         return sep.join(''.join(g) for g in newgroups)
+
+
+Icon: TypeAlias = str
+class IconDeducer(dict):
+    pass
+
+
+# class Icon:
+class IconPicker(dict):
+
+    def __init__(
+        self,
+        statemap: dict[Any, Icon] = {},
+        default: Icon = "",
+        picker = None
+    ) -> None:
+        # self._registry = statemap
+        self.update(statemap)
+        self.default = default
+        if callable(picker):
+            self.picker = picker
+        # return self
+
+##    def __setitem__(self, state: Any, var: str) -> None:
+##        self._registry[id(state)] = var
+        # self[id(state)] = var
+
+##    def __getitem__(self, state: Any, ) -> str:
+##        return self._registry.get(state)
+    def choose(self, obj: Any):
+        return self.get(obj, self.default)
+
+    def interpret(self, key: Any):
+        return self.get(self.picker(key), self.default)
+
+
+    def __repr__(self) -> str:
+        # return self._registry[self._default]
+        stuff = ', '.join(' on '.join((repr(v), repr(k))) for k, v in self.items())
+        cls = type(self).__name__
+        return f"{cls}({stuff}, default={self.default!r})"
+
+    # def __str__(self) -> str:
+        # return self._registry[self._default]
+
+##cb = Callable[[Kwargs], State1|State2]
+##result, state = cb()
+##form = self.fmt.interpret(result, state)
+##form = self.format(result, state)
+
+
+class Format:
+    content_key: str = '$'
+    def __init__(
+        self,
+        # statemap: dict = {},
+        icon="",
+        default_fmt: str = "{icon}{"+content_key+'}',
+        fallback: str = "",
+        # custom_does_it_all: Callable[['result', 'context'], str] = None
+    ) -> None:
+        # self.statemap = statemap
+        self.icon = icon
+        self.default_fmt = default_fmt
+        self.fallback = fallback
+
+
+# class 
+class FormatSwitcher(dict):
+# class FormatSwitcher(Format):
+    content_key: str = '$'
+    def __init__(self,
+        statemap: dict['result', str] = {},
+        default: str = "{"+content_key+"}",
+        only_switch_icons: bool = True,
+        fallback: str = "",
+    ) -> None:
+        # self.statemap = statemap
+        self.icon = icon
+        self.default = default
+        self.fallback = fallback
+        self.update(statemap)
+
+    def format(self, result) -> str:
+        if isinstance(result, str):
+            return self.get(result, self.defaul
+
+        icon, fmt = self.statemap.get(context, (self.icon, self.default_fmt))
+        contents = fmt.format_map({self.content_key: result, 'icon': icon})
+        return contents
+
+
+class FormatMaker(Format):
+    def __init__(self,
+        fallback: str = "",
+        custom_does_it_all: Callable[['result'], str] = None
+    ) -> None:  
+        super().__init__(icon, default_fmt, fallback)
+
+        # if custom_does_it_all is None:
+            # custom_does_it_all = self._default_thingy
+
+    @staticmethod
+    def _default_thingy(fmt, result, context) -> str:
+        contents = fmt.format_map({content_key: result, 'icon': icon})
+        return
+
+    def format(self, result, context):
+        icon, fmt = self.statemap.get(context, (self.icon, self.default_fmt))
+        contents = fmt.format_map({self.content_key: result, 'icon': icon})
+        return contents
+
+def check_battery(lvl):
+
+    icon_bank = "    ".split()
+    def mapper(n):
+        icon = ""
+        for i, test in enumerate((10, 25, 50, 75, 100)):
+            if n <= test:
+                icon = icon_bank[i]
+                return icon + " "
 
 
 class ElapsedTime:

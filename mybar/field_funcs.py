@@ -29,7 +29,8 @@ from .utils import join_options
 from ._types import Contents, FormatStr, NmConnFilterSpec
 
 from collections.abc import Callable, Iterable
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, NamedTuple, Any
+from enum import Enum
 
 
 FormatterLiteral: TypeAlias = str|None
@@ -90,6 +91,54 @@ async def get_audio_volume(
     # return is_on, avg_pct
     state = "" if is_on else "M"
     return fmt.format(avg_pct, state=state)
+
+
+class Context(NamedTuple):
+    contents: str = None
+    state: Any = None
+
+class BatteryStates(Enum):
+    CHARGING = 'charging'
+    DISCHARGING = 'discharging'
+
+def ctx_get_battery_info(
+    fmt: FormatStr = "{icon}{pct:02.0f}",
+    # fmt: FormatStr = "{icon}{pct:02.0f}{state}",
+    *args, **kwargs
+) -> Context:
+    '''
+    Battery capacity as a percent and whether or not it is charging.
+    '''
+
+    # if not (battery := psutil.sensors_battery()):
+    battery = psutil.sensors_battery()
+    if not battery:
+        return Context()
+##        # return (None, None)
+    # state = "CHG" if battery.power_plugged else ''
+
+    # Progressive/dynamic battery icons!
+    icon_bank = "    ".split()
+    # return icon_bank
+
+    def mapper(n):
+        icon = ""
+        for i, test in enumerate((10, 25, 50, 75, 100)):
+            if n <= test:
+                icon = icon_bank[i]
+                return icon + " "
+
+    if battery.power_plugged:
+        icon = ""
+        # state = "CHG"
+    else:
+        icon = mapper(battery.percent)
+        # state = ""
+    # print(repricon)
+
+    info = fmt.format_map({'icon': icon, 'pct': battery.percent, 'state': battery.power_plugged})
+##    return battery.power_plugged, info
+    return info
 
 
 async def get_battery_info(
