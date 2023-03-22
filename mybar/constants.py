@@ -24,4 +24,6 @@ UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 '''VT100 escape code to unhide the cursor.'''
 
 
+FONTAWESOME_ICONS = tuple('')
+USING_FONTAWESOME = False
 

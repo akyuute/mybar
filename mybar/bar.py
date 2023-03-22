@@ -46,7 +46,7 @@ from ._types import (
     TTY_Separator,
 )
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from os import PathLike
 from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
 
@@ -329,10 +329,10 @@ class Bar:
     }
 
     def __init__(self,
+        fmt: str = None,
         fields: Iterable[Field | str] = None,
         *,
         field_order: Iterable[FieldName] = None,
-        fmt: str = None,
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
@@ -370,8 +370,7 @@ class Bar:
             else:
                 #NOTE: `fields` here are :class:`FormatterFieldSig`
                 # _normalize_fields() takes care of this later.
-                field_names, fields = self.parse_fmt(fmt)
-                field_order = None
+                field_order, fields = self.parse_fmt(fmt)
 
         # Fall back to using fields.
         elif not hasattr(fields, '__iter__'):
@@ -449,6 +448,25 @@ class Bar:
             # No, too specific for a dunder-method.
             return False
 
+    def __eq__(self, other: Bar) -> bool:
+        if not all(
+            getattr(self, attr) == getattr(other, attr)
+            for attr in (
+                '_fields',
+                '_field_order',
+                '_separators',
+                'join_empty_fields',
+            )
+        ):
+            return False
+
+        if self.fmt == other.fmt:
+            return True
+        return False
+
+    def __iter__(self) -> Iterator:
+        return iter(field for field in self._fields.values())
+
     def __len__(self) -> int:
         return len(self._field_order)
 
@@ -457,48 +475,6 @@ class Bar:
         fields = utils.join_options(names, final_sep='', limit=3)
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
-
-    def append(self, field: FieldPrecursor) -> Self:
-        '''
-        Append a new Field to the bar.
-
-        `field` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
-
-        :param field: The field to append
-        :type field: :class:`FieldPrecursor`
-
-        :returns: The modified bar
-        :rtype: :class:`Bar`
-        '''
-        (name,), normalized = self._normalize_fields((field,))
-        self._fields.update(normalized)
-        self._buffers[name] = ''
-        self._field_order.append(name)
-        return self
-
-    def extend(self, fields: Iterable[FieldPrecursor]) -> Self:
-        '''
-        Append several new Fields to the bar.
-        Field precursors in `fields` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
-        the fields are displayed.
-
-        :param field: The fields to append
-        :type field: :class:`FieldPrecursor`
-
-        :returns: The modified bar
-        :rtype: :class:`Bar`
-        '''
-        #TODO: Consider Bar.fmt += FormatterFieldSig(field).as_string()
-        names, normalized = self._normalize_fields(fields)
-        self._fields.update(normalized)
-        self._buffers.update(dict.fromkeys(names, ''))
-        self._field_order.extend(names)
-        return self
-
 
     @classmethod
     def from_template(cls,
@@ -562,12 +538,14 @@ class Bar:
         # Ensure icon assignments correspond to valid fields:
         for name in field_icons:
             if name not in field_order:
-                expctd_from_icons = utils.join_options(field_order)
+                deduped = dict.fromkeys(field_order)  # Preserve order
+                expctd_from_icons = utils.join_options(deduped)
                 exc = utils.make_error_message(
                     InvalidFieldError,
                     doing_what="parsing custom Field icons",
                     blame=f"{name!r}",
-                    expected=f"a Field name found in {expctd_from_icons}"
+                    expected=f"a Field name from among {expctd_from_icons}",
+                    epilogue="Only assign icons to Fields that will be in the Bar."
                 )
                 raise exc from None
 
@@ -686,7 +664,7 @@ class Bar:
     @property
     def fields(self) -> tuple[Field]:
         '''A tuple of the bar's Field objects.'''
-        return tuple(self._fields.values())
+        return tuple(self)
 
     @property
     def in_a_tty(self) -> bool:
@@ -705,6 +683,48 @@ class Bar:
             # Default to using the terminal separator:
             return self._separators[1]
         return self._separators[self._stream.isatty()]
+
+    def append(self, field: FieldPrecursor) -> Self:
+        '''
+        Append a new Field to the bar.
+
+        `field` will be converted to :class:`Field`,
+        appended to the field list and joined to the end of the bar output.
+        If :attr:`Bar.fmt` is defined, it will override the new field order.
+
+        :param field: The field to append
+        :type field: :class:`FieldPrecursor`
+
+        :returns: The modified bar
+        :rtype: :class:`Bar`
+        '''
+        (name,), normalized = self._normalize_fields((field,))
+        self._fields.update(normalized)
+        self._buffers[name] = ''
+        self._field_order.append(name)
+        return self
+
+    def extend(self, fields: Iterable[FieldPrecursor]) -> Self:
+        '''
+        Append several new Fields to the bar.
+        Field precursors in `fields` will be converted to :class:`Field`,
+        appended to the field list and joined to the end of the bar output.
+        If :attr:`Bar.fmt` is defined, it will override the new field order.
+        the fields are displayed.
+
+        :param field: The fields to append
+        :type field: :class:`FieldPrecursor`
+
+        :returns: The modified bar
+        :rtype: :class:`Bar`
+        '''
+        #TODO: Consider Bar.fmt += FormatterFieldSig(field).as_string()
+        names, normalized = self._normalize_fields(fields)
+        self._fields.update(normalized)
+        self._buffers.update(dict.fromkeys(names, ''))
+        self._field_order.extend(names)
+        return self
+
 
     @staticmethod
     def parse_fmt(
@@ -744,7 +764,7 @@ class Bar:
             )
             raise MissingFieldnameError.with_highlighting(sigs, epilogue)
 
-        names = tuple(sig.name for sig in sigs)
+        names = tuple(name for sig in sigs if (name := sig.name) is not None)
 
         return names, sigs
 
@@ -789,17 +809,19 @@ class Bar:
                 new_field._bar = self
 
             elif isinstance(field, str):
-                    new_field = Field.from_default(
-                        name=field,
-                        overrides={'bar': self},
-                    )
+                new_field = Field.from_default(
+                    name=field,
+                    overrides={'bar': self},
+                )
 
             elif isinstance(field, FormatterFieldSig):
-                    new_field = Field.from_default(
-                        name=field.name,
-                        overrides={'bar': self}
-                    )
-                    new_field._fmtsig = field.as_string()
+                if field.name is None:
+                    continue
+                new_field = Field.from_default(
+                    name=field.name,
+                    overrides={'bar': self}
+                )
+                new_field._fmtsig = field.as_string()
 
             else:
                 raise InvalidFieldError(f"Invalid field precursor: {field!r}")
@@ -851,7 +873,7 @@ class Bar:
         overriding = False
         gathered = []
 
-        for field in self._fields.values():
+        for field in self:
             if field.overrides_refresh:
                 overriding = True
 
@@ -882,7 +904,7 @@ class Bar:
         running in a TTY.
         '''
         self._can_run.clear()
-        for field in self._fields.values():
+        for field in self:
             if field.threaded and field._thread is not None:
                 field._thread.join()
 

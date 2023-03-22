@@ -413,7 +413,8 @@ async def get_net_stats(
         # By default, nmcli sorts connections by type:
         #   ethernet, wifi, tun, ...
         # We only need the first result.
-        match next(conns):
+
+        match next(conns, None):
 
             case None:
                 keynames = ('name', 'uuid', 'typ', 'device')
