@@ -538,12 +538,14 @@ class Bar:
         # Ensure icon assignments correspond to valid fields:
         for name in field_icons:
             if name not in field_order:
-                expctd_from_icons = utils.join_options(field_order)
+                deduped = dict.fromkeys(field_order)  # Preserve order
+                expctd_from_icons = utils.join_options(deduped)
                 exc = utils.make_error_message(
                     InvalidFieldError,
                     doing_what="parsing custom Field icons",
                     blame=f"{name!r}",
-                    expected=f"a Field name found in {expctd_from_icons}"
+                    expected=f"a Field name from among {expctd_from_icons}",
+                    epilogue="Only assign icons to Fields that will be in the Bar."
                 )
                 raise exc from None
 
