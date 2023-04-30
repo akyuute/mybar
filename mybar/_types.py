@@ -147,7 +147,8 @@ class MissingFieldnameError(FormatStringError):
 
     '''
     @classmethod
-    def with_highlighting(cls,
+    def with_highlighting(
+        cls,
         sigs: FormatterFieldSig,
         epilogue: str
     ) -> Self:

@@ -194,7 +194,8 @@ class Field:
 
     }
 
-    def __init__(self,
+    def __init__(
+        self,
         *,
         name: FieldName = None,
         func: Callable[P, str] = None,
@@ -303,7 +304,8 @@ class Field:
         return False
 
     @classmethod
-    def from_default(cls: Field,
+    def from_default(
+        cls: Field,
         name: str,
         *,
         overrides: FieldSpec = {},

@@ -77,7 +77,8 @@ class BarTemplate(dict):
 
     '''
 
-    def __init__(self,
+    def __init__(
+        self,
         options: BarTemplateSpec = {},
         defaults: BarTemplateSpec = None,
     ) -> None:
@@ -100,7 +101,8 @@ class BarTemplate(dict):
         return f"<{cls} {maybe_file}{params}>"
 
     @classmethod
-    def from_file(cls,
+    def from_file(
+        cls,
         file: PathLike = None,
         *,
         defaults: BarTemplateSpec = None,
@@ -145,7 +147,8 @@ class BarTemplate(dict):
         return t
 
     @classmethod
-    def from_stdin(cls,
+    def from_stdin(
+        cls,
         write_new_file_dft: bool = False
     ) -> Self:
         '''Return a new :class:`BarTemplate` using args from STDIN.
@@ -328,7 +331,8 @@ class Bar:
         'field_order': list(_default_field_order)
     }
 
-    def __init__(self,
+    def __init__(
+        self,
         fmt: str = None,
         fields: Iterable[Field | str] = None,
         *,
@@ -434,7 +438,7 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
-    def __contains__(self, other) -> bool:
+    def __contains__(self, other: str | Field) -> bool:
         if isinstance(other, str):
             weak_test = (other in self._field_order)
             return weak_test
@@ -477,7 +481,8 @@ class Bar:
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_template(cls,
+    def from_template(
+        cls,
         tmpl: BarTemplate,
         *,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
@@ -779,7 +784,8 @@ class Bar:
                 f"Output stream {stream!r} needs {joined} methods."
             )
 
-    def _normalize_fields(self,
+    def _normalize_fields(
+        self,
         fields: Iterable[FieldPrecursor],
     ) -> tuple[FieldOrder, dict[FieldName, Field]]:
         '''

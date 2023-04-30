@@ -64,7 +64,8 @@ class Parser(ArgumentParser):
         params = self.process_assignment_args(opts)
         return params
 
-    def process_assignment_args(self,
+    def process_assignment_args(
+        self,
         opts: BarTemplateSpec,
         assignments: dict[FieldName, str] = None
     ) -> BarTemplateSpec:
@@ -214,7 +215,8 @@ class OptionsAsker:
     '''
     MISSING = None
 
-    def __init__(self,
+    def __init__(
+        self,
         opts: OptSpec,
         default: str,
         question: str = "",
@@ -238,7 +240,8 @@ class OptionsAsker:
 
         self.choices[''] = self.default_val
 
-    def gen_optstrings(self,
+    def gen_optstrings(
+        self,
         highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
     ) -> tuple[OptName]:
         '''
@@ -263,7 +266,8 @@ class OptionsAsker:
 
         return tuple(optstrings)
 
-    def ask(self,
+    def ask(
+        self,
         prompt: str = None,
         repeat_prompt: bool = True,
     ) -> Any:
