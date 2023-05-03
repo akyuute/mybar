@@ -4,6 +4,8 @@
 #TODO: Finish Mocp line!
 
 
+SYNC = True
+
 __all__ = (
     'Bar',
     'run',
@@ -346,6 +348,8 @@ class Bar:
         override_cooldown: float = 1/60,
         thread_cooldown: float = 1/8,
 
+        sync: bool = True,
+
         # Set this to use different seps for different output streams:
         separators: Sequence[PTY_Separator, TTY_Separator] = None,
 
@@ -384,6 +388,9 @@ class Bar:
             raise IncompatibleArgsError(
                 "A separator is required when 'fmt' is None."
             )
+
+        if sync:
+            self.run = self._sync_run
 
         names, fields = self._normalize_fields(fields)
 
@@ -438,7 +445,7 @@ class Bar:
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
 
-    def __contains__(self, other: str | Field) -> bool:
+    def __contains__(self, other: FieldPrecursor) -> bool:
         if isinstance(other, str):
             weak_test = (other in self._field_order)
             return weak_test
@@ -655,6 +662,9 @@ class Bar:
         template = BarTemplate.from_stdin()
         return cls.from_template(template)
 
+##    @classmethod
+##    def as_generator(cls, 
+
     @property
     def clearline_char(self) -> str:
         '''
@@ -836,6 +846,147 @@ class Bar:
             names.append(new_field.name)
 
         return names, normalized
+
+    def _sync_run(self, once: bool = None, stream: IO = None) -> None:
+        '''
+        Run the bar synchronously in the specified output stream.
+        Block until an exception is raised and exit smoothly.
+
+        :param stream: The IO stream in which to run the bar,
+            defaults to :attr:`Bar._stream`
+        :type stream: :class:`IO`
+
+        :param once: Whether to print the bar only once, defaults to ``False``
+        :type once: :class:`bool`
+
+        :returns: ``None``
+        '''
+        if stream is not None:
+            self._stream = stream
+        if once is None:
+            once = self.run_once
+
+        try:
+            self._can_run.set()
+            overriding = False
+
+            for field in self:
+                if field.overrides_refresh:
+                    overriding = True
+
+                if field.threaded:
+                    field.sync_send_to_thread(run_once=once)
+
+            if once:
+                for field in self:
+                    field.sync_run()
+                # Wait for threads to finish:
+                while self._threads:
+                    time.sleep(self._thread_cooldown)
+                self._print_one_line()
+
+            else:
+                if overriding:
+                    self._handle_overrides()
+                self._sync_continuous_line_printer()
+
+        except KeyboardInterrupt:
+            pass
+
+        finally:
+            self._shutdown()
+
+    def _sync_continuous_line_printer(self, end: str = '\r') -> None:
+        using_format_str = (self.fmt is not None)
+        sep = self.separator
+        running = self._can_run.is_set
+        clock = time.monotonic
+
+        if self.in_a_tty:
+            beginning = self.clearline_char + end
+            self._stream.write(CSI + HIDE_CURSOR)
+        else:
+            beginning = self.clearline_char
+
+        ###################
+        # Patches for threads to come...
+        fields = tuple(f for f in self if not f.threaded)
+        ###################
+
+
+
+        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        self._stream.flush()
+
+##        # Print something right away just so that the bar is not empty:
+##        self._print_one_line()
+
+        if self.align_to_seconds:
+            # Begin every refresh at the start of a clock second:
+            clock = time.time
+            time.sleep(1 - (clock() % 1))
+
+        start_time = clock()
+        cycles = 0
+        largest = max(f.interval for f in fields)
+        while running():
+
+            self._buffers.update(
+                (f.name, f.sync_run())
+                for f in fields
+                if cycles % int(f.interval / self.refresh_rate) == 0
+            )
+
+            if using_format_str:
+                line = self.fmt.format_map(self._buffers)
+            else:
+                line = sep.join(
+                    buf for field in fields
+                        if (buf := self._buffers[field.name])
+                        or self.join_empty_fields
+                )
+
+            self._stream.write(beginning + line + end)
+            self._stream.flush()
+
+            # Reset the cycle counter after the longest field interval:
+            cycles += 1
+            if cycles % int(largest / self.refresh_rate) == 0:
+                cycles = 0
+
+
+            # Sleep only until the next possible refresh to keep the
+            # refresh cycle length consistent and prevent drifting.
+            time.sleep(
+                # Time until next refresh:
+                self.refresh_rate - (
+                    # Get the current latency, which can vary:
+                    (clock() - start_time) % self.refresh_rate  # Preserve offset
+                )
+            )
+
+        if self.in_a_tty:
+            self._stream.write('\n')
+            self._stream.write(CSI + UNHIDE_CURSOR)
+
+    def line_generator(self):
+        using_format_str = (self.fmt is not None)
+        sep = self.separator
+        running = self._can_run.is_set
+
+        while running():
+            if using_format_str:
+                line = self.fmt.format_map(self._buffers)
+            else:
+                line = sep.join(
+                    buf for field in self._field_order
+                        if (buf := self._buffers[field])
+                        or self.join_empty_fields
+                )
+            yield line
+
+
+
 
     def run(self, once: bool = None, stream: IO = None) -> None:
         '''
