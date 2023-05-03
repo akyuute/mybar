@@ -443,7 +443,7 @@ class Bar:
         self._can_run = threading.Event()
 
         # The bar's async event loop:
-        self._loop = asyncio.new_event_loop()
+        self._loop = None if sync else asyncio.new_event_loop()
 
     def __contains__(self, other: FieldPrecursor) -> bool:
         if isinstance(other, str):
