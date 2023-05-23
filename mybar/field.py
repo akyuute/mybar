@@ -68,6 +68,9 @@ class Field:
     :param align_to_seconds: Update contents at the start of each second, defaults to ``False``
     :type align_to_seconds: :class:`bool`
 
+    :param timely: Run the field as soon as possible after every refresh, defaults to ``False``
+    :type timely: :class:`bool`
+
     :param overrides_refresh: Updates to this field re-print the bar between refreshes, defaults to ``False``
     :type overrides_refresh: :class:`bool`
 
@@ -187,6 +190,7 @@ class Field:
             # 'func': field_funcs.precision_datetime,
             'func': field_funcs.get_datetime,
             'align_to_seconds': True,
+            'timely': True,
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S"
             },
@@ -203,6 +207,11 @@ class Field:
         fmt: FormatStr = None,
         interval: float = 1.0,
         align_to_seconds: bool = False,
+
+
+        timely: bool = False,
+
+
         overrides_refresh: bool = False,
         threaded: bool = False,
         always_show_icon: bool = False,
@@ -256,12 +265,13 @@ class Field:
 
         self._bar = bar
 
-        if asyncio.iscoroutinefunction(func) or threaded:
+        if asyncio.iscoroutinefunction(func) or threaded or timely:
             self._callback = func
         else:
-            # Wrap a synchronous function if the field is not threaded:
+            # Wrap synchronous functions if they aren't special:
             self._callback = self._asyncify
 
+        self.timely = timely                                #################
         self.align_to_seconds = align_to_seconds
         self.always_show_icon = always_show_icon
         self._buffer = None
@@ -272,6 +282,8 @@ class Field:
 
         self.threaded = threaded
         self._thread = None
+
+        self._do_setup()
 
     def __repr__(self) -> str:
         cls = type(self).__name__
@@ -403,52 +415,68 @@ class Field:
     def as_generator(self, once: bool = False) :
         yield self.func
 
-    def _do_setup(self,) : #-> SetupVars|Content?  # side-effects?
-
+    def _do_setup(self, args: Args = None, kwargs: Kwargs = None) -> None:
         # Use the pre-defined _setupfunc() to gather constant variables
         # for func() which might only be evaluated at runtime:
-        if self._setupfunc is not None:
-            try:
-##                if asyncio.iscoroutinefunction(self._setupfunc):
-##                    setupvars = (
-##                        await self._setupfunc(*self.args, **self.kwargs)
-##                    )
-##                else:
+        if self._setupfunc is None:
+            return
+
+        if args is None:
+            args = self.args
+        if kwargs is None:
+            kwargs = self.kwargs
+
+        try:
+            if asyncio.iscoroutinefunction(self._setupfunc):
+                setupvars = asyncio.run(
+                    self._setupfunc(*self.args, **self.kwargs)
+                )
+            else:
                 setupvars = self._setupfunc(*self.args, **self.kwargs)
 
-            # If _setupfunc raises FailedSetup with a backup value,
-            # use it as the field's new constant_output:
-            except FailedSetup as e:
-                backup = e.backup
-                contents = self._auto_format(backup)
-                self.constant_output = contents  # strcontents() everywhere?
-##                return contents
+        # If _setupfunc raises FailedSetup with a backup value,
+        # use it as the field's new constant_output:
+        except FailedSetup as e:
+            backup = e.backup
+            self.constant_output = self._auto_format(backup)
+            return
 
-            # On success, give new values to kwargs to pass to func().
-            return setupvars
-            self.kwargs['setupvars'] = setupvars  # Do we want side-effects???
-
+        # On success, give new values to kwargs to pass to func().
+        # return setupvars
+        kwargs['setupvars'] = setupvars
 
 
 ##    # For threaded fields, still run continuously!!!
 
     def sync_run(self, once: bool = None) -> 'Contents':
-        # hook into setup() beforehand
-        if asyncio.iscoroutinefunction(self._func):
-            return asyncio.run(self._func(*self.args, **self.kwargs))
-        return self._func(*self.args, **self.kwargs)
-
         # Do not run fields which have a constant output;
         # only set their bar buffer.
         if self.constant_output is not None:
-            return self._auto_contents(self.constant_output)
+            return self._auto_format(self.constant_output)
 
-        result = _func(*self.args, **self.kwargs)
+        if asyncio.iscoroutinefunction(self._func):
+            result = asyncio.run(self._func(*self.args, **self.kwargs))
+        else:
+            result = self._func(*self.args, **self.kwargs)
         contents = self._auto_format(result)
 
         return contents
 
+    def gen_run(self, once: bool = None) -> 'Contents':
+        # Do not run fields which have a constant output;
+        # only set their bar buffer.
+        if self.constant_output is not None:
+            return self._auto_format(self.constant_output)
 
+        sync = not asyncio.iscoroutinefunction(self._func)
+        while True:
+            if sync:
+                result = self._func(*self.args, **self.kwargs)
+            else:
+                result = asyncio.run(self._func(*self.args, **self.kwargs))
+            contents = self._auto_format(result)
+
+            yield contents
 
     async def run(self, once: bool = False) -> None:
         '''
@@ -506,12 +534,7 @@ class Field:
         # Run at least once at the start to ensure the bar is not empty:
         result = await func(*self.args, **self.kwargs)
         last_val = result
-        contents = self._format_contents(
-            result,
-            self.icon,
-            self.fmt,
-            self.always_show_icon
-        )
+        contents = self._auto_format(result)
         bar._buffers[self.name] = contents
 
         if self.run_once or once:
@@ -597,7 +620,6 @@ class Field:
         # it must be run in a new event loop.
         is_async = asyncio.iscoroutinefunction(func)
         local_loop = asyncio.new_event_loop()
-
 
         # Use the pre-defined _setupfunc() to gather constant variables
         # for func() which might only be evaluated at runtime:
@@ -738,7 +760,7 @@ class Field:
             )
         return True
 
-    async def send_to_thread(self, *, run_once: bool = True) -> None:
+    def send_to_thread(self, *, run_once: bool = True) -> None:
         '''
         Make and start a thread in which to run the :class:`Field` callback.
 
@@ -746,32 +768,14 @@ class Field:
             defaults to ``True`` to prevent uncontrolled thread spawning
         :type run_once: :class:`bool`
         '''
+        self._check_bar()
         self._thread = threading.Thread(
             target=self.run_threaded,
             name=self.name,
             args=(run_once,)
         )
-        if self._bar is not None:
-            self._bar._threads.add(self._thread)
+        self._bar._threads.add(self._thread)
         self._thread.start()
-
-    def sync_send_to_thread(self, *, run_once: bool = True) -> None:
-        '''
-        Make and start a thread in which to run the :class:`Field` callback.
-
-        :param run_once: Only run the :class:`Field` callback once,
-            defaults to ``True`` to prevent uncontrolled thread spawning
-        :type run_once: :class:`bool`
-        '''
-        self._thread = threading.Thread(
-            target=self.run_threaded,
-            name=self.name,
-            args=(run_once,)
-        )
-        if self._bar is not None:
-            self._bar._threads.add(self._thread)
-        self._thread.start()
-
 
 
 FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig
