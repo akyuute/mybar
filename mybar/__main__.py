@@ -15,9 +15,9 @@ def main() -> NoReturn | None:
         icon_examples = ' '.join(constants.FONTAWESOME_ICONS)
         question = (
             f"If FontAwesome is installed on your system, \n"
-            f"would you like to use FontAwesome icons "
+            f"would you like to use FontAwesome Field icons "
             f"( {icon_examples} ) \n"
-            f"instead of the ASCII defaults?"
+            f"instead of default ASCII icons?"
         )
         options = {'n': False, 'y': True}
         default = 'n'
