@@ -141,7 +141,7 @@ def ctx_get_battery_info(
     return info
 
 
-def get_battery_info(
+async def get_battery_info(
     fmt: FormatStr = "{pct:02.0f}{state}",
     *args, **kwargs
 ) -> Contents:
@@ -174,7 +174,7 @@ def get_battery_info(
     return info
 
 
-def get_cpu_temp(
+async def get_cpu_temp(
     fmt: str = "{temp:02.0f}{scale}",
     in_fahrenheit=False,
     *args, **kwargs
@@ -205,7 +205,7 @@ def get_cpu_temp(
     return fmt.format_map({'temp': current, 'scale': scale})
 
 
-def get_cpu_usage(
+async def get_cpu_usage(
     fmt: FormatStr = "{:02.0f}%",
     interval: float = None,
     *args, **kwargs
@@ -252,7 +252,7 @@ def precision_datetime(
     return datetime.now().strftime(fmt)
 
 
-def get_disk_usage(
+async def get_disk_usage(
     fmt: FormatStr = "{free:.1f}{unit}",
     path: os.PathLike = '/',
     unit: MetricSymbol = 'G',
@@ -296,7 +296,7 @@ def get_disk_usage(
     return usage
 
 
-def get_host(
+async def get_host(
     fmt: FormatStr = "{nodename}",
     *args, **kwargs
 ) -> Contents:
@@ -318,12 +318,12 @@ def get_host(
     return host
 
 
-def get_hostname(*args, **kwargs) -> Contents:
+async def get_hostname(*args, **kwargs) -> Contents:
     '''System hostname.'''
     return os.uname().nodename
 
 
-def get_mem_usage(
+async def get_mem_usage(
     fmt: FormatStr = "{used:.1f}{unit}",
     unit: MetricSymbol = 'G',
     *args, **kwargs
@@ -454,7 +454,7 @@ async def get_net_stats(
 
 # Uptime
 
-def get_uptime(
+async def get_uptime(
     fmt: FormatStr,
     dynamic: bool = True,
     sep: str = ':',
