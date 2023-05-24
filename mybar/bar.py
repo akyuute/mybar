@@ -877,9 +877,9 @@ class Bar:
             self._can_run.set()
             self._loop.run_until_complete(self._startup(once))
 
-            # Keep the main thread running for fields handled by the
-            # printer thread.
-            if self._timely_fields and not once:
+            # Keep the main thread running for fields handled by other
+            # threads. Ideally this would be fixed by better management in _startup.
+            if not any(f.is_async for f in self) and not once:
                while self.running():
                     time.sleep(self._thread_cooldown)
 

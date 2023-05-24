@@ -207,11 +207,7 @@ class Field:
         fmt: FormatStr = None,
         interval: float = 1.0,
         align_to_seconds: bool = False,
-
-
         timely: bool = False,
-
-
         overrides_refresh: bool = False,
         threaded: bool = False,
         always_show_icon: bool = False,
@@ -263,15 +259,17 @@ class Field:
             )
         self.fmt = fmt
 
-        self._bar = bar
+        self.is_async = asyncio.iscoroutinefunction(func) 
 
-        if asyncio.iscoroutinefunction(func) or threaded or timely:
+        if self.is_async or threaded or timely:
             self._callback = func
         else:
             # Wrap synchronous functions if they aren't special:
             self._callback = self._asyncify
 
-        self.timely = timely                                #################
+        self._bar = bar
+
+        self.timely = timely
         self.align_to_seconds = align_to_seconds
         self.always_show_icon = always_show_icon
         self._buffer = None
