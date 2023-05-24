@@ -434,6 +434,7 @@ class Bar:
 
         # Calling run() sets this Event. Unsetting it stops all fields:
         self._can_run = threading.Event()
+        self.running = self._can_run.is_set
 
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
@@ -841,8 +842,7 @@ class Bar:
         return names, normalized
 
     def line_generator(self):
-        running = self._can_run.is_set
-        while running():
+        while self.running():
             line = self._make_one_line()
             yield line
 
@@ -884,7 +884,7 @@ class Bar:
 
     async def _startup(self, run_once: bool = False) -> None:
         '''
-        Run field coroutines, threads and the line printer in parallel.
+        Run field coroutines and threads in parallel.
         '''
         overriding = False
         gathered = []
@@ -940,7 +940,6 @@ class Bar:
         '''
         using_format_str = (self.fmt is not None)
         sep = self.separator
-        running = self._can_run.is_set
         clock = time.monotonic
 
         if self.in_a_tty:
@@ -965,7 +964,7 @@ class Bar:
         needed = round(self.refresh_rate / step)
 
         start_time = clock()
-        while running():
+        while self.running():
 
             # Sleep until the next refresh cycle, pausing for a bit in
             # case the bar stops.
@@ -1048,7 +1047,6 @@ class Bar:
         '''
         using_format_str = (self.fmt is not None)
         sep = self.separator
-        running = self._can_run.is_set
         clock = time.monotonic
 
         if self.in_a_tty:
@@ -1069,7 +1067,7 @@ class Bar:
             await asyncio.sleep(1 - (clock() % 1))
 
         start_time = clock()
-        while running():
+        while self.running():
             if using_format_str:
                 line = self.fmt.format_map(self._buffers)
             else:
@@ -1101,7 +1099,6 @@ class Bar:
         '''
         sep = self.separator
         using_format_str = (self.fmt is not None)
-        running = self._can_run.is_set
 
         if self.in_a_tty:
             beginning = self.clearline_char + end
@@ -1109,7 +1106,7 @@ class Bar:
             beginning = self.clearline_char
 
         start_time = time.time()
-        while running():
+        while self.running():
 
             try:
                 # Wait until a field with overrides_refresh sends new
