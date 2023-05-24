@@ -843,6 +843,8 @@ class Bar:
 
     def line_generator(self):
         while self.running():
+            if self._timely_fields:
+                self._preload_timely_fields()
             line = self._make_one_line()
             yield line
 
@@ -874,7 +876,12 @@ class Bar:
         try:
             self._can_run.set()
             self._loop.run_until_complete(self._startup(once))
-            #NOTE: THIS ENDS THE PROGRAM WHEN ALL FIELDS Are THREADED!
+
+            # Keep the main thread running for fields handled by the
+            # printer thread.
+            if self._timely_fields and not once:
+               while self.running():
+                    time.sleep(self._thread_cooldown)
 
         except KeyboardInterrupt:
             pass
@@ -913,11 +920,13 @@ class Bar:
             self._start_printer()
             await asyncio.gather(*gathered)
 
-
-
-        ########NOTE: This ends the program when there are timely fields!!!!
-
-
+    def _preload_timely_fields(self) -> None:
+        for f in self._timely_fields:
+            if asyncio.iscoroutinefunction(fun := f._func):
+                result = asyncio.run(fun(*f.args, **f.kwargs))
+            else:
+                result = fun(*f.args, **f.kwargs)
+            self._buffers[f.name] = result
 
     def _start_printer(self, end: str = '\r') -> None:
         self._printer_thread = threading.Thread(
@@ -1137,16 +1146,6 @@ class Bar:
         '''Make a line using the bar's field buffers.
         This method is not meant to be called from within a loop.
         '''
-
-        # Run time-sensitive fields right away:
-        for f in self._timely_fields:
-            for f in self._timely_fields:
-                if asyncio.iscoroutinefunction(fun := f._func):
-                    result = asyncio.run(fun(*f.args, **f.kwargs))
-                else:
-                    result = fun(*f.args, **f.kwargs)
-                self._buffers[f.name] = result
-
         if self.fmt is not None:
             line = self.fmt.format_map(self._buffers)
         else:
@@ -1172,7 +1171,10 @@ class Bar:
         # Flushing the buffer before writing to it fixes poor i3bar alignment.
         self._stream.flush()
 
+        if self._timely_fields:
+            self._preload_timely_fields()
         self._stream.write(beginning + self._make_one_line() + end)
+
         self._stream.flush()
 
 
