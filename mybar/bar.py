@@ -428,8 +428,9 @@ class Bar:
         # The set of field threads the bar must wait to join before
         # printing a line with run_once:
         self._threads = set()
-
         self._printer_thread = None
+
+        self._coros = []
         self._timely_fields = []
 
         # Calling run() sets this Event. Unsetting it stops all fields:
@@ -869,19 +870,37 @@ class Bar:
             self._stream = stream
         if once is None:
             once = self.run_once
+        else:
+            self.run_once = once
 
-        # Allow the bar to run repeatedly in the same interpreter.
+        # Allow the bar to run repeatedly in the same interpreter:
         if self._loop.is_closed():
             self._loop = asyncio.new_event_loop()
-        try:
-            self._can_run.set()
-            self._loop.run_until_complete(self._startup(once))
 
-            # Keep the main thread running for fields handled by other
-            # threads. Ideally this would be fixed by better management in _startup.
-            if not any(f.is_async for f in self) and not once:
-               while self.running():
-                    time.sleep(self._thread_cooldown)
+        try:
+            # The following must be done in a very specific order.
+            self._can_run.set()
+            self._prepare_fields()
+
+            # When printing indefinitely, if the line printer is not
+            # started before coros, the bar is blank the whole time.
+            if not once:
+                self._start_printer()
+
+            self._loop.run_until_complete(self._start_coros())
+
+            # Wait for threads to finish to get a full line, then print.
+            while self._threads:
+                time.sleep(self._thread_cooldown)
+            self._print_one_line()
+
+            if once:
+                self._can_run.clear()
+
+            # Block the main thread while other threads run, if there
+            # are no coroutines.
+            while self.running():
+                time.sleep(self._thread_cooldown)
 
         except KeyboardInterrupt:
             pass
@@ -889,43 +908,36 @@ class Bar:
         finally:
             self._shutdown()
 
-    async def _startup(self, run_once: bool = False) -> None:
+    def _prepare_fields(self) -> None:
         '''
-        Run field coroutines and threads in parallel.
         '''
         overriding = False
-        gathered = []
-
         for field in self:
             if field.overrides_refresh:
                 overriding = True
 
             if field.threaded:
-                field.send_to_thread(run_once=run_once)
+                field.send_to_thread(run_once=self.run_once)
             elif field.timely:
                 self._timely_fields.append(field)
             else:
-                gathered.append(field.run(run_once))
+                self._coros.append(field.run(self.run_once))
+##        if overriding:  # Currently disabled!
+##            self._coros.append(self._handle_overrides())
 
-        if run_once:
-            await asyncio.gather(*gathered)
-            # Wait for threads to finish:
-            while self._threads:
-                await asyncio.sleep(self._thread_cooldown)
-            self._print_one_line()
-
-        else:
-##            if overriding:  # Currently disabled!
-##                gathered.append(self._handle_overrides())
-            self._start_printer()
-            await asyncio.gather(*gathered)
+    async def _start_coros(self):
+        await asyncio.gather(*self._coros)
 
     def _preload_timely_fields(self) -> None:
+        '''
+        Update the bar buffers for fields with :attr:`Field.timely`.
+        This is used most often right before printing a line.
+        '''
         for f in self._timely_fields:
-            if asyncio.iscoroutinefunction(fun := f._func):
-                result = asyncio.run(fun(*f.args, **f.kwargs))
+            if f.is_async:
+                result = asyncio.run(f._func(*f.args, **f.kwargs))
             else:
-                result = fun(*f.args, **f.kwargs)
+                result = f._func(*f.args, **f.kwargs)
             self._buffers[f.name] = result
 
     def _start_printer(self, end: str = '\r') -> None:
@@ -1000,10 +1012,10 @@ class Bar:
 
             # Run time-sensitive fields right away:
             for f in self._timely_fields:
-                if asyncio.iscoroutinefunction(fun := f._func):
-                    result = asyncio.run(fun(*f.args, **f.kwargs))
+                if f.is_async:
+                    result = asyncio.run(f._func(*f.args, **f.kwargs))
                 else:
-                    result = fun(*f.args, **f.kwargs)
+                    result = f._func(*f.args, **f.kwargs)
                 self._buffers[f.name] = result
 
             if using_format_str:
@@ -1017,16 +1029,6 @@ class Bar:
 
             self._stream.write(beginning + line + end)
             self._stream.flush()
-
-            # Sleep only until the next possible refresh to keep the
-            # refresh cycle length consistent and prevent drifting.
-            time.sleep(
-                # Time until next refresh:
-                self.refresh_rate - (
-                    # Get the current latency, which can vary:
-                    (clock() - start_time) % self.refresh_rate  # Preserve offset
-                )
-            )
 
     def _shutdown(self) -> None:
         '''

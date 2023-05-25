@@ -411,7 +411,7 @@ class Field:
             return self.fmt.format(text, icon=self.icon)
 
     def as_generator(self, once: bool = False) :
-        yield self.func
+        yield self._func
 
     def _do_setup(self, args: Args = None, kwargs: Kwargs = None) -> None:
         # Use the pre-defined _setupfunc() to gather constant variables
@@ -439,7 +439,7 @@ class Field:
             self.constant_output = self._auto_format(backup)
             return
 
-        # On success, give new values to kwargs to pass to func().
+        # On success, give new values to kwargs to pass to _func().
         # return setupvars
         kwargs['setupvars'] = setupvars
 
@@ -452,7 +452,7 @@ class Field:
         if self.constant_output is not None:
             return self._auto_format(self.constant_output)
 
-        if asyncio.iscoroutinefunction(self._func):
+        if self.is_async:
             result = asyncio.run(self._func(*self.args, **self.kwargs))
         else:
             result = self._func(*self.args, **self.kwargs)
@@ -466,9 +466,8 @@ class Field:
         if self.constant_output is not None:
             return self._auto_format(self.constant_output)
 
-        sync = not asyncio.iscoroutinefunction(self._func)
         while True:
-            if sync:
+            if self.is_async:
                 result = self._func(*self.args, **self.kwargs)
             else:
                 result = asyncio.run(self._func(*self.args, **self.kwargs))
@@ -616,7 +615,6 @@ class Field:
 
         # If the field's callback is asynchronous,
         # it must be run in a new event loop.
-        is_async = asyncio.iscoroutinefunction(func)
         local_loop = asyncio.new_event_loop()
 
         # Use the pre-defined _setupfunc() to gather constant variables
@@ -649,7 +647,7 @@ class Field:
             self.kwargs['setupvars'] = setupvars
 
         # Run at least once at the start to ensure the bar is not empty:
-        if is_async:
+        if self.is_async:
             result = local_loop.run_until_complete(
                 func(*self.args, **self.kwargs)
             )
@@ -709,7 +707,7 @@ class Field:
 
             count = 0
 
-            if is_async:
+            if self.is_async:
                 result = local_loop.run_until_complete(
                     func(*self.args, **self.kwargs)
                 )
