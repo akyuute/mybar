@@ -842,7 +842,10 @@ class Bar:
 
         return names, normalized
 
-    def line_generator(self):
+    def line_generator(self) -> Iterator:
+        '''
+        Return a generator yielding status lines.
+        '''
         while self.running():
             if self._timely_fields:
                 self._preload_timely_fields()
@@ -909,8 +912,6 @@ class Bar:
             self._shutdown()
 
     def _prepare_fields(self) -> None:
-        '''
-        '''
         overriding = False
         for field in self:
             if field.overrides_refresh:
@@ -925,12 +926,12 @@ class Bar:
 ##        if overriding:  # Currently disabled!
 ##            self._coros.append(self._handle_overrides())
 
-    async def _start_coros(self):
+    async def _start_coros(self) -> None:
         await asyncio.gather(*self._coros)
 
     def _preload_timely_fields(self) -> None:
         '''
-        Update the bar buffers for fields with :attr:`Field.timely`.
+        Update the bar buffers for Fields with :attr:`Field.timely`.
         This is used most often right before printing a line.
         '''
         for f in self._timely_fields:
@@ -1039,9 +1040,6 @@ class Bar:
         self._can_run.clear()
         for thread in self._threads:
             thread.join()
-        ##for field in self:
-        ##    if field.threaded and field._thread is not None:
-        ##        field._thread.join()
 
         if self.in_a_tty:
             self._stream.write('\n')

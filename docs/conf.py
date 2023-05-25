@@ -10,9 +10,9 @@ import sphinx_rtd_theme
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'mybar'
-copyright = '2021-present SleepyAbsol'
-author = 'SleepyAbsol'
-release = '0.5.2'
+copyright = '2021-present LonelyAbsol'
+author = 'LonelyAbsol'
+release = '0.6'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

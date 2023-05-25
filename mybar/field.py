@@ -259,7 +259,7 @@ class Field:
             )
         self.fmt = fmt
 
-        self.is_async = asyncio.iscoroutinefunction(func) 
+        self.is_async = asyncio.iscoroutinefunction(func)
 
         if self.is_async or threaded or timely:
             self._callback = func
