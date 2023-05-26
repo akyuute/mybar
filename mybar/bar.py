@@ -854,6 +854,8 @@ class Bar:
     def line_generator(self) -> Iterator:
         '''
         Return a generator yielding status lines.
+        This requires running the Fields in a separate thread,
+        which has yet to be implemented.
         '''
         while self.running():
             if self._timely_fields:
@@ -861,7 +863,19 @@ class Bar:
             line = self._make_one_line()
             yield line
 
-    def run(self, once: bool = None, stream: IO = None) -> None:
+    def previous_line(self) -> Line:
+        '''
+        Return the most recently printed line.
+        '''
+        return self._make_one_line()
+
+    def run(
+        self,
+        once: bool = None,
+        stream: IO = None,
+        *,
+        bg: bool = False
+    ) -> None:
         '''
         Run the bar in the specified output stream.
         Block until an exception is raised and exit smoothly.
@@ -870,33 +884,40 @@ class Bar:
             defaults to :attr:`Bar._stream`
         :type stream: :class:`IO`
 
-        :param once: Whether to print the bar only once, defaults to ``False``
+        :param once: Run the bar only once,
+            defaults to :attr:`Bar.run_once`
         :type once: :class:`bool`
+
+        :param bg: (Not fully implemented)
+            Run the bar in the background without printing,
+            defaults to ``False``
+            This is used for :func:`Bar.line_generator` and for testing.
+        :type bg: :class:`bool`
 
         :returns: ``None``
 
         .. note::
             This method cannot be called within an async event loop.
         '''
-        if stream is not None:
-            self._stream = stream
-        if once is None:
-            once = self.run_once
-        else:
-            self.run_once = once
-
-        # Allow the bar to run repeatedly in the same interpreter:
-        if self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-
         try:
+            if stream is not None:
+                self._stream = stream
+            if once is None:
+                once = self.run_once
+            else:
+                self.run_once = once
+
+            # Allow the bar to run repeatedly in the same interpreter:
+            if self._loop.is_closed():
+                self._loop = asyncio.new_event_loop()
+
             # The following must be done in a very specific order.
             self._can_run.set()
             self._prepare_fields()
 
             # When printing indefinitely, if the line printer is not
             # started before coros, the bar is blank the whole time.
-            if not once:
+            if not once and not bg:
                 self._start_printer()
 
             self._loop.run_until_complete(self._start_coros())
@@ -911,8 +932,9 @@ class Bar:
 
             # Block the main thread while other threads run, if there
             # are no coroutines.
-            while self.running():
-                time.sleep(self._thread_cooldown)
+            if not bg:
+                while self.running():
+                    time.sleep(self._thread_cooldown)
 
         except KeyboardInterrupt:
             pass
