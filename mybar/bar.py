@@ -1,6 +1,4 @@
-#TODO: {'uptime1': {'dft': 'uptime', ...}, 'uptime2': {'dft': 'uptime', ...}}
-#TODO: Bar(synchronous=True)!
-#TODO: Bar.as_generator()!
+#TODO: Implement dynamic icons!
 #TODO: Finish Mocp line!
 
 
@@ -172,11 +170,8 @@ class BarTemplate(dict):
 ##            parser.quit(e)
 
         if 'field_options' in bar_options:
-            # print(bar_options['field_options'])
             fields = parser.process_field_options(bar_options.pop('field_options'))
-            # print(f'{fields = }')
             bar_options['field_definitions'] = fields
-        # print(bar_options)
         try:
             template = cls.from_file(overrides=bar_options)
         except OSError as e:
@@ -624,8 +619,6 @@ class Bar:
                         )
                         raise exc from None
 
-                    # print(field.fmt)
-
                 case _:
                     # Edge cases.
                     exc = utils.make_error_message(
@@ -955,7 +948,15 @@ class Bar:
                 result = asyncio.run(f._func(*f.args, **f.kwargs))
             else:
                 result = f._func(*f.args, **f.kwargs)
-            self._buffers[f.name] = result
+
+            if f.fmt is not None:
+                contents = f.fmt.format(result, icon=f.icon)
+            else:
+                if f.always_show_icon or result:
+                    contents = f.icon + result
+                else:
+                    contents = result
+            self._buffers[f.name] = contents
 
     def _start_printer(self, end: str = '\r') -> None:
         self._printer_thread = threading.Thread(
@@ -1033,7 +1034,15 @@ class Bar:
                     result = asyncio.run(f._func(*f.args, **f.kwargs))
                 else:
                     result = f._func(*f.args, **f.kwargs)
-                self._buffers[f.name] = result
+
+                if f.fmt is not None:
+                    contents = f.fmt.format(result, icon=f.icon)
+                else:
+                    if f.always_show_icon or result:
+                        contents = f.icon + result
+                    else:
+                        contents = result
+                self._buffers[f.name] = contents
 
             if using_format_str:
                 line = self.fmt.format_map(self._buffers)

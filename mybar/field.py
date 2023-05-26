@@ -354,7 +354,6 @@ class Field:
             overrides['kwargs'] = default['kwargs'] | overrides['kwargs']
 
         spec = default | overrides
-        # print(spec)
         field = cls(**spec)
         field._fmt_sig = fmt_sig
         return field
