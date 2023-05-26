@@ -269,16 +269,16 @@ class Field:
 
         self._bar = bar
 
-        self.timely = timely
-        self.align_to_seconds = align_to_seconds
-        self.always_show_icon = always_show_icon
+        self.timely = utils.str_to_bool(timely)
+        self.align_to_seconds = utils.str_to_bool(align_to_seconds)
+        self.always_show_icon = utils.str_to_bool(always_show_icon)
         self._buffer = None
         self.constant_output = constant_output
-        self.interval = interval
-        self.overrides_refresh = overrides_refresh
-        self.run_once = run_once
+        self.interval = float(interval)
+        self.overrides_refresh = utils.str_to_bool(overrides_refresh)
+        self.run_once = utils.str_to_bool(run_once)
 
-        self.threaded = threaded
+        self.threaded = utils.str_to_bool(threaded)
         self._thread = None
 
         self._do_setup()
@@ -354,6 +354,7 @@ class Field:
             overrides['kwargs'] = default['kwargs'] | overrides['kwargs']
 
         spec = default | overrides
+        # print(spec)
         field = cls(**spec)
         field._fmt_sig = fmt_sig
         return field

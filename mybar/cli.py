@@ -10,7 +10,7 @@ from enum import Enum
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
 from ._types import BarTemplateSpec, FieldName, OptName, OptSpec
 
-from typing import Any, Callable, NoReturn
+from typing import Any, Callable, Iterable, NoReturn
 
 
 PROG = __package__
@@ -86,6 +86,41 @@ class Parser(ArgumentParser):
                 )
         return opts
 
+
+    def process_field_options(self, options: list[str], spaces: bool = True) -> BarTemplateSpec:
+        '''
+        '''
+        tmpl = BarTemplateSpec()
+
+        field_definitions = {}
+        for opt in options:
+            match (pair := opt.split('=', 1)):
+                case [positional]:
+                    # tmpl[positional] = True
+                    continue
+
+                case [key, val]:
+                    if key.isidentifier():
+                        # An option for the Bar.
+                        continue
+                        tmpl[key] = val
+                        continue
+
+                    # An option for a Field.
+                    field_name, field_opt = key.split('.', 1)
+                    if field_name not in field_definitions:
+                        field_definitions[field_name] = {}
+                    field_definitions[field_name].update({field_opt: val})
+
+        return field_definitions
+        tmpl['field_definitions'] = field_definitions
+        return tmpl
+
+    def verify_field_names(self, names) -> bool:
+        pass
+
+
+
     def add_arguments(self) -> None:
         '''Equip the parser with all its arguments.'''
         fields_or_fmt = self.add_mutually_exclusive_group()
@@ -147,6 +182,15 @@ class Parser(ArgumentParser):
             ),
         )
 
+        fields_group.add_argument(
+            '--options', '-o',
+            action='extend',
+            nargs='+',
+            metavar=('FIELD1.OPTION=VAL', 'FIELD2.OPTION=VAL'),
+            dest='field_options',
+            help="Arbitrarily set options for discrete Fields using dot-attribute syntax.",
+        )
+
         self.add_argument(
             '-r', '--refresh',
             type=float,
@@ -166,18 +210,20 @@ class Parser(ArgumentParser):
         )
 
         self.add_argument(
-            '--once', '-o',
+            '--no-repeat', '-R',
+            '--once', '-1',
             action='store_true',
             dest='run_once',
             help=(
                 "Run the bar once rather than continuously."
+                " In the future, -NUMBER may show the bar NUMBER times."
             ),
         )
 
         self.add_argument(
             '--debug',
             action='store_true',
-            help="Use debug mode.",
+            help="Use debug mode. (Not implemented)",
         )
 
     def quit(self, message: str = "Exiting...") -> NoReturn:

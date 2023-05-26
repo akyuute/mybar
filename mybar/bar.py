@@ -171,6 +171,12 @@ class BarTemplate(dict):
 ##        except OSError as e:
 ##            parser.quit(e)
 
+        if 'field_options' in bar_options:
+            # print(bar_options['field_options'])
+            fields = parser.process_field_options(bar_options.pop('field_options'))
+            # print(f'{fields = }')
+            bar_options['field_definitions'] = fields
+        # print(bar_options)
         try:
             template = cls.from_file(overrides=bar_options)
         except OSError as e:
@@ -532,6 +538,7 @@ class Bar:
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})  # From the CLI
         field_defs = bar_params.pop('field_definitions', {})
+        # print(field_defs)
 
         if (fmt := bar_params.get('fmt')) is None:
             if field_order is None:
@@ -589,10 +596,17 @@ class Bar:
 
                 case {}:
                     # The field is a default overridden by the user.
-                    # Are there custom icons given from the CLI?
-                    if name in field_icons:
+                    # Are there custom icons from --icons in the CLI?
+                    if field_icons and name in field_icons:
                         cust_icon = field_icons.pop(name)
                         field_params['icons'] = (cust_icon, cust_icon)
+
+                    # When one icon is given, override the default icons:
+                    elif 'icon' in field_params:
+                        cust_icon = field_params['icon']
+                        field_params['icons'] = (cust_icon, cust_icon)
+
+                    # print(field_params)
 
                     try:
                         field = Field.from_default(name, overrides=field_params)
@@ -609,6 +623,8 @@ class Bar:
                             ),
                         )
                         raise exc from None
+
+                    # print(field.fmt)
 
                 case _:
                     # Edge cases.
