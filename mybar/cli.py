@@ -8,7 +8,14 @@ from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
 
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
-from ._types import BarTemplateSpec, FieldName, OptName, OptSpec
+from ._types import (
+    AssignmentOption,
+    BarTemplateSpec,
+    FieldName,
+    FieldSpec,
+    OptName,
+    OptSpec,
+)
 
 from typing import Any, Callable, Iterable, NoReturn
 
@@ -87,7 +94,11 @@ class Parser(ArgumentParser):
         return opts
 
 
-    def process_field_options(self, options: list[str], spaces: bool = True) -> BarTemplateSpec:
+    def process_field_options(
+        self,
+        options: Iterable[AssignmentOption],
+        spaces: bool = True
+    ) -> dict[FieldName, FieldSpec]:
         '''
         '''
         tmpl = BarTemplateSpec()
@@ -96,30 +107,36 @@ class Parser(ArgumentParser):
         for opt in options:
             match (pair := opt.split('=', 1)):
                 case [positional]:
-                    # tmpl[positional] = True
+                    # Looks like '--opt'
+                    # Skip command options.
                     continue
 
-                case [key, val]:
                     if key.isidentifier():
-                        # An option for the Bar.
-                        continue
-                        tmpl[key] = val
+                        # No dots means it's an option for the Bar.
                         continue
 
+                case [field_and_opt, val]:
+                    # Looks like 'key=val'
+                    if val == "''":
+                        # Looks like "key=''"
+                        val = ''
+                    elif not val:
+                        # Looks like 'key='
+                        val = None
+
+                    # Looks like 'field.key=val'
                     # An option for a Field.
-                    field_name, field_opt = key.split('.', 1)
+                    # Handle attribute access through dots:
+                    field_name, field_opt = field_and_opt.split('.', 1)
+                    if field_opt == 'kwargs':
+                        val = {} if val is None else eval(val)
+                        # Yes, I know, it's eval.
+
                     if field_name not in field_definitions:
                         field_definitions[field_name] = {}
                     field_definitions[field_name].update({field_opt: val})
 
         return field_definitions
-        tmpl['field_definitions'] = field_definitions
-        return tmpl
-
-    def verify_field_names(self, names) -> bool:
-        pass
-
-
 
     def add_arguments(self) -> None:
         '''Equip the parser with all its arguments.'''

@@ -23,6 +23,7 @@ __all__ = (
 
     'OptName',
     'OptSpec',
+    'AssignmentOption',
 
     'Args',
     'Kwargs',
@@ -83,6 +84,8 @@ TTY_Icon: TypeAlias = str
 # Used by cli.OptionsAsker:
 OptName: TypeAlias = str
 OptSpec: TypeAlias = dict[OptName, Any]
+from re import Pattern
+AssignmentOption: TypeAlias = Pattern[r'(?P<key>\w+)=(?P<val>.*)']
 
 
 Args: TypeAlias = list
