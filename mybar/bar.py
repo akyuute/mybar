@@ -967,7 +967,7 @@ class Bar:
         '''
         for f in self._timely_fields:
             if f.is_async:
-                result = asyncio.run(f._func(*f.args, **f.kwargs))
+                result = self._loop.run(f._func(*f.args, **f.kwargs))
             else:
                 result = f._func(*f.args, **f.kwargs)
 
@@ -1053,7 +1053,7 @@ class Bar:
             # Run time-sensitive fields right away:
             for f in self._timely_fields:
                 if f.is_async:
-                    result = asyncio.run(f._func(*f.args, **f.kwargs))
+                    result = self._loop.run(f._func(*f.args, **f.kwargs))
                 else:
                     result = f._func(*f.args, **f.kwargs)
 
