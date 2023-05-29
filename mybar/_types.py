@@ -235,7 +235,7 @@ class FieldSpec(TypedDict, total=False):
     name: Required[FieldName]
     func: Callable[P, str]
     icon: Icon
-    fmt: FormatStr
+    template: FormatStr
     interval: float
     align_to_seconds: bool
     overrides_refresh: bool
@@ -261,18 +261,18 @@ class BarSpec(TypedDict, total=False):
     override_cooldown: float
     thread_cooldown: float
 
-    # The following field params are mutually exclusive with `fmt`.
+    # The following field params are mutually exclusive with `template`.
     field_order: Required[list[FieldName]]
     field_definitions: dict[FieldName, FieldSpec]
     separator: Separator
     separators: Sequence[PTY_Separator, TTY_Separator]
 
-    # The `fmt` param is mutually exclusive with all field params.
-    fmt: FormatStr
+    # The `template` param is mutually exclusive with all field params.
+    template: FormatStr
 
 
-class BarTemplateSpec(BarSpec, total=False):
-    '''A dict representation of :class:`mybar.templates.BarTemplate` constructor parameters.'''
+class BarConfigSpec(BarSpec, total=False):
+    '''A dict representation of :class:`mybar.bar.BarConfig` constructor parameters.'''
     config_file: PathLike
     debug: bool
     field_icons: dict[FieldName, Icon]

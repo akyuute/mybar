@@ -16,10 +16,10 @@ from . import field_funcs
 from . import _setups
 from . import utils
 from .errors import *
+from .formatting import FormatterFieldSig
 from ._types import (
     FieldName,
     FieldSpec,
-    FormatterFieldSig,
     Icon,
     PTY_Icon,
     TTY_Icon,
@@ -49,18 +49,19 @@ class Field:
     :type func: :class:`Callable[[*Args, **Kwargs], str]`
 
     :param icon: The field icon, defaults to ``''``.
-        Placed before field contents or in place of ``{icon}`` in `fmt`, if provided
+        Placed before field contents or in place
+        of ``{icon}`` in `template`, if provided
     :type icon: :class:`str`
 
-    :param fmt: A curly-brace format string.
+    :param template: A curly-brace format string.
         This parameter is **required** if `icon` is ``None``.
         Valid placeholders:
             - ``{icon}`` references `icon`
             - ``{}`` references field contents
         Example:
             When the field's current contents are ``'69F'`` and its icon is ``'TEMP'``,
-            ``fmt='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
-    :type fmt: :class:`_types.FormatStr`
+            ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
+    :type template: :class:`_types.FormatStr`
 
     :param interval: How often in seconds field contents are updated, defaults to ``1.0``
     :type interval: :class:`float`
@@ -109,7 +110,7 @@ class Field:
     :raises: :exc:`errors.IncompatibleArgsError` when
         neither `func` nor `constant_output` are given
     :raises: :exc:`errors.IncompatibleArgsError` when
-        neither `icon` nor `fmt` are given
+        neither `icon` nor `template` are given
     :raises: :exc:`TypeError` when `func` is not callable
     :raises: :exc:`TypeError` when `setup`, if given, is not callable
     '''
@@ -204,7 +205,7 @@ class Field:
         name: FieldName = None,
         func: Callable[P, str] = None,
         icon: str = '',
-        fmt: FormatStr = None,
+        template: FormatStr = None,
         interval: float = 1.0,
         align_to_seconds: bool = False,
         timely: bool = False,
@@ -223,7 +224,7 @@ class Field:
     ) -> None:
 
         if constant_output is None:
-            #NOTE: This will change when dynamic icons and fmts are implemented.
+            #NOTE: This will change when dynamic icons and templates are implemented.
             if func is None:
                 raise IncompatibleArgsError(
                     f"Either a function that returns a string or "
@@ -253,11 +254,11 @@ class Field:
             icons = (icon, icon)
         self._icons = icons
 
-        if fmt is None and icons is None:
+        if template is None and icons is None:
             raise IncompatibleArgsError(
-                "An icon is required when fmt is None."
+                "An icon is required when `template` is None."
             )
-        self.fmt = fmt
+        self.template = template
 
         self.is_async = asyncio.iscoroutinefunction(func)
 
@@ -296,7 +297,7 @@ class Field:
                 'align_to_seconds',
                 'always_show_icon',
                 'constant_output',
-                'fmt',
+                'template',
                 '_icons',
             )
         ):
@@ -363,8 +364,8 @@ class Field:
         '''
         Get a :class:`Field` from a curly-brace field in a format string.
 
-        :param fmt: The format string to convert
-        :type fmt: :class`FormatStr`
+        :param template: The format string to convert
+        :type template: :class`FormatStr`
         '''
         sig = FormatterFieldSig.from_str(fmt)
         field = cls.from_default(sig.name)
@@ -388,27 +389,27 @@ class Field:
     def _format_contents(
         text: str,
         icon: str,
-        fmt: FormatStr = None,
+        template: FormatStr = None,
         always_show_icon: bool = False
     ) -> str:
         '''A helper function that formats field contents.'''
-        if fmt is None:
+        if template is None:
             if always_show_icon or text:
                 return icon + text
             else:
                 return text
         else:
-            return fmt.format(text, icon=icon)
+            return template.format(text, icon=icon)
 
     def _auto_format(self, text: str) -> 'Contents':
         '''Non-staticmethod _format_contents...'''
-        if self.fmt is None:
+        if self.template is None:
             if self.always_show_icon or text:
                 return self.icon + text
             else:
                 return text
         else:
-            return self.fmt.format(text, icon=self.icon)
+            return self.template.format(text, icon=self.icon)
 
     def as_generator(self, once: bool = False) :
         yield self._func
@@ -487,7 +488,7 @@ class Field:
             bar._buffers[self.name] = self._format_contents(
                 self.constant_output,
                 self.icon,
-                self.fmt,
+                self.template,
                 self.always_show_icon
             )
             return
@@ -496,7 +497,7 @@ class Field:
 
         func = self._callback
         clock = time.monotonic
-        using_format_str = (self.fmt is not None)
+        using_format_str = (self.template is not None)
         last_val = None
 
         # Use the pre-defined _setupfunc() to gather constant variables
@@ -518,7 +519,7 @@ class Field:
                 contents = self._format_contents(
                     backup,
                     self.icon,
-                    self.fmt,
+                    self.template,
                     self.always_show_icon
                 )
                 self.constant_output = contents
@@ -567,7 +568,7 @@ class Field:
             last_val = result
 
             if using_format_str:
-                contents = self.fmt.format(result, icon=self.icon)
+                contents = self.template.format(result, icon=self.icon)
             else:
                 if self.always_show_icon or result:
                     contents = self.icon + result
@@ -600,7 +601,7 @@ class Field:
             bar._buffers[self.name] = self._format_contents(
                 self.constant_output,
                 self.icon,
-                self.fmt,
+                self.template,
                 self.always_show_icon
             )
             return
@@ -610,7 +611,7 @@ class Field:
         clock = time.monotonic
         step = bar._thread_cooldown
         func = self._callback
-        using_format_str = (self.fmt is not None)
+        using_format_str = (self.template is not None)
         last_val = None
 
         # If the field's callback is asynchronous,
@@ -636,7 +637,7 @@ class Field:
                 contents = self._format_contents(
                     backup,
                     self.icon,
-                    self.fmt,
+                    self.template,
                     self.always_show_icon
                 )
                 self.constant_output = contents
@@ -657,7 +658,7 @@ class Field:
         contents = self._format_contents(
             result,
             self.icon,
-            self.fmt,
+            self.template,
             self.always_show_icon
         )
         bar._buffers[self.name] = contents
@@ -719,7 +720,7 @@ class Field:
             last_val = result
 
             if using_format_str:
-                contents = self.fmt.format(result, icon=self.icon)
+                contents = self.template.format(result, icon=self.icon)
             else:
                 if self.always_show_icon or result:
                     contents = self.icon + result

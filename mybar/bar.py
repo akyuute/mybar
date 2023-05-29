@@ -26,7 +26,7 @@ from .formatting import FormatterFieldSig
 from ._types import (
     Args,
     BarSpec,
-    BarTemplateSpec,
+    BarConfigSpec,
     ConsoleControlCode,
     FieldName,
     FieldOrder,
@@ -58,27 +58,27 @@ HIDE_CURSOR: ConsoleControlCode = '?25l'
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
 
-class BarTemplate(dict):
+class BarConfig(dict):
     '''
     Build and transport Bar configs between files, dicts and command line args.
 
-    :param options: Optional :class:`_types.BarTemplateSpec` parameters
+    :param options: Optional :class:`_types.BarConfigSpec` parameters
         that override those of `defaults`
-    :type options: :class:`_types.BarTemplateSpec`
+    :type options: :class:`_types.BarConfigSpec`
 
     :param defaults: Parameters to use by default,
         defaults to :attr:`Bar._default_params`
     :type defaults: :class:`dict`
 
     .. note:: `options` and `defaults` must be :class:`dict` instances
-        of form :class:`_types.BarTemplateSpec`
+        of form :class:`_types.BarConfigSpec`
 
     '''
 
     def __init__(
         self,
-        options: BarTemplateSpec = {},
-        defaults: BarTemplateSpec = None,
+        options: BarConfigSpec = {},
+        defaults: BarConfigSpec = None,
     ) -> None:
         if defaults is None:
             self.defaults = Bar._default_params.copy()
@@ -103,26 +103,26 @@ class BarTemplate(dict):
         cls,
         file: PathLike = None,
         *,
-        defaults: BarTemplateSpec = None,
-        overrides: BarTemplateSpec = {},
+        defaults: BarConfigSpec = None,
+        overrides: BarConfigSpec = {},
     ) -> Self:
         '''
-        Return a new :class:`BarTemplate` from a config file path.
+        Return a new :class:`BarConfig` from a config file path.
 
         :param file: The filepath to the config file,
             defaults to ``'~/.mybar.json'``
         :type file: :class:`PathLike`
 
-        :param defaults: The base :class:`_types.BarTemplateSpec` dict whose
-            params the new :class:`BarTemplate` will override,
+        :param defaults: The base :class:`_types.BarConfigSpec` dict whose
+            params the new :class:`BarConfig` will override,
             defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`_types.BarTemplateSpec`
+        :type defaults: :class:`_types.BarConfigSpec`
 
         :param overrides: Additional param overrides to the config file
-        :type overrides: :class:`_types.BarTemplateSpec`
+        :type overrides: :class:`_types.BarConfigSpec`
 
-        :returns: A new :class:`BarTemplate` instance
-        :rtype: :class:`BarTemplate`
+        :returns: A new :class:`BarConfig` instance
+        :rtype: :class:`BarConfig`
         :raises: :exc:`OSError` for issues with accessing the file
         '''
         if defaults is None:
@@ -131,34 +131,47 @@ class BarTemplate(dict):
 
         if file is None:
             file = overrides.pop('config_file', CONFIG_FILE)
+        absolute = os.path.abspath(os.path.expanduser(file))
+##        # Assume the user wants to create the default file in the REPL:
+##        if absolute == CONFIG_FILE and not os.path.exists(absolute):
+##            cls.maybe_make_config_dir()
+##            cls.write_file(absolute)
 
         file_spec = {}
-        absolute = os.path.abspath(os.path.expanduser(file))
         try:
             file_spec, text = cls.read_file(absolute)
         except OSError as e:
             raise e.with_traceback(None)
 
         options = file_spec | overrides
-        t = cls(options, defaults)
-        t.file = absolute
-        return t
+        config = cls(options, defaults)
+        config.file = absolute
+        return config
+
+    @classmethod
+    def maybe_make_config_dir(cls) -> None:
+        '''
+        Make a config directory in the default location.
+        '''
+        directory = os.path.dirname(CONFIG_FILE)
+        if not os.path.exists(directory):
+            os.mkdir(directory)
 
     @classmethod
     def from_stdin(
         cls,
         write_new_file_dft: bool = True
     ) -> Self:
-        '''Return a new :class:`BarTemplate` using args from STDIN.
+        '''Return a new :class:`BarConfig` using args from STDIN.
         Prompt the user before writing a new config file if one does
         not exist.
 
         :param write_new_file_dft: Automatically write new files,
-            defaults to ``False``
+            defaults to ``True``
         :type write_new_file_dft: :class:`bool`
 
-        :returns: A new :class:`BarTemplate`
-        :rtype: :class:`BarTemplate`
+        :returns: A new :class:`BarConfig`
+        :rtype: :class:`BarConfig`
         '''
         parser = cli.Parser()
         try:
@@ -170,10 +183,14 @@ class BarTemplate(dict):
 ##            parser.quit(e)
 
         if 'field_options' in bar_options:
-            fields = parser.process_field_options(bar_options.pop('field_options'))
+            fields = parser.process_field_options(
+                bar_options.pop('field_options')
+            )
             bar_options['field_definitions'] = fields
+
+
         try:
-            template = cls.from_file(overrides=bar_options)
+            config = cls.from_file(overrides=bar_options)
         except OSError as e:
             file = e.filename
             msg = (f"The config file at {file!r} does not exist.")
@@ -185,16 +202,19 @@ class BarTemplate(dict):
             print(msg)
             write_new_file = handler.ask()
             if write_new_file:
+                cls.maybe_make_config_dir()
+                # cls.write_file(absolute)
                 cls.write_file(file, bar_options)
+
                 print(f"Wrote new config file at {file!r}")
-                template = cls.from_file(file)
+                config = cls.from_file(file)
             else:
                 parser.quit()
 
-        return template
+        return config
 
     @staticmethod
-    def read_file(file: PathLike) -> tuple[BarTemplateSpec, JSONText]:
+    def read_file(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
         '''
         Read a given config file.
         Convert its JSON contents to a dict and return it along with the
@@ -204,27 +224,29 @@ class BarTemplate(dict):
         :type file: :class:`PathLike`
 
         :returns: The converted file and its raw text
-        :rtype: tuple[:class:`_types.BarTemplateSpec`, :class:`_types.JSONText`]
+        :rtype: tuple[:class:`_types.BarConfigSpec`, :class:`_types.JSONText`]
         '''
-        with open(file, 'r') as f:
+        absolute = os.path.abspath(os.path.expanduser(file))
+        with open(absolute, 'r') as f:
             data = json.load(f)
             text = f.read()
         return data, text
 
-    @staticmethod
+    @classmethod
     def write_file(
+        cls,
         file: PathLike,
-        obj: BarTemplateSpec = {},
+        obj: BarConfigSpec = {},
         *,
         defaults: BarSpec = None
     ) -> None:
-        '''Write :class:`BarTemplate` params to a JSON file.
+        '''Write :class:`BarConfig` params to a JSON file.
 
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param obj: The :class:`_types.BarTemplateSpec` to write
-        :type obj: :class:`_types.BarTemplateSpec`, optional
+        :param obj: The :class:`_types.BarConfigSpec` to write
+        :type obj: :class:`_types.BarConfigSpec`, optional
 
         :param defaults: Any default parameters that `obj` should override,
             defaults to :attr:`Bar._default_params`
@@ -250,7 +272,10 @@ class BarTemplate(dict):
 
         obj['field_definitions'] = fields
 
-        with open(os.path.expanduser(file), 'w') as f:
+        absolute = os.path.abspath(os.path.expanduser(file))
+        if absolute == CONFIG_FILE and not os.path.exists(absolute):
+            cls.maybe_make_config_dir()
+        with open(os.path.expanduser(absolute), 'w') as f:
             json.dump(obj, f, indent=4, ) #separators=(',\n', ': '))
 
 
@@ -261,8 +286,8 @@ class Bar:
     :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
     :type fields: :class:`Iterable[Field | str]`
 
-    :param fmt: A curly-brace format string with field names, defaults to ``None``
-    :type fmt: :class:`_types.FormatStr`
+    :param template: A curly-brace format string with field names, defaults to ``None``
+    :type template: :class:`_types.FormatStr`
 
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
@@ -305,10 +330,10 @@ class Bar:
     :raises: :exc:`errors.InvalidOutputStreamError` when `stream` does
         not implement the IO protocol
     :raises: :exc:`errors.IncompatibleArgsError` when
-        neither `fmt` nor `fields` are given
+        neither `template` nor `fields` are given
     :raises: :exc:`errors.IncompatibleArgsError` when
-        `fmt` is ``None`` but no `separator` or `separators` are given
-    :raises: :exc:`TypeError` when `fields` is not iterable, or when `fmt` is not a string
+        `template` is ``None`` but no `separator` or `separators` are given
+    :raises: :exc:`TypeError` when `fields` is not iterable, or when `template` is not a string
     '''
 
     _default_field_order = [
@@ -331,7 +356,7 @@ class Bar:
 
     def __init__(
         self,
-        fmt: str = None,
+        template: str = None,
         fields: Iterable[Field | str] = None,
         *,
         field_order: Iterable[FieldName] = None,
@@ -357,22 +382,23 @@ class Bar:
         # Check all the required parameters.
         if fields is None:
 
-            if fmt is None:
+            if template is None:
                 raise IncompatibleArgsError(
                     f"Either a list of Fields 'fields' "
-                    f"or a format string 'fmt' is required."
+                    f"or a format string 'template' is required."
                 )
 
-            elif not isinstance(fmt, str):
+            elif not isinstance(template, str):
                 raise TypeError(
-                    f"Format string 'fmt' must be a string, not {type(fmt)}"
+                    f"Format string 'template' must be a string, "
+                    f"not {type(template)}"
                 )
 
-            # Good to use fmt:
+            # Good to use template:
             else:
                 #NOTE: `fields` here are :class:`FormatterFieldSig`
                 # _normalize_fields() takes care of this later.
-                field_order, fields = self.parse_fmt(fmt)
+                field_order, fields = self.parse_template(template)
 
         # Fall back to using fields.
         elif not hasattr(fields, '__iter__'):
@@ -380,26 +406,26 @@ class Bar:
 
         elif separator is None and separators is None:
             raise IncompatibleArgsError(
-                "A separator is required when 'fmt' is None."
+                "A separator is required when 'template' is None."
             )
 
         names, fields = self._normalize_fields(fields)
 
         # Preserve custom field order, enabling duplicates:
-        if fmt is None and field_order is None:
+        if template is None and field_order is None:
             field_order = names
 
         self._fields = fields
         self._field_order = field_order
         self._buffers = dict.fromkeys(self._fields, '')
 
-        self.fmt = fmt
+        self.template = template
 
         if separators is None:
             separators = (separator, separator)
         self._separators = separators
 
-        # Whether empty fields are joined when fmt is None:
+        # Whether empty fields are joined when template is None:
         # (True shows two separators together for every blank field.)
         self.join_empty_fields = join_empty_fields
 
@@ -467,7 +493,7 @@ class Bar:
         ):
             return False
 
-        if self.fmt == other.fmt:
+        if self.template == other.template:
             return True
         return False
 
@@ -484,21 +510,21 @@ class Bar:
         return f"{cls}(fields=[{fields}])"
 
     @classmethod
-    def from_template(
+    def from_config(
         cls,
-        tmpl: BarTemplate,
+        config: BarConfig,
         *,
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> Self:
         '''
-        Return a new :class:`Bar` from a :class:`BarTemplate`
+        Return a new :class:`Bar` from a :class:`BarConfig`
         or a dict of :class:`Bar` parameters.
         Ignore keys and list elements starting with `ignore_with`,
         which is ``'//'`` by default.
         If :param ignore_with: is ``None``, do not remove any values.
 
-        :param tmpl: The :class:`dict` to convert
-        :type tmpl: :class:`dict`
+        :param config: The :class:`dict` to convert
+        :type config: :class:`dict`
 
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
         :type ignore_with: :class:`_types.Pattern` | tuple[:class:`_types.Pattern`] | ``None``, optional
@@ -508,26 +534,26 @@ class Bar:
 
         :raises: :exc:`errors.IncompatibleArgsError` when
             no `field_order` is defined
-            or when no `fmt` is defined
+            or when no `template` is defined
         :raises: :exc:`errors.DefaultFieldNotFoundError` when either
             a field in `field_order` or
-            a field in `fmt`
+            a field in `template`
             cannot be found in :attr:`Field._default_fields`
         :raises: :exc:`errors.UndefinedFieldError` when
             a custom field name in `field_order` or
-            a custom field name in `fmt`
+            a custom field name in `template`
             is not properly defined in `field_definitions`
         :raises: :exc:`errors.InvalidFieldSpecError` when
             a field definition is not of the form :class:`_types.FieldSpec`
 
-        .. note:: `tmpl` can be a regular :class:`dict`
+        .. note:: `config` can be a regular :class:`dict`
         as long as it matches the form of :class:`_types.BarSpec`.
 
         '''
         if ignore_with is None:
-            data = deepcopy(tmpl)
+            data = deepcopy(config)
         else:
-            data = utils.scrub_comments(tmpl, ignore_with)
+            data = utils.scrub_comments(config, ignore_with)
 
         bar_params = cls._default_params | data
         field_order = bar_params.pop('field_order', None)
@@ -535,14 +561,14 @@ class Bar:
         field_defs = bar_params.pop('field_definitions', {})
         # print(field_defs)
 
-        if (fmt := bar_params.get('fmt')) is None:
+        if (template := bar_params.get('template')) is None:
             if field_order is None:
                 raise IncompatibleArgsError(
-                    "A bar format string 'fmt' is required when field "
-                    "order list 'field_order' is undefined."
+                    "A bar format string 'template' is required "
+                    "when field order list 'field_order' is undefined."
                 )
         else:
-            field_order, field_sigs = cls.parse_fmt(fmt)
+            field_order, field_sigs = cls.parse_template(template)
 
         # Ensure icon assignments correspond to valid fields:
         for name in field_icons:
@@ -558,7 +584,7 @@ class Bar:
                 )
                 raise exc from None
 
-        # Gather Field parameters and instantiate them:
+        # Gather Field parameters and instantiate new Fields:
         fields = {}
         expctd_name="the name of a default or properly defined `custom` Field"
 
@@ -646,14 +672,15 @@ class Bar:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
-        :param file: The config file to read, defaults to :obj:`constants.CONFIG_FILE`
+        :param file: The config file to read,
+            defaults to :obj:`constants.CONFIG_FILE`
         :type file: :class:`PathLike`
 
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
         '''
-        template = BarTemplate.from_file(file)
-        return cls.from_template(template)
+        config = BarConfig.from_file(file)
+        return cls.from_config(config)
 
     @classmethod
     def from_cli(cls) -> Self:
@@ -663,8 +690,8 @@ class Bar:
         :returns: a new :class:`Bar` using command line arguments
         :rtype: :class:`Bar`
         '''
-        template = BarTemplate.from_stdin()
-        return cls.from_template(template)
+        config = BarConfig.from_stdin()
+        return cls.from_config(config)
 
 ##    @classmethod
 ##    def as_generator(cls, 
@@ -709,7 +736,7 @@ class Bar:
 
         `field` will be converted to :class:`Field`,
         appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
+        If :attr:`Bar.template` is defined, it will override the new field order.
 
         :param field: The field to append
         :type field: :class:`FieldPrecursor`
@@ -728,7 +755,7 @@ class Bar:
         Append several new Fields to the bar.
         Field precursors in `fields` will be converted to :class:`Field`,
         appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.fmt` is defined, it will override the new field order.
+        If :attr:`Bar.template` is defined, it will override the new field order.
         the fields are displayed.
 
         :param field: The fields to append
@@ -737,7 +764,7 @@ class Bar:
         :returns: The modified bar
         :rtype: :class:`Bar`
         '''
-        #TODO: Consider Bar.fmt += FormatterFieldSig(field).as_string()
+        #TODO: Consider Bar.template += FormatterFieldSig(field).as_string()
         names, normalized = self._normalize_fields(fields)
         self._fields.update(normalized)
         self._buffers.update(dict.fromkeys(names, ''))
@@ -746,32 +773,32 @@ class Bar:
 
 
     @staticmethod
-    def parse_fmt(
-        fmt: FormatStr
+    def parse_template(
+        template: FormatStr
     ) -> tuple[FieldOrder, FmtStrStructure]:
         '''
         Return a dict mapping field names to :class:`FormatterFieldSig`.
         Keys of the dict can act as a field order.
 
-        :param fmt: A format string to parse
-        :type fmt: :class:`FormatStr`
+        :param template: A format string to parse
+        :type template: :class:`FormatStr`
 
         :returns: A dict of fields found in the format string
         :rtype: :class:`dict[FieldName, FormatterFieldSig]`
 
-        :raises: :exc:`errors.BrokenFormatStringError` when `fmt`
+        :raises: :exc:`errors.BrokenFormatStringError` when `template`
             is malformed
-        :raises: :exc:`errors.MissingFieldnameError` when `fmt`
+        :raises: :exc:`errors.MissingFieldnameError` when `template`
             contains positional fields
         '''
         try:
             sigs = tuple(
                 FormatterFieldSig(*field)
-                for field in Formatter().parse(fmt)
+                for field in Formatter().parse(template)
             )
 
         except ValueError:
-            err = f"Invalid bar format string: {fmt!r}"
+            err = f"Invalid bar format string: {template!r}"
             raise BrokenFormatStringError(err) from None
 
         if any(sig.name == '' for sig in sigs):
@@ -918,7 +945,14 @@ class Bar:
             # When printing indefinitely, if the line printer is not
             # started before coros, the bar is blank the whole time.
             if not once and not bg:
+##                # try:
                 self._start_printer()
+##                # NOTE: This must be excepted in the PRINTER thread.
+##                except Exception:
+##                    print("got an exception")
+##                    for t in self._threads:
+##                        t.join()
+##                    return
 
             self._loop.run_until_complete(self._start_coros())
 
@@ -971,8 +1005,8 @@ class Bar:
             else:
                 result = f._func(*f.args, **f.kwargs)
 
-            if f.fmt is not None:
-                contents = f.fmt.format(result, icon=f.icon)
+            if f.template is not None:
+                contents = f.template.format(result, icon=f.icon)
             else:
                 if f.always_show_icon or result:
                     contents = f.icon + result
@@ -999,7 +1033,7 @@ class Bar:
         :param end: The string appended to the end of each line
         :type end: :class:`str`
         '''
-        using_format_str = (self.fmt is not None)
+        using_format_str = (self.template is not None)
         sep = self.separator
         clock = time.monotonic
 
@@ -1057,8 +1091,8 @@ class Bar:
                 else:
                     result = f._func(*f.args, **f.kwargs)
 
-                if f.fmt is not None:
-                    contents = f.fmt.format(result, icon=f.icon)
+                if f.template is not None:
+                    contents = f.template.format(result, icon=f.icon)
                 else:
                     if f.always_show_icon or result:
                         contents = f.icon + result
@@ -1067,7 +1101,7 @@ class Bar:
                 self._buffers[f.name] = contents
 
             if using_format_str:
-                line = self.fmt.format_map(self._buffers)
+                line = self.template.format_map(self._buffers)
             else:
                 line = sep.join(
                     buf for field in self._field_order
@@ -1101,7 +1135,7 @@ class Bar:
         :param end: The string appended to the end of each line
         :type end: :class:`str`
         '''
-        using_format_str = (self.fmt is not None)
+        using_format_str = (self.template is not None)
         sep = self.separator
         clock = time.monotonic
 
@@ -1125,7 +1159,7 @@ class Bar:
         start_time = clock()
         while self.running():
             if using_format_str:
-                line = self.fmt.format_map(self._buffers)
+                line = self.template.format_map(self._buffers)
             else:
                 line = sep.join(
                     buf for field in self._field_order
@@ -1154,7 +1188,7 @@ class Bar:
         :type end: :class:`str`
         '''
         sep = self.separator
-        using_format_str = (self.fmt is not None)
+        using_format_str = (self.template is not None)
 
         if self.in_a_tty:
             beginning = self.clearline_char + end
@@ -1177,7 +1211,7 @@ class Bar:
                 return
 
             if using_format_str:
-                line = self.fmt.format_map(self._buffers)
+                line = self.template.format_map(self._buffers)
             else:
                 line = sep.join(
                     buf for field in self._field_order
@@ -1193,8 +1227,8 @@ class Bar:
         '''Make a line using the bar's field buffers.
         This method is not meant to be called from within a loop.
         '''
-        if self.fmt is not None:
-            line = self.fmt.format_map(self._buffers)
+        if self.template is not None:
+            line = self.template.format_map(self._buffers)
         else:
             line = self.separator.join(
                 buf for field in self._field_order
@@ -1233,7 +1267,8 @@ def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
     :param once: Print the bar only once, defaults to ``False``
     :type once: :class:`bool`
 
-    :param file: The config file to source, defaults to :obj:`constants.CONFIG_FILE`
+    :param file: The config file to source,
+        defaults to :obj:`constants.CONFIG_FILE`
     :type file: :class:`PathLike`
     '''
     bar = Bar.from_file(file)

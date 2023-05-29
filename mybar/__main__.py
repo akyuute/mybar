@@ -1,4 +1,4 @@
-from os.path import exists, expanduser
+import os.path
 import sys
 from typing import NoReturn
 
@@ -8,7 +8,7 @@ from . import constants
 
 def main() -> NoReturn | None:
     '''Run the command line utility.'''
-    first_use = not exists(expanduser(constants.CONFIG_FILE))
+    first_use = (not os.path.exists(constants.CONFIG_FILE))
     if first_use:
         from .cli import OptionsAsker
 

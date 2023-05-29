@@ -1,4 +1,3 @@
-# from ._types import BarSpec, BarTemplateSpec, JSONText
-
-from .bar import BarTemplate, BarSpec, BarTemplateSpec, JSONText
+from .field import FieldSpec
+from .bar import BarConfig, BarConfigSpec, BarSpec
 

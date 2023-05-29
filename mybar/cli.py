@@ -10,7 +10,7 @@ from enum import Enum
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
 from ._types import (
     AssignmentOption,
-    BarTemplateSpec,
+    BarConfigSpec,
     FieldName,
     FieldSpec,
     OptName,
@@ -57,7 +57,7 @@ class Parser(ArgumentParser):
         )
         self.add_arguments()
 
-    def parse_args(self, args: None | list[str] = None) -> BarTemplateSpec:
+    def parse_args(self, args: None | list[str] = None) -> BarConfigSpec:
         '''
         Parse command line arguments and return a dict of options.
         This will additionally process args with key-value pairs.
@@ -73,9 +73,9 @@ class Parser(ArgumentParser):
 
     def process_assignment_args(
         self,
-        opts: BarTemplateSpec,
+        opts: BarConfigSpec,
         assignments: dict[FieldName, str] = None
-    ) -> BarTemplateSpec:
+    ) -> BarConfigSpec:
         '''
         Make dicts from key-value pairs in assignment args.
         How does it work?
@@ -101,8 +101,6 @@ class Parser(ArgumentParser):
     ) -> dict[FieldName, FieldSpec]:
         '''
         '''
-        tmpl = BarTemplateSpec()
-
         field_definitions = {}
         for opt in options:
             match (pair := opt.split('=', 1)):
@@ -142,9 +140,9 @@ class Parser(ArgumentParser):
         '''Equip the parser with all its arguments.'''
         fields_or_fmt = self.add_mutually_exclusive_group()
         fields_or_fmt.add_argument(
-            '-m', '--format',
-            metavar="'FORMAT_STRING'",
-            dest='fmt',
+            '-t', '--template',
+            metavar="'TEMPLATE'",
+            dest='template',
             help=(
                 "A curly-brace-delimited format string. "
                 "Not valid with --fields/-f options."
