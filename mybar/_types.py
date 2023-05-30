@@ -64,7 +64,6 @@ Args: TypeAlias = list
 Kwargs: TypeAlias = dict
 
 # Used by Bar and BarConfigSpec:
-BarTemplateSpec
 Separator: TypeAlias = str
 PTY_Separator: TypeAlias = str
 TTY_Separator: TypeAlias = str
