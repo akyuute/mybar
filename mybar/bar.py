@@ -5,6 +5,7 @@
 __all__ = (
     'Bar',
     'run',
+    'write_initial_config'
 )
 
 
@@ -493,9 +494,7 @@ class Bar:
             less_weak_test = (other.name in self._field_order)
             return less_weak_test
 
-        # Shall we test for identical objects?
         else:
-            # No, too specific for a dunder-method.
             return False
 
     def __eq__(self, other: Bar) -> bool:
@@ -1228,4 +1227,8 @@ def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
     except KeyboardInterrupt:
         print()
         return
+
+
+def write_initial_config() -> None:
+    BarConfig.write_file(CONFIG_FILE)
 
