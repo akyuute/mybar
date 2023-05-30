@@ -109,6 +109,14 @@ AssignmentOption: TypeAlias = re_Pattern[r'(?P<key>\w+)=(?P<val>.*)']
 
 
 # Used by field_funcs:
+POWERS_OF_1024 = {
+    'K': 1024**1,
+    'M': 1024**2,
+    'G': 1024**3,
+    'T': 1024**4,
+    'P': 1024**5,
+}
+
 MetricSymbol = Literal[*POWERS_OF_1024.keys()]
 DiskMeasure = Literal['total', 'used', 'free', 'percent']
 Duration: TypeAlias = Literal[

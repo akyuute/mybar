@@ -24,7 +24,6 @@ from string import Formatter
 # if not embedded system:
 import psutil
 
-from .constants import POWERS_OF_1024
 from .errors import *
 from .formatting import ElapsedTime, ConditionalFormatStr
 from .utils import join_options
@@ -32,6 +31,7 @@ from ._types import (
     Contents,
     DiskMeasure,
     FormatStr,
+    POWERS_OF_1024,
     MetricSymbol,
     NmConnFilterSpec
 )
