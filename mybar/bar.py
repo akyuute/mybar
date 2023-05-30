@@ -136,11 +136,6 @@ class BarConfig(dict):
         if file is None:
             file = overrides.pop('config_file', CONFIG_FILE)
         absolute = os.path.abspath(os.path.expanduser(file))
-##        # Assume the user wants to create the default file in the REPL:
-##        if absolute == CONFIG_FILE and not os.path.exists(absolute):
-##            cls.maybe_make_config_dir()
-##            cls.write_file(absolute)
-
         file_spec = {}
         try:
             file_spec, text = cls.read_file(absolute)
@@ -153,15 +148,6 @@ class BarConfig(dict):
         return config
 
     @classmethod
-    def maybe_make_config_dir(cls) -> None:
-        '''
-        Make a config directory in the default location.
-        '''
-        directory = os.path.dirname(CONFIG_FILE)
-        if not os.path.exists(directory):
-            os.mkdir(directory)
-
-    @classmethod
     def from_stdin(
         cls,
         write_new_file_dft: bool = True
@@ -170,7 +156,7 @@ class BarConfig(dict):
         Prompt the user before writing a new config file if one does
         not exist.
 
-        :param write_new_file_dft: Automatically write new files,
+        :param write_new_file_dft: Write new files by default,
             defaults to ``True``
         :type write_new_file_dft: :class:`bool`
 
@@ -183,39 +169,65 @@ class BarConfig(dict):
         except FatalError as e:
             parser.error(e.msg)  # Shows usage
 
-##        except OSError as e:
-##            parser.quit(e)
-
         if 'field_options' in bar_options:
             fields = parser.process_field_options(
                 bar_options.pop('field_options')
             )
             bar_options['field_definitions'] = fields
 
-
         try:
             config = cls.from_file(overrides=bar_options)
         except OSError as e:
             file = e.filename
-            msg = (f"The config file at {file!r} does not exist.")
-            question = "Would you like to make it now?"
-            write_options = {'y': True, 'n': False}
-            default = 'ny'[write_new_file_dft]
-            handler = cli.OptionsAsker(write_options, default, question)
-
-            print(msg)
-            write_new_file = handler.ask()
-            if write_new_file:
+            writing_new = cls._get_write_new_approval(
+                file,
+                dft_choice=write_new_file_dft
+            )
+            if writing_new:
                 cls.maybe_make_config_dir()
-                # cls.write_file(absolute)
                 cls.write_file(file, bar_options)
-
                 print(f"Wrote new config file at {file!r}")
+
                 config = cls.from_file(file)
             else:
                 parser.quit()
 
         return config
+
+    @classmethod
+    def _get_write_new_approval(
+        cls,
+        file: PathLike,
+        dft_choice: bool
+    ) -> bool:
+        '''
+        Get approval to write a new config file using
+            :class:`cli.OptionsAsker`.
+
+        :param file: The path to the config file
+        :type file: :class:`os.PathLike`
+
+        :param dft_choice: The default option to present to the user
+        :type dft_choice: :class:``
+        '''
+        msg = (f"The config file at {file!r} does not exist.")
+        question = "Would you like to make it now?"
+        write_options = {'y': True, 'n': False}
+        default = 'ny'[dft_choice]
+
+        handler = cli.OptionsAsker(write_options, default, question)
+        print(msg)
+        write_new_file_ok = handler.ask()
+        return write_new_file_ok
+
+    @classmethod
+    def maybe_make_config_dir(cls) -> None:
+        '''
+        Make a config directory in the default location if nonexistent.
+        '''
+        directory = os.path.dirname(CONFIG_FILE)
+        if not os.path.exists(directory):
+            os.mkdir(directory)
 
     @staticmethod
     def read_file(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
@@ -1177,16 +1189,43 @@ class Bar:
 
 def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
     '''
-    Generate a new :class:`Bar` and run it in STDOUT.
-    Optionally generate the bar from a config file.
+    Generate a new :class:`Bar` from a config file and run it in STDOUT.
+    Ask to write the file if it doesn't exist.
 
     :param once: Print the bar only once, defaults to ``False``
     :type once: :class:`bool`
 
     :param file: The config file to source,
         defaults to :obj:`constants.CONFIG_FILE`
-    :type file: :class:`PathLike`
+    :type file: :class:`os.PathLike`
     '''
-    bar = Bar.from_file(file)
-    bar.run(once=once)
+##    import __main__ as possibly_repl
+##    if not hasattr(possibly_repl, '__file__'):
+##        # User is in a REPL
+    try:
+
+        try:
+            bar = Bar.from_file(file)
+
+        # Ask to write the file if it doesn't exist:
+        except OSError as e:
+            file = e.filename
+            writing_new = BarConfig._get_write_new_approval(file, dft_choice=False)
+
+            if writing_new:
+                BarConfig.maybe_make_config_dir()
+                BarConfig.write_file(file)
+                print(f"Wrote new config file at {file!r}")
+
+                bar = Bar.from_file(file)
+
+            else:
+                print("OK, never mind.")
+                return
+
+        bar.run(once=once)
+
+    except KeyboardInterrupt:
+        print()
+        return
 
