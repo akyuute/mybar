@@ -4,8 +4,6 @@
 
 from copy import deepcopy
 
-from ._types import FmtStrStructure, FormatStr, FormatterFname 
-
 from collections.abc import Callable, Iterable
 from typing import Any
 

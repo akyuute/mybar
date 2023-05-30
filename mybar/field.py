@@ -17,9 +17,9 @@ from . import _setups
 from . import utils
 from .errors import *
 from .formatting import FormatterFieldSig
+from .templates import FieldSpec
 from ._types import (
     FieldName,
-    FieldSpec,
     Icon,
     PTY_Icon,
     TTY_Icon,
@@ -29,7 +29,14 @@ from ._types import (
 )
 
 from collections.abc import Callable, Sequence
-from typing import NamedTuple, NoReturn, ParamSpec, Required, TypeAlias, TypeVar
+from typing import (
+    NamedTuple,
+    NoReturn,
+    ParamSpec,
+    Required,
+    TypeAlias,
+    TypeVar
+)
 
 Bar_T = TypeVar('Bar')
 Field = TypeVar('Field')
@@ -776,4 +783,6 @@ class Field:
 
 
 FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig
+from . import _types
+_types.FieldPrecursor = FieldPrecursor
 

@@ -8,11 +8,10 @@ from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
 
 from .errors import AskWriteNewFile, FatalError, CLIUsageError
+from .templates import BarConfigSpec, FieldSpec
 from ._types import (
     AssignmentOption,
-    BarConfigSpec,
     FieldName,
-    FieldSpec,
     OptName,
     OptSpec,
 )

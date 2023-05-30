@@ -4,7 +4,6 @@ from .errors import (
     BrokenFormatStringError,
     FailedSetup,
     IncompatibleArgsError,
-    InvalidFormatStringFieldError,
 )
 from .formatting import ConditionalFormatStr
 from .utils import join_options, make_error_message 

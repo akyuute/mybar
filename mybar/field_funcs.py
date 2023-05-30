@@ -21,45 +21,24 @@ from asyncio import subprocess as aiosp
 from datetime import datetime
 from string import Formatter
 
+# if not embedded system:
 import psutil
 
+from .constants import POWERS_OF_1024
 from .errors import *
 from .formatting import ElapsedTime, ConditionalFormatStr
 from .utils import join_options
-from ._types import Contents, FormatStr, NmConnFilterSpec
+from ._types import (
+    Contents,
+    DiskMeasure,
+    FormatStr,
+    MetricSymbol,
+    NmConnFilterSpec
+)
 
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias, NamedTuple, Any
 from enum import Enum
-
-
-FormatterLiteral: TypeAlias = str|None
-FormatterFname: TypeAlias = str|None
-FormatterFormatSpec: TypeAlias = str|None
-FormatterConversion: TypeAlias = str|None
-FmtStrStructure: TypeAlias = tuple[tuple[tuple[
-    FormatterLiteral,
-    FormatterFname,
-    FormatterFormatSpec,
-    FormatterConversion
-]]]
-
-POWERS_OF_1024 = {
-    'K': 1024**1,
-    'M': 1024**2,
-    'G': 1024**3,
-    'T': 1024**4,
-    'P': 1024**5,
-}
-MetricSymbol = Literal[*POWERS_OF_1024.keys()]
-
-DiskMeasure = Literal['total', 'used', 'free', 'percent']
-
-
-##class Func:
-##    f: Callable
-##    s: Setup
-##    pass
 
 
 # Field functions

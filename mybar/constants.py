@@ -1,6 +1,13 @@
 __all__ = (
     'CONFIG_FILE',
-    'DEBUG'
+    'DEBUG',
+    'CONFIG_FILE',
+    'CSI',
+    'CLEAR_LINE',
+    'HIDE_CURSOR',
+    'UNHIDE_CURSOR',
+    'FONTAWESOME_ICONS',
+    'USING_FONTAWESOME'
 )
 
 
@@ -20,14 +27,26 @@ DEBUG: bool = False
 # Used by Bar:
 CSI: ConsoleControlCode = '\033['
 '''Unix terminal escape code (control sequence introducer).'''
+
 CLEAR_LINE: ConsoleControlCode = '\x1b[2K'
 '''VT100 escape code to clear the line.'''
+
 HIDE_CURSOR: ConsoleControlCode = '?25l'
 '''VT100 escape code to hide the cursor.'''
+
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 '''VT100 escape code to unhide the cursor.'''
 
 
 FONTAWESOME_ICONS = tuple('')
 USING_FONTAWESOME = False
+
+POWERS_OF_1024 = {
+    'K': 1024**1,
+    'M': 1024**2,
+    'G': 1024**3,
+    'T': 1024**4,
+    'P': 1024**5,
+}
+
 

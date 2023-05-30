@@ -10,7 +10,7 @@ __all__ = (
     'InvalidArgError',
     'InvalidFieldError',
     'InvalidFieldSpecError',
-    'InvalidFormatStringFieldError',
+    'InvalidFormatStringFieldNameError',
     'InvalidOutputStreamError',
     'MissingBarError',
     'MissingFieldnameError',
@@ -19,16 +19,17 @@ __all__ = (
 
 
 from os import PathLike
-from typing import Any, IO
 
-from ._types import (
+from .formatting import (
     Contents,
-    FieldSpec,
     FormatStringError,
     BrokenFormatStringError,
+    InvalidFormatStringFieldNameError,
+    InvalidFormatStringFormatSpecError,
     MissingFieldnameError
 )
 
+from typing import Any, IO
 
 
 class DefaultFieldNotFoundError(LookupError):
@@ -60,13 +61,6 @@ class InvalidFieldError(TypeError):
 class InvalidFieldSpecError(TypeError):
     '''
     Raised when an expected :class:`FieldSpec` has the wrong type or an invalid structure.
-    '''
-    pass
-
-class InvalidFormatStringFieldError(LookupError):
-    '''
-    Raised when a format string has a field name not allowed or
-    not defined by kwargs in a :meth:`str.format()` call.
     '''
     pass
 
