@@ -15,23 +15,28 @@ import sys
 import threading
 import time
 from copy import deepcopy
-from string import Formatter
 
-from .constants import CONFIG_FILE, DEBUG
+from .constants import (
+    CLEAR_LINE,
+    CONFIG_FILE,
+    CSI,
+    DEBUG,
+    HIDE_CURSOR,
+    UNHIDE_CURSOR,
+)
+
 from . import cli
+from . import field_funcs
 from . import utils
 from .errors import *
-from .field import Field, FieldPrecursor
-from .formatting import FormatterFieldSig
+from .field import Field, FieldPrecursor, FieldSpec
+from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
+from .templates import BarConfigSpec, BarSpec, FieldSpec
 from ._types import (
     Args,
-    BarSpec,
-    BarConfigSpec,
     ConsoleControlCode,
     FieldName,
     FieldOrder,
-    FmtStrStructure,
-    FormatStr,
     Icon,
     JSONText,
     Kwargs,
@@ -44,18 +49,17 @@ from ._types import (
     TTY_Separator,
 )
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Container, Iterable, Iterator, Sequence
 from os import PathLike
-from typing import IO, NoReturn, Required, Self, TypeAlias, TypedDict, TypeVar
+from typing import (
+    IO,
+    NoReturn,
+    Required,
+    Self,
+    TypeVar
+)
 
 Bar = TypeVar('Bar')
-
-
-# Unix terminal escape code (control sequence introducer):
-CSI: ConsoleControlCode = '\033['
-CLEAR_LINE: ConsoleControlCode = '\x1b[2K'  # VT100 escape code to clear line
-HIDE_CURSOR: ConsoleControlCode = '?25l'
-UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 
 
 class BarConfig(dict):
@@ -287,7 +291,7 @@ class Bar:
     :type fields: :class:`Iterable[Field | str]`
 
     :param template: A curly-brace format string with field names, defaults to ``None``
-    :type template: :class:`_types.FormatStr`
+    :type template: :class:`formatting.FormatStr`
 
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
@@ -356,8 +360,8 @@ class Bar:
 
     def __init__(
         self,
-        template: str = None,
-        fields: Iterable[Field | str] = None,
+        template: FormatStr = None,
+        fields: Iterable[Field | FieldName] = None,
         *,
         field_order: Iterable[FieldName] = None,
         separator: str = '|',
@@ -396,9 +400,10 @@ class Bar:
 
             # Good to use template:
             else:
-                #NOTE: `fields` here are :class:`FormatterFieldSig`
-                # _normalize_fields() takes care of this later.
-                field_order, fields = self.parse_template(template)
+                parsed = FmtStrStructure.from_str(template)
+                parsed.validate_fields(Field._default_fields, True, True)
+                # names = parsed.get_names()
+                fields = parsed
 
         # Fall back to using fields.
         elif not hasattr(fields, '__iter__'):
@@ -409,11 +414,11 @@ class Bar:
                 "A separator is required when 'template' is None."
             )
 
-        names, fields = self._normalize_fields(fields)
+        field_names, fields = self._normalize_fields(fields)
 
         # Preserve custom field order, enabling duplicates:
-        if template is None and field_order is None:
-            field_order = names
+        if field_order is None:
+            field_order = field_names
 
         self._fields = fields
         self._field_order = field_order
@@ -559,7 +564,6 @@ class Bar:
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})  # From the CLI
         field_defs = bar_params.pop('field_definitions', {})
-        # print(field_defs)
 
         if (template := bar_params.get('template')) is None:
             if field_order is None:
@@ -568,7 +572,10 @@ class Bar:
                     "when field order list 'field_order' is undefined."
                 )
         else:
-            field_order, field_sigs = cls.parse_template(template)
+            parsed = FmtStrStructure.from_str(template)
+            parsed.validate_fields(Field._default_fields, True, True)
+            if field_order is None:
+                field_order = parsed.get_names()
 
         # Ensure icon assignments correspond to valid fields:
         for name in field_icons:
@@ -580,7 +587,9 @@ class Bar:
                     doing_what="parsing custom Field icons",
                     blame=f"{name!r}",
                     expected=f"a Field name from among {expctd_from_icons}",
-                    epilogue="Only assign icons to Fields that will be in the Bar."
+                    epilogue=(
+                        "Only assign icons to Fields that will be in the Bar."
+                    )
                 )
                 raise exc from None
 
@@ -771,49 +780,6 @@ class Bar:
         self._field_order.extend(names)
         return self
 
-
-    @staticmethod
-    def parse_template(
-        template: FormatStr
-    ) -> tuple[FieldOrder, FmtStrStructure]:
-        '''
-        Return a dict mapping field names to :class:`FormatterFieldSig`.
-        Keys of the dict can act as a field order.
-
-        :param template: A format string to parse
-        :type template: :class:`FormatStr`
-
-        :returns: A dict of fields found in the format string
-        :rtype: :class:`dict[FieldName, FormatterFieldSig]`
-
-        :raises: :exc:`errors.BrokenFormatStringError` when `template`
-            is malformed
-        :raises: :exc:`errors.MissingFieldnameError` when `template`
-            contains positional fields
-        '''
-        try:
-            sigs = tuple(
-                FormatterFieldSig(*field)
-                for field in Formatter().parse(template)
-            )
-
-        except ValueError:
-            err = f"Invalid bar format string: {template!r}"
-            raise BrokenFormatStringError(err) from None
-
-        if any(sig.name == '' for sig in sigs):
-            # There's a positional field somewhere.
-            # Issue an actionable error message:
-            epilogue = (
-                "Bar format string fields must all have fieldnames."
-                "\nPositional fields ('{}' for example) are not allowed."
-            )
-            raise MissingFieldnameError.with_highlighting(sigs, epilogue)
-
-        names = tuple(name for sig in sigs if (name := sig.name) is not None)
-
-        return names, sigs
-
     @staticmethod
     def _check_stream(stream: IO) -> None | NoReturn:
         '''Raise TypeError if the output stream has the required methods.'''
@@ -850,6 +816,9 @@ class Bar:
         normalized = {}
         names = []
 
+##        if isinstance(fields, FmtStrStructure):
+##            names = parsed.get_names()
+
         for field in fields:
             if isinstance(field, Field):
                 new_field = field
@@ -863,6 +832,7 @@ class Bar:
 
             elif isinstance(field, FormatterFieldSig):
                 if field.name is None:
+                    # Skip sigs that lack fields:
                     continue
                 new_field = Field.from_default(
                     name=field.name,
@@ -890,7 +860,7 @@ class Bar:
             line = self._make_one_line()
             yield line
 
-    def previous_line(self) -> Line:
+    def current_line(self) -> Line:
         '''
         Return the most recently printed line.
         '''
@@ -1125,60 +1095,6 @@ class Bar:
         if self.in_a_tty:
             self._stream.write('\n')
             self._stream.write(CSI + UNHIDE_CURSOR)
-
-    async def _continuous_line_printer(self, end: str = '\r') -> None:
-        '''
-        The bar's primary line-printing mechanism.
-        Fields are responsible for sending data to the bar buffers.
-        This only writes using the current buffer contents.
-
-        :param end: The string appended to the end of each line
-        :type end: :class:`str`
-        '''
-        using_format_str = (self.template is not None)
-        sep = self.separator
-        clock = time.monotonic
-
-        if self.in_a_tty:
-            beginning = self.clearline_char + end
-            self._stream.write(CSI + HIDE_CURSOR)
-        else:
-            beginning = self.clearline_char
-
-        # Flushing the buffer before writing to it fixes poor i3bar alignment.
-        self._stream.flush()
-
-        # Print something right away just so that the bar is not empty:
-        self._print_one_line()
-
-        if self.align_to_seconds:
-            # Begin every refresh at the start of a clock second:
-            clock = time.time
-            await asyncio.sleep(1 - (clock() % 1))
-
-        start_time = clock()
-        while self.running():
-            if using_format_str:
-                line = self.template.format_map(self._buffers)
-            else:
-                line = sep.join(
-                    buf for field in self._field_order
-                        if (buf := self._buffers[field])
-                        or self.join_empty_fields
-                )
-
-            self._stream.write(beginning + line + end)
-            self._stream.flush()
-
-            # Sleep only until the next possible refresh to keep the
-            # refresh cycle length consistent and prevent drifting.
-            await asyncio.sleep(
-                # Time until next refresh:
-                self.refresh_rate - (
-                    # Get the current latency, which can vary:
-                    (clock() - start_time) % self.refresh_rate  # Preserve offset
-                )
-            )
 
     async def _handle_overrides(self, end: str = '\r') -> None:
         '''
