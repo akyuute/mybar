@@ -287,8 +287,6 @@ class Field:
         self.run_once = utils.str_to_bool(run_once)
 
         self.threaded = utils.str_to_bool(threaded)
-        self._thread = None
-
         self._do_setup()
 
     def __repr__(self) -> str:
@@ -483,26 +481,32 @@ class Field:
 
             yield contents
 
-    async def run(self, once: bool = False) -> None:
+    async def run(self, bar: Bar_T, once: bool) -> None:
         '''
-        Run an asynchronous field callback and send updates to the bar.
+        Run an async :class:`Field` callback and send its output to a
+        status bar.
+
+        :param bar: Send results to this status bar
+        :type bar: :class:`Bar`
+
+        :param once: Run the Field function once
+        :type once: :class:`bool`
         '''
-        self._check_bar()
-        bar = self._bar
+        self._check_bar(bar)
         # Do not run fields which have a constant output;
         # only set their bar buffer.
         if self.constant_output is not None:
-            bar._buffers[self.name] = self._format_contents(
+            contents = self._format_contents(
                 self.constant_output,
                 self.icon,
                 self.template,
                 self.always_show_icon
             )
+            bar._buffers[self.name] = contents
             return
 
-        running = self._bar._can_run.is_set
-
         func = self._callback
+        running = bar._can_run.is_set
         clock = time.monotonic
         using_format_str = (self.template is not None)
         last_val = None
@@ -520,7 +524,7 @@ class Field:
 
             # If _setupfunc raises FailedSetup with a backup value,
             # use it as the field's new constant_output and update the
-            # bar buffer:
+            # bar's buffer:
             except FailedSetup as e:
                 backup = e.backup
                 contents = self._format_contents(
@@ -536,7 +540,7 @@ class Field:
             # On success, give new values to kwargs to pass to func().
             self.kwargs['setupvars'] = setupvars
 
-        # Run at least once at the start to ensure the bar is not empty:
+        # Run at least once at the start to ensure bars have contents:
         result = await func(*self.args, **self.kwargs)
         last_val = result
         contents = self._auto_format(result)
@@ -597,27 +601,34 @@ class Field:
                     # If not, the line will update at the next refresh cycle.
                     pass
 
-    def run_threaded(self, once: bool = False) -> None:
-        '''Run a blocking function in a thread
-        and send its updates to the bar.'''
-        self._check_bar()
-        bar = self._bar
+    def run_threaded(self, bar: Bar_T, once: bool) -> None:
+        '''
+        Run a blocking :class:`Field` func and send its output to a
+        status bar.
+
+        :param bar: Send results to this status bar
+        :type bar: :class:`Bar`
+
+        :param once: Run the Field function once
+        :type once: :class:`bool`
+        '''
+        self._check_bar(bar)
+
         # Do not run fields which have a constant output;
         # only set their bar buffer.
         if self.constant_output is not None:
-            bar._buffers[self.name] = self._format_contents(
+            contents = self._format_contents(
                 self.constant_output,
                 self.icon,
                 self.template,
                 self.always_show_icon
             )
+            bar._buffers[self.name] = contents
             return
 
-        running = self._bar._can_run.is_set
-
-        clock = time.monotonic
-        step = bar._thread_cooldown
         func = self._callback
+        running = bar._can_run.is_set
+        clock = time.monotonic
         using_format_str = (self.template is not None)
         last_val = None
 
@@ -654,7 +665,7 @@ class Field:
             # On success, give new values to kwargs to pass to func().
             self.kwargs['setupvars'] = setupvars
 
-        # Run at least once at the start to ensure the bar is not empty:
+        # Run at least once at the start to ensure bar is not empty:
         if self.is_async:
             result = local_loop.run_until_complete(
                 func(*self.args, **self.kwargs)
@@ -673,27 +684,25 @@ class Field:
         if self.run_once or once:
             local_loop.stop()
             local_loop.close()
-            self._bar._threads.remove(self._thread)
+            bar._threads.pop(self.name)  # Eventually, id(self)
             return
 
-        count = 0
+        step = bar._thread_cooldown
         needed = round(self.interval / step)
+        count = 0
+        first_cycle = True
 
         if self.align_to_seconds:
             # Sleep until the beginning of the next second.
             clock = time.time
             time.sleep(1 - (clock() % 1))
+
         start_time = clock()
-
-        # The main loop:
         while running():
-            # Rather than block for the whole interval,
-            # use tiny steps to check if the bar is still running.
-            # A shorter step means more chances to check if the bar stops.
-            # Thus, threads usually cancel `step` seconds after `func`
-            # returns when the bar stops rather than after `interval` seconds.
 
-            if count < needed:
+            # Sleep until the next refresh cycle in little steps to
+            # check if the bar has stopped.
+            if count < needed and not first_cycle:
                 count += 1
 
                 # Latency from nonzero execution times causes drift,
@@ -708,12 +717,14 @@ class Field:
                     step - (
                         # Get the current latency, which can vary:
                         clock() % step
-                        # (clock() - start_time) % step  # Preserve offset
+                        # (clock() - start_time) % step To preserve offset
                     )
                 )
                 continue
 
             count = 0
+            if first_cycle:
+                first_cycle = False
 
             if self.is_async:
                 result = local_loop.run_until_complete(
@@ -754,32 +765,59 @@ class Field:
         local_loop.stop()
         local_loop.close()
 
-    def _check_bar(self, no_error: bool = False) -> NoReturn | bool:
-        '''Raises MissingBarError if self._bar is None.'''
-        if self._bar is None:
+    @staticmethod
+    def _check_bar(
+        bar: Bar_T,
+        raise_on_fail: bool = True
+    ) -> NoReturn | bool:
+        '''
+        Check if a bar has the right attributes to use a run() function.
+        If these attributes are missing,
+            return ``False`` if `raise_on_fail` is ``True``,
+            or raise :exc:`InvalidBarError` if `raise_on_fail` is ``False``.
+
+        :param bar: The status bar object to test
+        :type bar: :class:`Bar`
+
+        :param raise_on_fail: Raise an exception if `bar` fails the check,
+            defaults to ``False``
+        :type raise_on_fail: :class:`bool`
+
+        :raises: :exc:`InvalidBarError` if the bar fails
+            :func:`_check_bar()` and lacks required attributes
+        '''
+        required_attrs = (
+            '_buffers',
+            '_can_run',
+            '_override_queue',
+            '_stream',
+        )
+        if any(not hasattr(bar, a) for a in required_attrs):
             if no_error:
                 return False
-            raise MissingBarError(
-                "Fields cannot run until they belong to a Bar."
-            )
+            raise InvalidBarError(
+                f"Status bar {bar!r} is missing certain attributes"
+                f" required to run `Field.run()`"
+                f" and `Field.run_threaded()`."
+            ) from None
         return True
 
-    def send_to_thread(self, *, run_once: bool = True) -> None:
+    def make_thread(self, bar: Bar_T, run_once: bool) -> None:
         '''
-        Make and start a thread in which to run the :class:`Field` callback.
+        Return a thread that runs the :class:`Field`'s callback.
 
-        :param run_once: Only run the :class:`Field` callback once,
-            defaults to ``True`` to prevent uncontrolled thread spawning
-        :type run_once: :class:`bool`
+        :param bar: Send results to this status bar
+        :type bar: :class:`Bar`
+
+        :param once: Run the Field function once
+        :type once: :class:`bool`
         '''
-        self._check_bar()
-        self._thread = threading.Thread(
+        thread = threading.Thread(
             target=self.run_threaded,
-            name=self.name,
-            args=(run_once,)
+            args=(bar, run_once),
+            name=self.name  # #NOTE Eventually, id(self)
         )
-        self._bar._threads.add(self._thread)
-        self._thread.start()
+        return thread
 
 
 FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig

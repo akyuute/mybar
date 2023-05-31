@@ -8,11 +8,11 @@ __all__ = (
     'FormatStringError',
     'IncompatibleArgsError',
     'InvalidArgError',
+    'InvalidBarError',
     'InvalidFieldError',
     'InvalidFieldSpecError',
     'InvalidFormatStringFieldNameError',
     'InvalidOutputStreamError',
-    'MissingBarError',
     'MissingFieldnameError',
     'UndefinedFieldError',
 )
@@ -64,17 +64,16 @@ class InvalidFieldSpecError(TypeError):
     '''
     pass
 
+class InvalidBarError(AttributeError):
+    '''
+    Raised when Field._check_bar() finds missing attributes in a
+    potential status bar.
+    '''
+
 class InvalidOutputStreamError(AttributeError):
     '''
     Raised when an :class:`IO` stream lacks ``write()``,
     ``flush()`` and ``isatty()`` methods.
-    '''
-    pass
-
-class MissingBarError(AttributeError):
-    '''
-    Raised when :meth:`Field.run()` is called before its instance is passed to the
-    `fields` parameter in :meth:`Bar.__init__()`.
     '''
     pass
 

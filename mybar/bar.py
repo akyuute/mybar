@@ -470,9 +470,10 @@ class Bar:
         # (A shorter cooldown means faster exits):
         self._thread_cooldown = thread_cooldown
 
-        # The set of field threads the bar must wait to join before
-        # printing a line with run_once:
-        self._threads = set()
+        # The dict mapping Field names to the threads running them.
+        # The bar must join each before printing a line with `run_once`:
+        self._threads = {}
+        # self._threads = set()
         self._printer_thread = None
 
         self._coros = []
@@ -480,7 +481,7 @@ class Bar:
 
         # Calling run() sets this Event. Unsetting it stops all fields:
         self._can_run = threading.Event()
-        self.running = self._can_run.is_set
+        self._running = self._can_run.is_set
 
         # The bar's async event loop:
         self._loop = asyncio.new_event_loop()
@@ -740,6 +741,10 @@ class Bar:
         return self._stream.isatty()
 
     @property
+    def running(self) -> bool:
+        return self._running()
+
+    @property
     def separator(self) -> Separator:
         '''
         The field separator as determined by the output stream.
@@ -865,7 +870,7 @@ class Bar:
         This requires running the Fields in a separate thread,
         which has yet to be implemented.
         '''
-        while self.running():
+        while self._running():
             if self._timely_fields:
                 self._preload_timely_fields()
             line = self._make_one_line()
@@ -920,35 +925,30 @@ class Bar:
                 self._loop = asyncio.new_event_loop()
 
             # The following must be done in a very specific order.
+
             self._can_run.set()
             self._prepare_fields()
+            self._preload_timely_fields()
 
             # When printing indefinitely, if the line printer is not
             # started before coros, the bar is blank the whole time.
             if not once and not bg:
-##                # try:
                 self._start_printer()
-##                # NOTE: This must be excepted in the PRINTER thread.
-##                except Exception:
-##                    print("got an exception")
-##                    for t in self._threads:
-##                        t.join()
-##                    return
 
             self._loop.run_until_complete(self._start_coros())
 
             # Wait for threads to finish to get a full line, then print.
             while self._threads:
                 time.sleep(self._thread_cooldown)
-            self._print_one_line()
 
             if once:
+                self._print_one_line()
                 self._can_run.clear()
 
             # Block the main thread while other threads run, if there
             # are no coroutines.
             if not bg:
-                while self.running():
+                while self._running():
                     time.sleep(self._thread_cooldown)
 
         except KeyboardInterrupt:
@@ -964,11 +964,13 @@ class Bar:
                 overriding = True
 
             if field.threaded:
-                field.send_to_thread(run_once=self.run_once)
+                thread = field.make_thread(bar=self, run_once=self.run_once)
+                self._threads[thread.name] = thread
+                thread.start()
             elif field.timely:
                 self._timely_fields.append(field)
             else:
-                self._coros.append(field.run(self.run_once))
+                self._coros.append(field.run(bar=self, once=self.run_once))
 ##        if overriding:  # Currently disabled!
 ##            self._coros.append(self._handle_overrides())
 
@@ -982,7 +984,9 @@ class Bar:
         '''
         for f in self._timely_fields:
             if f.is_async:
-                result = self._loop.run(f._func(*f.args, **f.kwargs))
+                result = self._loop.run_until_complete(
+                    f._func(*f.args, **f.kwargs)
+                )
             else:
                 result = f._func(*f.args, **f.kwargs)
 
@@ -996,13 +1000,15 @@ class Bar:
             self._buffers[f.name] = contents
 
     def _start_printer(self, end: str = '\r') -> None:
+        thread_name = 'PRINTER'
         self._printer_thread = threading.Thread(
             target=self._threaded_continuous_line_printer,
-            name='PRINTER',
+            name=thread_name,
             args=(end,)
         )
-        self._threads.add(self._printer_thread)
+        self._threads[thread_name] = self._printer_thread
         self._printer_thread.start()
+
 
     def _threaded_continuous_line_printer(self, end: str = '\r') -> None:
         '''
@@ -1014,37 +1020,38 @@ class Bar:
         :param end: The string appended to the end of each line
         :type end: :class:`str`
         '''
-        using_format_str = (self.template is not None)
-        sep = self.separator
-        clock = time.monotonic
+        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        self._stream.flush()
 
+        # Print something right away just so that the bar is not empty:
         if self.in_a_tty:
             beginning = self.clearline_char + end
             self._stream.write(CSI + HIDE_CURSOR)
         else:
             beginning = self.clearline_char
-
-        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        line = self._make_one_line()
+        self._stream.write(beginning + line + end)
         self._stream.flush()
 
-        # Print something right away just so that the bar is not empty:
-        self._print_one_line()
+        using_format_str = (self.template is not None)
+        sep = self.separator
+        clock = time.monotonic
+        step = self._thread_cooldown
+        needed = round(self.refresh_rate / step)
+        count = 0
+        first_cycle = True
 
         if self.align_to_seconds:
-            # Begin every refresh at the start of a clock second:
+            # Sleep until the beginning of the next second.
             clock = time.time
             time.sleep(1 - (clock() % 1))
 
-        step = self._thread_cooldown
-        count = 0
-        needed = round(self.refresh_rate / step)
-
         start_time = clock()
-        while self.running():
+        while self._running():
 
-            # Sleep until the next refresh cycle, pausing for a bit in
-            # case the bar stops.
-            if count < needed:
+            # Sleep until the next refresh cycle in little steps to
+            # check if the bar has stopped.
+            if count < needed and not first_cycle:
                 count += 1
 
                 # Latency from nonzero execution times causes drift,
@@ -1059,11 +1066,14 @@ class Bar:
                     step - (
                         # Get the current latency, which can vary:
                         clock() % step
+                        # (clock() - start_time) % step To preserve offset
                     )
                 )
                 continue
 
             count = 0
+            if first_cycle:
+                first_cycle = False
 
             # Run time-sensitive fields right away:
             for f in self._timely_fields:
@@ -1097,11 +1107,12 @@ class Bar:
         '''
         Notify fields that the bar has stopped and join threads.
         Also print a newline and unhide the cursor if the bar was
-        running in a TTY.
+        running in a terminal.
         '''
         self._can_run.clear()
-        for thread in self._threads:
+        for thread_name, thread in tuple(self._threads.items()):
             thread.join()
+            self._threads.pop(thread_name)
 
         if self.in_a_tty:
             self._stream.write('\n')
@@ -1123,7 +1134,7 @@ class Bar:
             beginning = self.clearline_char
 
         start_time = time.time()
-        while self.running():
+        while self._running():
 
             try:
                 # Wait until a field with overrides_refresh sends new
@@ -1175,9 +1186,6 @@ class Bar:
             beginning = self.clearline_char + end
         else:
             beginning = self.clearline_char
-
-        # Flushing the buffer before writing to it fixes poor i3bar alignment.
-        self._stream.flush()
 
         if self._timely_fields:
             self._preload_timely_fields()
