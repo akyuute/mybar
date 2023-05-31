@@ -649,8 +649,6 @@ class Bar:
                         cust_icon = field_params['icon']
                         field_params['icons'] = (cust_icon, cust_icon)
 
-                    # print(field_params)
-
                     try:
                         field = Field.from_default(name, overrides=field_params)
                     except DefaultFieldNotFoundError:
@@ -798,15 +796,37 @@ class Bar:
         return self
 
     @staticmethod
-    def _check_stream(stream: IO) -> None | NoReturn:
-        '''Raise TypeError if the output stream has the required methods.'''
+    def _check_stream(
+        stream: IO,
+        raise_on_fail: bool = True
+    ) -> NoReturn | None:
+        '''
+        Check if an IO stream has proper methods for use by :class:`Bar`.
+        If any methods are missing,
+            return ``False`` if `raise_on_fail` is ``False``, or
+            raise :exc:`InvalidBarError` if `raise_on_fail` is ``True``.
+        Otherwise, return ``True``.
+
+        :param stream: The IO stream object to test
+        :type stream: :class:`IO`
+
+        :param raise_on_fail: Raise exception if `stream` fails the check,
+            defaults to ``True``
+        :type raise_on_fail: :class:`bool`
+
+        :raises: :exc:`InvalidOutputStreamError` if the stream fails the
+            test and lacks required instance methods
+        '''
         io_methods = ('write', 'flush', 'isatty')
         if not all(hasattr(stream, a) for a in io_methods):
+            if not raise_on_fail:
+                return False
             io_method_calls = [a + '()' for a in io_methods]
             joined = utils.join_options(io_method_calls, final_sep='and')
-            raise TypeError(
+            raise InvalidOutputStreamError(
                 f"Output stream {stream!r} needs {joined} methods."
-            )
+            ) from None
+        return True
 
     def _normalize_fields(
         self,
@@ -1009,7 +1029,6 @@ class Bar:
         )
         self._threads[thread_name] = self._printer_thread
         self._printer_thread.start()
-
 
     def _threaded_continuous_line_printer(self, end: str = '\r') -> None:
         '''
