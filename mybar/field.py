@@ -153,7 +153,7 @@ class Field:
         'cpu_usage': {
             'name': 'cpu_usage',
             'func': field_funcs.get_cpu_usage,
-            'interval': 2,
+            'interval': 5,
             'threaded': True,
             'icons': [' ', 'CPU '],
         },
@@ -176,7 +176,7 @@ class Field:
         'disk_usage': {
             'name': 'disk_usage',
             'func': field_funcs.get_disk_usage,
-            'interval': 4,
+            'interval': 5,
             'icons': [' ', '/:'],
         },
 
