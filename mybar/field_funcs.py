@@ -72,52 +72,44 @@ async def get_audio_volume(
     return fmt.format(avg_pct, state=state)
 
 
-class Context(NamedTuple):
-    contents: str = None
-    state: Any = None
-
-class BatteryStates(Enum):
-    CHARGING = 'charging'
-    DISCHARGING = 'discharging'
-
-def ctx_get_battery_info(
-    fmt: FormatStr = "{icon}{pct:02.0f}",
-    # fmt: FormatStr = "{icon}{pct:02.0f}{state}",
-    *args, **kwargs
-) -> Context:
-    '''
-    Battery capacity as a percent and whether or not it is charging.
-    '''
-
-    # if not (battery := psutil.sensors_battery()):
-    battery = psutil.sensors_battery()
-    if not battery:
-        return Context()
-##        # return (None, None)
-    # state = "CHG" if battery.power_plugged else ''
-
-    # Progressive/dynamic battery icons!
-    icon_bank = "    ".split()
-    # return icon_bank
-
-    def mapper(n):
-        icon = ""
-        for i, test in enumerate((10, 25, 50, 75, 100)):
-            if n <= test:
-                icon = icon_bank[i]
-                return icon + " "
-
-    if battery.power_plugged:
-        icon = ""
-        # state = "CHG"
-    else:
-        icon = mapper(battery.percent)
-        # state = ""
-    # print(repricon)
-
-    info = fmt.format_map({'icon': icon, 'pct': battery.percent, 'state': battery.power_plugged})
-##    return battery.power_plugged, info
-    return info
+##def ctx_get_battery_info(
+##    fmt: FormatStr = "{icon}{pct:02.0f}",
+##    # fmt: FormatStr = "{icon}{pct:02.0f}{state}",
+##    *args, **kwargs
+##) -> Context:
+##    '''
+##    Battery capacity as a percent and whether or not it is charging.
+##    '''
+##
+##    # if not (battery := psutil.sensors_battery()):
+##    battery = psutil.sensors_battery()
+##    if not battery:
+##        return Context()
+####        # return (None, None)
+##    # state = "CHG" if battery.power_plugged else ''
+##
+##    # Progressive/dynamic battery icons!
+##    icon_bank = "    ".split()
+##    # return icon_bank
+##
+##    def mapper(n):
+##        icon = ""
+##        for i, test in enumerate((10, 25, 50, 75, 100)):
+##            if n <= test:
+##                icon = icon_bank[i]
+##                return icon + " "
+##
+##    if battery.power_plugged:
+##        icon = ""
+##        # state = "CHG"
+##    else:
+##        icon = mapper(battery.percent)
+##        # state = ""
+##    # print(repricon)
+##
+##    info = fmt.format_map({'icon': icon, 'pct': battery.percent, 'state': battery.power_plugged})
+####    return battery.power_plugged, info
+##    return info
 
 
 async def get_battery_info(
@@ -134,14 +126,6 @@ async def get_battery_info(
         Defaults to ``"{pct:02.0f}{state}"``
     :type fmt: :class:`FormatStr`
     '''
-
-    # Progressive/dynamic battery icons!
-        # 
-        # 
-        # 
-        # 
-        # 
-
     # if not (battery := psutil.sensors_battery()):
     battery = psutil.sensors_battery()
     if not battery:
@@ -153,7 +137,7 @@ async def get_battery_info(
     return info
 
 
-async def get_cpu_temp(
+def get_cpu_temp(
     fmt: str = "{temp:02.0f}{scale}",
     in_fahrenheit=False,
     *args, **kwargs
@@ -184,7 +168,7 @@ async def get_cpu_temp(
     return fmt.format_map({'temp': current, 'scale': scale})
 
 
-async def get_cpu_usage(
+def get_cpu_usage(
     fmt: FormatStr = "{:02.0f}%",
     interval: float = None,
     *args, **kwargs
@@ -216,17 +200,6 @@ def get_datetime(
 
     .. seealso:: `strftime() format codes <https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes>`_
 
-    '''
-    return datetime.now().strftime(fmt)
-
-
-def precision_datetime(
-    fmt: str = "%Y-%m-%d %H:%M:%S.%f",
-    *args, **kwargs
-) -> Contents:
-    '''Return the current time as formatted with `fmt`.
-    Being synchronous, a threaded Field can run this with
-    align_to_seconds and see less than a millisecond of offset.
     '''
     return datetime.now().strftime(fmt)
 
@@ -275,7 +248,7 @@ async def get_disk_usage(
     return usage
 
 
-async def get_host(
+def get_host(
     fmt: FormatStr = "{nodename}",
     *args, **kwargs
 ) -> Contents:
@@ -297,12 +270,12 @@ async def get_host(
     return host
 
 
-async def get_hostname(*args, **kwargs) -> Contents:
+def get_hostname(*args, **kwargs) -> Contents:
     '''System hostname.'''
     return os.uname().nodename
 
 
-async def get_mem_usage(
+def get_mem_usage(
     fmt: FormatStr = "{used:.1f}{unit}",
     unit: MetricSymbol = 'G',
     *args, **kwargs
@@ -339,7 +312,6 @@ async def get_mem_usage(
     return usage
 
 
-#NOTE: This is most optimal as a threaded function.
 async def get_net_stats(
     # device: str = None,
     fmt: FormatStr = "{name}",

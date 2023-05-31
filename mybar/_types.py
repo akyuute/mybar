@@ -109,6 +109,20 @@ AssignmentOption: TypeAlias = re_Pattern[r'(?P<key>\w+)=(?P<val>.*)']
 
 
 # Used by field_funcs:
+class Context(NamedTuple):
+    contents: str = None
+    state: Any = None
+
+class BatteryStates(Enum):
+    CHARGING = 'charging'
+    DISCHARGING = 'discharging'
+    # Progressive/dynamic battery icons!
+        # 
+        # 
+        # 
+        # 
+        # 
+
 POWERS_OF_1024 = {
     'K': 1024**1,
     'M': 1024**2,

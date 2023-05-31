@@ -47,7 +47,6 @@ class Field:
     '''
     Continuously generates and formats one bit of information in a :class:`Bar`.
     Pre-existing default Fields can be looked up by name.
-    # Custom fields used with functions to display the output of a function
 
     :param name: A unique identifier for the new field, defaults to `func.`:attr:`__name__`
     :type name: :class:`str`
@@ -142,6 +141,8 @@ class Field:
             'name': 'uptime',
             'func': field_funcs.get_uptime,
             'setup': _setups.setup_uptime,
+            'timely': True,
+            'align_to_seconds': True,
             'kwargs': {
                 'fmt': '{days}d:{hours}h:{mins}m',
                 'sep': ':'
@@ -160,7 +161,7 @@ class Field:
         'cpu_temp': {
             'name': 'cpu_temp',
             'func': field_funcs.get_cpu_temp,
-            'interval': 2,
+            'interval': 5,
             'threaded': True,
             'icons': [' ', ''],
         },
@@ -168,7 +169,7 @@ class Field:
         'mem_usage': {
             'name': 'mem_usage',
             'func': field_funcs.get_mem_usage,
-            'interval': 2,
+            'interval': 5,
             'icons': [' ', 'Mem '],
         },
 
@@ -182,6 +183,7 @@ class Field:
         'battery': {
             'name': 'battery',
             'func': field_funcs.get_battery_info,
+            'threaded': True,
             'icons': [' ', 'Bat '],
         },
 
@@ -195,7 +197,6 @@ class Field:
 
         'datetime': {
             'name': 'datetime',
-            # 'func': field_funcs.precision_datetime,
             'func': field_funcs.get_datetime,
             'align_to_seconds': True,
             'timely': True,
