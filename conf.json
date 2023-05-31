@@ -1,0 +1,90 @@
+{
+    "separator": "|",
+    "refresh_rate": 1.0,
+    "field_order": [
+        "hostname",
+        "uptime",
+        "cpu_usage",
+        "cpu_temp",
+        "mem_usage",
+        "disk_usage",
+        "battery",
+        "net_stats",
+        "datetime"
+    ],
+    "field_definitions": {
+        "hostname": {
+            "run_once": true
+        },
+        "host": {
+            "kwargs": {
+                "fmt": "{nodename}"
+            },
+            "run_once": true
+        },
+        "uptime": {
+            "timely": true,
+            "align_to_seconds": true,
+            "kwargs": {
+                "fmt": "{days}d:{hours}h:{mins}m",
+                "sep": ":"
+            },
+            "icons": [
+                "\uf2f2 ",
+                "Up "
+            ]
+        },
+        "cpu_usage": {
+            "interval": 5,
+            "threaded": true,
+            "icons": [
+                "\uf3fd ",
+                "CPU "
+            ]
+        },
+        "cpu_temp": {
+            "interval": 5,
+            "threaded": true,
+            "icons": [
+                "\uf06d ",
+                ""
+            ]
+        },
+        "mem_usage": {
+            "interval": 5,
+            "icons": [
+                "\uf2db ",
+                "Mem "
+            ]
+        },
+        "disk_usage": {
+            "interval": 5,
+            "icons": [
+                "\uf233 ",
+                "/:"
+            ]
+        },
+        "battery": {
+            "threaded": true,
+            "icons": [
+                "\uf242 ",
+                "Bat "
+            ]
+        },
+        "net_stats": {
+            "interval": 5,
+            "threaded": false,
+            "icons": [
+                "\uf1eb ",
+                ""
+            ]
+        },
+        "datetime": {
+            "align_to_seconds": true,
+            "timely": true,
+            "kwargs": {
+                "fmt": "%Y-%m-%d %H:%M:%S"
+            }
+        }
+    }
+}
