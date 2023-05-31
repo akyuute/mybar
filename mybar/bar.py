@@ -475,6 +475,7 @@ class Bar:
         self._threads = {}
         # self._threads = set()
         self._printer_thread = None
+        self._printer_loop = None
 
         self._coros = []
         self._timely_fields = []
@@ -1020,7 +1021,11 @@ class Bar:
         :param end: The string appended to the end of each line
         :type end: :class:`str`
         '''
-        # Flushing the buffer before writing to it fixes poor i3bar alignment.
+        # Make an event loop for this thread:
+        self._printer_loop = asyncio.new_event_loop()
+
+        # Flushing the buffer before writing to it fixes poor i3bar
+        # alignment.
         self._stream.flush()
 
         # Print something right away just so that the bar is not empty:
@@ -1078,7 +1083,9 @@ class Bar:
             # Run time-sensitive fields right away:
             for f in self._timely_fields:
                 if f.is_async:
-                    result = self._loop.run(f._func(*f.args, **f.kwargs))
+                    result = self._printer_loop.run_until_complete(
+                        f._func(*f.args, **f.kwargs)
+                    )
                 else:
                     result = f._func(*f.args, **f.kwargs)
 
