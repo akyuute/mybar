@@ -190,8 +190,7 @@ class Field:
         'net_stats': {
             'name': 'net_stats',
             'func': field_funcs.get_net_stats,
-            'interval': 4,
-            'threaded': True,
+            'interval': 5,
             'icons': [' ', ''],
         },
 
