@@ -783,8 +783,8 @@ class Field:
             defaults to ``False``
         :type raise_on_fail: :class:`bool`
 
-        :raises: :exc:`InvalidBarError` if the bar fails
-            :func:`_check_bar()` and lacks required attributes
+        :raises: :exc:`InvalidBarError` if the stream fails the test
+            and lacks required attributes
         '''
         required_attrs = (
             '_buffers',
@@ -792,8 +792,8 @@ class Field:
             '_override_queue',
             '_stream',
         )
-        if any(not hasattr(bar, a) for a in required_attrs):
-            if no_error:
+        if not all(hasattr(bar, a) for a in required_attrs):
+            if not raise_on_fail:
                 return False
             raise InvalidBarError(
                 f"Status bar {bar!r} is missing certain attributes"
