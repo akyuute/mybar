@@ -1,8 +1,12 @@
 """
+######
 mybar
-~~~~~
+######
 
-An asynchronous status bar with an intuitive, highly customizable API.
+*Craft highly customizable status bars with ease.*
+
+**mybar** is a versatile status bar library and tool written in Python.
+
 
 :copyright: (c) 2021-present by LonelyAbsol.
 :license: MIT, see LICENSE for more details.
@@ -15,10 +19,6 @@ __version__ = '0.6'
 __author__ = "LonelyAbsol"
 __license__ = 'MIT'
 __copyright__ = "Copyright (c) 2021-present LonelyAbsol"
-
-
-# CONFIG_FILE: str = '~/.mybar.json'  # The default bar config file path
-# DEBUG: bool = False
 
 
 from .constants import *
