@@ -1,10 +1,10 @@
 __all__ = (
     'AskWriteNewFile',
     'BrokenFormatStringError',
+    'CLIFatalError',
     'CLIUsageError',
     'DefaultFieldNotFoundError',
     'FailedSetup',
-    'FatalError',
     'FormatStringError',
     'IncompatibleArgsError',
     'InvalidArgError',
@@ -86,7 +86,7 @@ class UndefinedFieldError(LookupError):
     pass
 
 
-class FatalError(Exception):
+class CLIFatalError(Exception):
     '''
     Base class for errors that cause the CLI program to exit.
 
@@ -97,7 +97,8 @@ class FatalError(Exception):
         super().__init__()
         self.msg = msg
 
-class CLIUsageError(FatalError):
+
+class CLIUsageError(CLIFatalError):
     '''
     Raised when the CLI program is used incorrectly.
     '''

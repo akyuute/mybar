@@ -7,7 +7,7 @@ __all__ = (
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
 
-from .errors import AskWriteNewFile, FatalError, CLIUsageError
+from .errors import AskWriteNewFile, CLIFatalError, CLIUsageError
 from .templates import BarConfigSpec, FieldSpec
 from ._types import (
     AssignmentOption,
