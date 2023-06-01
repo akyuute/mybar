@@ -139,7 +139,7 @@ class BarConfig(dict):
         absolute = os.path.abspath(os.path.expanduser(file))
         file_spec = {}
         try:
-            file_spec, text = cls.read_file(absolute)
+            file_spec, text = cls._read_file(absolute)
         except OSError as e:
             raise e.with_traceback(None)
 
@@ -167,7 +167,7 @@ class BarConfig(dict):
         parser = cli.Parser()
         try:
             bar_options = parser.parse_args()
-        except FatalError as e:
+        except CLIUsageError as e:
             parser.error(e.msg)  # Shows usage
 
         if 'field_options' in bar_options:
@@ -176,24 +176,76 @@ class BarConfig(dict):
             )
             bar_options['field_definitions'] = fields
 
-        try:
-            config = cls.from_file(overrides=bar_options)
-        except OSError as e:
-            file = e.filename
-            writing_new = cls._get_write_new_approval(
-                file,
-                dft_choice=write_new_file_dft
-            )
-            if writing_new:
+        # Handle missing config files:
+        if 'config_file' not in bar_options:
+            if (first_use := (not os.path.exists(CONFIG_FILE))):
+                cls.welcome_new_users()
                 cls.maybe_make_config_dir()
-                cls.write_file(file, bar_options)
-                print(f"Wrote new config file at {file!r}")
+                wants_to_write = cls.write_with_approval(overrides=bar_options)
+                if not wants_to_write:
+                    # Forget all this config file business.
+                    # Our new user is in a rush. Let's give them a bar.
+                    return cls(bar_options)
 
-                config = cls.from_file(file)
-            else:
-                parser.quit()
+        file = bar_options.pop('config_file', None)
+
+        try:
+            # config_file is in overrides or it defaults to CONFIG_FILE:
+            config = cls.from_file(file, overrides=bar_options)
+
+        except FileNotFoundError as e:
+            file = e.filename
+            cls.maybe_make_config_dir()
+            cls.write_with_approval(file, overrides=bar_options)
+            config = cls.from_file(file, overrides=bar_options)
+
+        except OSError as e:
+            e.add_note("Exiting...")
+            raise e from None
+
+        except KeyboardInterrupt:
+            parser.quit()
 
         return config
+
+    @classmethod
+    def write_with_approval(
+        cls,
+        file: PathLike = None,
+        overrides: BarSpec = {},
+    ) -> bool:
+        '''
+        Write a config file to `file`.
+        Prompt the user for approval before writing.
+
+        :param file: Write to this file, defaults to :obj:`CONFIG_FILE`
+        :type file: :class:`PathLike`
+
+        :returns: ``True`` if the file was written, ``False`` if not
+        '''
+        if file is None:
+            file = CONFIG_FILE
+
+        approved = cls._get_write_new_approval(
+            file,
+            dft_choice=True
+        )
+        if approved:
+            try:
+                cls._write_file(file, overrides)
+            except FileNotFoundError as e:
+                try:
+                    path = os.path.dirname(e.filename)
+                    os.mkdir(path)
+                    print(f"Made new directory {path!r}")
+                    cls._write_file(file, overrides)
+                except OSError as e:
+                    raise e from None
+
+            print(f"Wrote new config file to {file!r}")
+            return True
+
+        return False
 
     @classmethod
     def _get_write_new_approval(
@@ -206,17 +258,21 @@ class BarConfig(dict):
             :class:`cli.OptionsAsker`.
 
         :param file: The path to the config file
-        :type file: :class:`os.PathLike`
+        :type file: :class:`PathLike`
 
         :param dft_choice: The default option to present to the user
         :type dft_choice: :class:``
         '''
-        msg = (f"The config file at {file!r} does not exist.")
+        dft = (file == CONFIG_FILE)
+        msg = (
+            f"The {'default' if dft else ''}"
+            f" config file at {file!r} does not exist."
+        )
         question = "Would you like to make it now?"
         write_options = {'y': True, 'n': False}
         default = 'ny'[dft_choice]
-
         handler = cli.OptionsAsker(write_options, default, question)
+
         print(msg)
         write_new_file_ok = handler.ask()
         return write_new_file_ok
@@ -230,8 +286,15 @@ class BarConfig(dict):
         if not os.path.exists(directory):
             os.mkdir(directory)
 
+    @classmethod
+    def welcome_new_users(cls) -> None:
+        msg = (
+            f"-- {__package__} --"
+        )
+        print(msg)
+
     @staticmethod
-    def read_file(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
+    def _read_file(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
         '''
         Read a given config file.
         Convert its JSON contents to a dict and return it along with the
@@ -250,10 +313,10 @@ class BarConfig(dict):
         return data, text
 
     @classmethod
-    def write_file(
+    def _write_file(
         cls,
         file: PathLike,
-        obj: BarConfigSpec = {},
+        obj: BarSpec = {},
         *,
         defaults: BarSpec = None
     ) -> None:
@@ -272,9 +335,9 @@ class BarConfig(dict):
         if defaults is None:
             defaults = Bar._default_params.copy()
 
-        obj = obj.copy()
-        obj.pop('config_file', None)
-        obj = defaults | obj
+        newobj = obj.copy()
+        newobj.pop('config_file', None)
+        newobj = defaults | obj
 
         fields = Field._default_fields.copy()
 
@@ -287,13 +350,13 @@ class BarConfig(dict):
                 except KeyError:
                     pass
 
-        obj['field_definitions'] = fields
+        newobj['field_definitions'] = fields
 
         absolute = os.path.abspath(os.path.expanduser(file))
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cls.maybe_make_config_dir()
         with open(os.path.expanduser(absolute), 'w') as f:
-            json.dump(obj, f, indent=4, ) #separators=(',\n', ': '))
+            json.dump(newobj, f, indent=4, ) #separators=(',\n', ': '))
 
 
 class Bar:
@@ -1128,6 +1191,8 @@ class Bar:
 
             self._stream.write(beginning + line + end)
             self._stream.flush()
+        self._printer_loop.stop()
+        self._printer_loop.close()
 
     def _shutdown(self) -> None:
         '''
@@ -1230,7 +1295,7 @@ def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
 
     :param file: The config file to source,
         defaults to :obj:`constants.CONFIG_FILE`
-    :type file: :class:`os.PathLike`
+    :type file: :class:`PathLike`
     '''
 ##    import __main__ as possibly_repl
 ##    if not hasattr(possibly_repl, '__file__'):
@@ -1239,22 +1304,14 @@ def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
 
         try:
             bar = Bar.from_file(file)
-
-        # Ask to write the file if it doesn't exist:
-        except OSError as e:
-            file = e.filename
-            writing_new = BarConfig._get_write_new_approval(file, dft_choice=False)
-
-            if writing_new:
-                BarConfig.maybe_make_config_dir()
-                BarConfig.write_file(file)
-                print(f"Wrote new config file at {file!r}")
-
-                bar = Bar.from_file(file)
-
-            else:
-                print("OK, never mind.")
-                return
+        except FileNotFoundError as e:
+            _p_ = __package__
+            msg = (
+                f"Try running `{_p_}.write_initial_config()`"
+                f" if this is your first time using {_p_}."
+            )
+            e.add_note(msg)
+            raise e from None
 
         bar.run(once=once)
 
@@ -1264,5 +1321,5 @@ def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
 
 
 def write_initial_config() -> None:
-    BarConfig.write_file(CONFIG_FILE)
+    BarConfig.write_with_approval(CONFIG_FILE)
 
