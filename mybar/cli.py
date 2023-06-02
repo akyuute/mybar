@@ -92,45 +92,84 @@ class Parser(ArgumentParser):
                 )
         return opts
 
-
+    @staticmethod
     def process_field_options(
-        self,
-        options: Iterable[AssignmentOption],
-        spaces: bool = True
+        options: Iterable[AssignmentOption]
     ) -> dict[FieldName, FieldSpec]:
         '''
+        Parse variable assignment args given for Field definitions.
+        Each option in `options` should look like 'key=val'.
+        We specifically handle Field options. To that end, parse nested
+        options with emulated dotted attribute access by ignoring all
+        options not of the form 'field.key=val'.
+        After parsing options, return a dict mapping them to Field names,
+        similar to `field_definitions` in :meth:`Bar.from_config()`.
+
+        I think this has some logical chinks. Definitely overengineered.
+
+        :param options: Assignment option 'key=val' pairs to parse
+        :type options: Iterable[:class:`AssignmentOption`]
+
+        :returns: a dict mapping Field names to dicts of options
+        :rtype: :class:`dict`[:class:`FieldName`, :class:`FieldSpec`]
         '''
         field_definitions = {}
         for opt in options:
             match (pair := opt.split('=', 1)):
+
                 case [positional]:
                     # Looks like '--opt'
                     # Skip command options.
                     continue
 
-                    if key.isidentifier():
+                case [field_and_opt, val]:  # Looks like 'key=val'
+                    if field_and_opt.isidentifier():
                         # No dots means it's an option for the Bar.
+                        # Not our problem.
                         continue
 
-                case [field_and_opt, val]:
-                    # Looks like 'key=val'
-                    if val == "''":
-                        # Looks like "key=''"
+                    if val == "''":  # Looks like "key=''"
                         val = ''
-                    elif not val:
-                        # Looks like 'key='
+                    elif not val:  # Looks like 'key='
                         val = None
 
                     # Looks like 'field.key=val'
                     # An option for a Field.
                     # Handle attribute access through dots:
                     field_name, field_opt = field_and_opt.split('.', 1)
-                    if field_opt == 'kwargs':
-                        val = {} if val is None else eval(val)
-                        # Yes, I know, it's eval.
-
                     if field_name not in field_definitions:
                         field_definitions[field_name] = {}
+
+                    maybe_kwargs = field_opt.split('.', 1)
+
+                    match maybe_kwargs:
+
+                        case ['kwargs']:
+                            # Looks like 'field.kwargs={"k": "v", ...}'
+                            val = {} if val is None else eval(val)
+                            # Yes, I know, it's eval.
+
+                        case ['kwargs', nested]:
+                            if nested.isidentifier():
+                                # Looks like 'field.kwargs.k=v'
+                                kwarg = {nested: val}
+                                val = kwarg
+                                field_opt = 'kwargs'
+
+                            else:
+                                pass
+
+                        case [not_kwargs]:
+                            # field_opt is valid.
+                            pass
+
+                        case _:
+                            # Nonsense
+                            msg = (
+                                f"{opt !r} is invalid option syntax."
+                            )
+                            raise CLIUsageError(msg)
+
                     field_definitions[field_name].update({field_opt: val})
 
         return field_definitions
@@ -222,6 +261,15 @@ class Parser(ArgumentParser):
                 "The config file to use for default settings."
             ),
         )
+
+##        self.add_argument(
+##            '--repeat', '-R',
+##            metavar='TIMES',
+##            type=int,
+##            help=(
+##                "Refresh the bar this many times, then exit."
+##            ),
+##        )
 
         self.add_argument(
             '--no-repeat', '-R',
