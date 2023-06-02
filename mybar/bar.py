@@ -372,9 +372,9 @@ class Bar:
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
 
-    :param repeat: Stop the bar after this many print cycles,
-        or never when ``None``, defaults to ``None``
-    :type repeat: :class:`int`
+    :param stop_after: Only print the bar this many times, or never stop
+        when ``None``, defaults to ``None``
+    :type stop_after: :class:`int`
 
     :param run_once: Whether the bar should print once and return, defaults to ``False``
     :type run_once: :class:`bool`
@@ -447,7 +447,7 @@ class Bar:
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
-        repeat: int = None,
+        stop_after: int = None,
         run_once: bool = False,
         align_to_seconds: bool = True,
         join_empty_fields: bool = False,
@@ -519,10 +519,10 @@ class Bar:
         self.refresh_rate = refresh_rate
 
 
-        if repeat == 0 or repeat == 1:
+        if stop_after == 0 or stop_after == 1:
             run_once = True
-        self.repeat = repeat
-        self._repeat_countdown = repeat
+        self.stop_after = stop_after
+        self._print_countdown = stop_after
 
 
         # Whether the bar should exit after printing once:
@@ -1033,7 +1033,7 @@ class Bar:
 
             # Allow the bar to run repeatedly in the same interpreter:
             # if self._thread_loop.is_closed():
-                # self._thread_loop = asyncio.new_event_loop()
+            self._thread_loop = asyncio.new_event_loop()
             #NOTE: Need a way to handle stale coroutines.
             # Like, run prepare_fields() again.
 
@@ -1133,15 +1133,18 @@ class Bar:
         # alignment.
         self._stream.flush()
 
-        # Print something right away just so that the bar is not empty:
         if self.in_a_tty:
             beginning = self.clearline_char + end
             self._stream.write(CSI + HIDE_CURSOR)
         else:
             beginning = self.clearline_char
-        line = self._make_one_line()
-        self._stream.write(beginning + line + end)
-        self._stream.flush()
+
+        # Print something right away just so that the bar is not empty,
+        # but not if the print count matters:
+        if not self.stop_after:
+            line = self._make_one_line()
+            self._stream.write(beginning + line + end)
+            self._stream.flush()
 
         using_format_str = (self.template is not None)
         sep = self.separator
@@ -1217,16 +1220,11 @@ class Bar:
             self._stream.write(beginning + line + end)
             self._stream.flush()
 
-
-
-            if self.repeat:
-                if self._repeat_countdown == 0:
+            if self.stop_after:
+                self._print_countdown -= 1
+                if self._print_countdown == 0:
                     self._stop_printer()
-                    # self._shutdown()
                     return
-                self._repeat_countdown -= 1
-
-
 
         self._printer_loop.stop()
 
