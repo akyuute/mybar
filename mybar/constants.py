@@ -1,7 +1,6 @@
 __all__ = (
     'CONFIG_FILE',
     'DEBUG',
-    'CONFIG_FILE',
     'CSI',
     'CLEAR_LINE',
     'HIDE_CURSOR',

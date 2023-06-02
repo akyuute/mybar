@@ -11,10 +11,10 @@ import asyncio
 import threading
 import time
 
-from . import DEBUG
 from . import field_funcs
 from . import _setups
 from . import utils
+from .constants import DEBUG
 from .errors import *
 from .formatting import FormatterFieldSig
 from .templates import FieldSpec
