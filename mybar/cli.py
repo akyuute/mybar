@@ -262,23 +262,13 @@ class Parser(ArgumentParser):
             ),
         )
 
-##        self.add_argument(
-##            '--repeat', '-R',
-##            metavar='TIMES',
-##            type=int,
-##            help=(
-##                "Refresh the bar this many times, then exit."
-##            ),
-##        )
-
         self.add_argument(
-            '--no-repeat', '-R',
-            '--once', '-1',
-            action='store_true',
-            dest='run_once',
+            '--count', '-n',
+            type=int,
+            metavar='TIMES',
+            dest='count',
             help=(
-                "Run the bar once rather than continuously."
-                " In the future, -NUMBER may show the bar NUMBER times."
+                "Print the bar this many times, then exit."
             ),
         )
 

@@ -372,9 +372,9 @@ class Bar:
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
 
-    :param stop_after: Only print the bar this many times, or never stop
+    :param count: Only print the bar this many times, or never stop
         when ``None``, defaults to ``None``
-    :type stop_after: :class:`int`
+    :type count: :class:`int`
 
     :param run_once: Whether the bar should print once and return, defaults to ``False``
     :type run_once: :class:`bool`
@@ -447,7 +447,7 @@ class Bar:
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
-        stop_after: int = None,
+        count: int = None,
         run_once: bool = False,
         align_to_seconds: bool = True,
         join_empty_fields: bool = False,
@@ -519,10 +519,10 @@ class Bar:
         self.refresh_rate = refresh_rate
 
 
-        if stop_after == 0 or stop_after == 1:
+        if count == 0 or count == 1:
             run_once = True
-        self.stop_after = stop_after
-        self._print_countdown = stop_after
+        self.count = count
+        self._print_countdown = count
 
 
         # Whether the bar should exit after printing once:
@@ -1141,7 +1141,7 @@ class Bar:
 
         # Print something right away just so that the bar is not empty,
         # but not if the print count matters:
-        if not self.stop_after:
+        if not self.count:
             line = self._make_one_line()
             self._stream.write(beginning + line + end)
             self._stream.flush()
@@ -1220,7 +1220,7 @@ class Bar:
             self._stream.write(beginning + line + end)
             self._stream.flush()
 
-            if self.stop_after:
+            if self.count:
                 self._print_countdown -= 1
                 if self._print_countdown == 0:
                     self._stop_printer()
