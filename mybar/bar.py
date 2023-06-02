@@ -372,6 +372,10 @@ class Bar:
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
 
+    :param repeat: Stop the bar after this many print cycles,
+        or never when ``None``, defaults to ``None``
+    :type repeat: :class:`int`
+
     :param run_once: Whether the bar should print once and return, defaults to ``False``
     :type run_once: :class:`bool`
 
@@ -556,7 +560,7 @@ class Bar:
         self._running = self._can_run.is_set
 
         # The bar's async event loop:
-        self._loop = asyncio.new_event_loop()
+        self._thread_loop = asyncio.new_event_loop()
 
     def __contains__(self, other: FieldPrecursor) -> bool:
         if isinstance(other, str):
@@ -1028,35 +1032,28 @@ class Bar:
                 self.run_once = once
 
             # Allow the bar to run repeatedly in the same interpreter:
-            if self._loop.is_closed():
-                self._loop = asyncio.new_event_loop()
-
-            # The following must be done in a very specific order.
+            # if self._thread_loop.is_closed():
+                # self._thread_loop = asyncio.new_event_loop()
+            #NOTE: Need a way to handle stale coroutines.
+            # Like, run prepare_fields() again.
 
             self._can_run.set()
             self._prepare_fields()
             self._preload_timely_fields()
-
-            # When printing indefinitely, if the line printer is not
-            # started before coros, the bar is blank the whole time.
-            if not once and not bg:
-                self._start_printer()
-
-            self._loop.run_until_complete(self._start_coros())
-
-            # Wait for threads to finish to get a full line, then print.
-            while self._threads:
-                time.sleep(self._thread_cooldown)
+            self._start_coros_in_thread()
 
             if once:
+                # Wait for threads to finish to get a full line, then print.
+                while self._threads:
+                    time.sleep(self._thread_cooldown)
+
                 self._print_one_line()
                 self._can_run.clear()
 
-            # Block the main thread while other threads run, if there
-            # are no coroutines.
-            if not bg:
-                while self._running():
-                    time.sleep(self._thread_cooldown)
+            else:
+                # Block:
+                self._continuous_line_printer()
+                # That's it, we're done!
 
         except KeyboardInterrupt:
             pass
@@ -1081,7 +1078,20 @@ class Bar:
 ##        if overriding:  # Currently disabled!
 ##            self._coros.append(self._handle_overrides())
 
-    async def _start_coros(self) -> None:
+    def _start_coros_in_thread(self) -> None:
+        self._thread_loop = asyncio.new_event_loop()
+        thread_name = 'COROS'
+        self._coro_thread = threading.Thread(
+            name=thread_name,
+            target=self._start_coros_blocking
+        )
+        # self._threads[thread_name] = self._coro_thread
+        self._coro_thread.start()
+
+    def _start_coros_blocking(self) -> None:
+        self._thread_loop.run_until_complete(self._gather_coros())
+
+    async def _gather_coros(self) -> None:
         await asyncio.gather(*self._coros)
 
     def _preload_timely_fields(self) -> None:
@@ -1091,7 +1101,7 @@ class Bar:
         '''
         for f in self._timely_fields:
             if f.is_async:
-                result = self._loop.run_until_complete(
+                result = self._thread_loop.run_until_complete(
                     f._func(*f.args, **f.kwargs)
                 )
             else:
@@ -1106,17 +1116,7 @@ class Bar:
                     contents = result
             self._buffers[f.name] = contents
 
-    def _start_printer(self, end: str = '\r') -> None:
-        thread_name = 'PRINTER'
-        self._printer_thread = threading.Thread(
-            target=self._threaded_continuous_line_printer,
-            name=thread_name,
-            args=(end,)
-        )
-        # self._threads[thread_name] = self._printer_thread
-        self._printer_thread.start()
-
-    def _threaded_continuous_line_printer(self, end: str = '\r') -> None:
+    def _continuous_line_printer(self, end: str = '\r') -> None:
         '''
         The bar's primary line-printing mechanism.
         Fields with the ``timely`` attribute get run here.
@@ -1183,15 +1183,6 @@ class Bar:
                 #print("Spinning")
                 continue
 
-
-            if self.repeat:
-                if self._repeat_countdown == 0:
-                    self._stop_printer()
-                    # self._shutdown()
-                    return
-                self._repeat_countdown -= 1
-
-
             count = 0
             if first_cycle:
                 first_cycle = False
@@ -1225,6 +1216,18 @@ class Bar:
 
             self._stream.write(beginning + line + end)
             self._stream.flush()
+
+
+
+            if self.repeat:
+                if self._repeat_countdown == 0:
+                    self._stop_printer()
+                    # self._shutdown()
+                    return
+                self._repeat_countdown -= 1
+
+
+
         self._printer_loop.stop()
 
     def _stop_printer(self) -> None:
