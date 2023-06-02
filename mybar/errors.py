@@ -94,8 +94,11 @@ class CLIFatalError(Exception):
     :type msg: :class:`str`
     '''
     def __init__(self, msg: str) -> None:
-        super().__init__()
+        super().__init__(self)
         self.msg = msg
+
+    def __str__(self):
+        return self.msg
 
 
 class CLIUsageError(CLIFatalError):
