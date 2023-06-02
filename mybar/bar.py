@@ -443,6 +443,7 @@ class Bar:
         separator: str = '|',
         refresh_rate: float = 1.0,
         stream: IO = sys.stdout,
+        repeat: int = None,
         run_once: bool = False,
         align_to_seconds: bool = True,
         join_empty_fields: bool = False,
@@ -512,6 +513,13 @@ class Bar:
 
         # How often in seconds the bar is regularly printed:
         self.refresh_rate = refresh_rate
+
+
+        if repeat == 0 or repeat == 1:
+            run_once = True
+        self.repeat = repeat
+        self._repeat_countdown = repeat
+
 
         # Whether the bar should exit after printing once:
         self.run_once = run_once
@@ -595,6 +603,7 @@ class Bar:
         cls,
         config: BarConfig,
         *,
+        overrides: BarSpec = {},
         ignore_with: Pattern | tuple[Pattern] | None = '//'
     ) -> Self:
         '''
@@ -606,6 +615,10 @@ class Bar:
 
         :param config: The :class:`dict` to convert
         :type config: :class:`dict`
+
+        :param overrides: Replace items in `config` with these parameters,
+            defaults to ``{}``
+        :type overrides: :class:`BarSpec`
 
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
         :type ignore_with: :class:`_types.Pattern` | tuple[:class:`_types.Pattern`] | ``None``, optional
@@ -635,6 +648,8 @@ class Bar:
             data = deepcopy(config)
         else:
             data = utils.scrub_comments(config, ignore_with)
+
+        data.update(overrides)
 
         bar_params = cls._default_params | data
         field_order = bar_params.pop('field_order', None)
@@ -751,7 +766,11 @@ class Bar:
         return bar
 
     @classmethod
-    def from_file(cls, file: PathLike = None) -> Self:
+    def from_file(
+        cls,
+        file: PathLike = None,
+        overrides: BarSpec = {}
+    ) -> Self:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
@@ -759,11 +778,15 @@ class Bar:
             defaults to :obj:`constants.CONFIG_FILE`
         :type file: :class:`PathLike`
 
+        :param overrides: Replace items in `config` with these parameters,
+            defaults to ``{}``
+        :type overrides: :class:`BarSpec`
+
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
         '''
         config = BarConfig.from_file(file)
-        return cls.from_config(config)
+        return cls.from_config(config, overrides=overrides)
 
     @classmethod
     def from_cli(cls) -> Self:
@@ -1090,7 +1113,7 @@ class Bar:
             name=thread_name,
             args=(end,)
         )
-        self._threads[thread_name] = self._printer_thread
+        # self._threads[thread_name] = self._printer_thread
         self._printer_thread.start()
 
     def _threaded_continuous_line_printer(self, end: str = '\r') -> None:
@@ -1156,7 +1179,18 @@ class Bar:
                         # (clock() - start_time) % step To preserve offset
                     )
                 )
+                #print()
+                #print("Spinning")
                 continue
+
+
+            if self.repeat:
+                if self._repeat_countdown == 0:
+                    self._stop_printer()
+                    # self._shutdown()
+                    return
+                self._repeat_countdown -= 1
+
 
             count = 0
             if first_cycle:
@@ -1192,7 +1226,10 @@ class Bar:
             self._stream.write(beginning + line + end)
             self._stream.flush()
         self._printer_loop.stop()
-        self._printer_loop.close()
+
+    def _stop_printer(self) -> None:
+        self._can_run.clear()
+        self._printer_loop.stop()
 
     def _shutdown(self) -> None:
         '''
