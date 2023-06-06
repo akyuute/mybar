@@ -17,6 +17,7 @@ from ._types import (
     FormatterFname,
     FormatterFormatSpec,
     FormatterConversion,
+    Duration
 )
 
 from collections.abc import Callable, Container, Hashable, Iterable
@@ -786,4 +787,86 @@ class ElapsedTime:
             return repr(self._safe())
 
     conversions_to_secs = _Special_Obfuscating_Dict(conversions_to_secs)
+
+
+def format_uptime(
+    secs: int,
+    sep: str,
+    namespace: dict[Duration, int],
+    groups: tuple[tuple[FormatterFieldSig]],
+    *args,
+    **kwargs
+) -> str:
+    '''
+    Format a dict of numbers according to a format string by parsing
+    fields delineated by a separator.
+
+    :param secs: Total elapsed time in seconds (unused)
+    :type secs: :class:`int`
+
+    :param sep: A string that separates groups of text based on division
+        of time
+    :type sep: :class:`str`
+
+    :param namespace: A mapping of time unit names to :class:`int`
+    :type namespace: dict[:class:`Unit`, :class:`int`]
+
+    :param groups: A format string broken up by
+        :func:`_setups.setup_uptime` into tuples of
+        :class:`FormatterFieldSig` based on the locations of `separator`
+    :type groups: tuple[tuple[:class:`FormatterFieldSig`]]
+    '''
+    newgroups = []
+    for i, group in enumerate(groups):
+        if not group:
+            # Just an extraneous separator.
+            newgroups.append(())
+            continue
+
+        newgroup = []
+
+        for maybe_field in group:
+            # Skip groups that should appear blank:
+            if (val := namespace.get(maybe_field[1])
+                ) == 0:
+                break
+
+            buf = ""
+
+            match maybe_field:
+                case [lit, None, None, None]:
+                    # A trailing literal.
+                    buf += lit
+
+                case [lit, field, spec, conv]:
+                    # A veritable format string field!
+                    # Add the text right before the field:
+                    if lit is not None:
+                        buf += lit
+
+                    # Format the value if necessary:
+                    if spec:
+                        buf += format(val, spec)
+                    else:
+                        try:
+                            # Round floats by default:
+                            buf += str(round(val))
+                        except TypeError:
+                            buf += str(val)
+
+                case _:
+                    raise ValueError(
+                        f"\n"
+                        f"Invalid structure in tuple\n"
+                        f"  {i} {maybe_field}:\n"
+                        f"  {spam!r}"
+                    )
+
+            if buf:
+                newgroup.append(buf)
+        if newgroup:
+            newgroups.append(newgroup)
+
+    # Join everything.
+    return sep.join(''.join(g) for g in newgroups)
 

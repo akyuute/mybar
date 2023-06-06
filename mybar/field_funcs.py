@@ -25,7 +25,7 @@ from string import Formatter
 import psutil
 
 from .errors import *
-from .formatting import ElapsedTime, ConditionalFormatStr
+from .formatting import ElapsedTime, ConditionalFormatStr, format_uptime
 from .utils import join_options
 from ._types import (
     Contents,
@@ -454,69 +454,4 @@ async def get_uptime(
         return out
 
     return fmt.format_map(setupvars['namespace'])
-
-
-def format_uptime(
-    secs: int,
-    sep: str,
-    namespace: dict[str],
-    groups,
-    *args, **kwargs
-) -> str:
-    '''Format a dict of numbers according to a format string by parsing
-    fields delineated by a separator.
-    '''
-    newgroups = []
-    for i, group in enumerate(groups):
-        if not group:
-            # Just an extraneous separator.
-            newgroups.append(())
-            continue
-
-        newgroup = []
-        
-        for maybe_field in group:
-            # Skip groups that should appear blank:
-            if (val := namespace.get(maybe_field[1])
-                ) == 0:
-                break
-
-            buf = ""
-
-            match maybe_field:
-                case [lit, None, None, None]:
-                    # A trailing literal.
-                    buf += lit
-
-                case [lit, field, spec, conv]:
-                    # A veritable format string field!
-                    # Add the text right before the field:
-                    if lit is not None:
-                        buf += lit
-
-                    # Format the value if necessary:
-                    if spec:
-                        buf += format(val, spec)
-                    else:
-                        try:
-                            # Round floats by default:
-                            buf += str(round(val))
-                        except TypeError:
-                            buf += str(val)
-
-                case _:
-                    raise ValueError(
-                        f"\n"
-                        f"Invalid structure in tuple\n"
-                        f"  {i} {maybe_field}:\n"
-                        f"  {spam!r}"
-                    )
-
-            if buf:
-                newgroup.append(buf)
-        if newgroup:
-            newgroups.append(newgroup)
-
-    # Join everything.
-    return sep.join(''.join(g) for g in newgroups)
 
