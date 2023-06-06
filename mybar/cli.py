@@ -182,8 +182,8 @@ class Parser(ArgumentParser):
             metavar="'TEMPLATE'",
             dest='template',
             help=(
-                "A curly-brace-delimited format string. "
-                "Not valid with --fields/-f options."
+                "A curly-brace-delimited format string."
+                " Not valid with --fields/-f options."
             ),
         )
 
@@ -195,8 +195,8 @@ class Parser(ArgumentParser):
             dest='field_order',
             # type=ArgFormatter.SplitFirst(','),
             help=(
-                "A list of fields to be displayed. "
-                "Not valid with --format/-m options."
+                "A list of fields to be displayed."
+                " Not valid with --format/-m options."
             ),
         )
 
@@ -220,8 +220,8 @@ class Parser(ArgumentParser):
             metavar="'FIELD_SEPARATOR'",
             dest='separators',
             help=(
-                "The character used for joining fields. "
-                "Only valid with --field/-f options."
+                "The character used for joining fields."
+                " Only valid with --field/-f options."
             ),
         )
 
@@ -230,8 +230,8 @@ class Parser(ArgumentParser):
             action='store_true',
             dest='join_empty_fields',
             help=(
-                "Include empty field contents instead of hiding them. "
-                "Only valid with --field/-f options."
+                "Include empty field contents instead of hiding them."
+                " Only valid with --field/-f options."
             ),
         )
 
@@ -239,9 +239,12 @@ class Parser(ArgumentParser):
             '--options', '-o',
             action='extend',
             nargs='+',
-            metavar=('FIELD1.OPTION=VAL', 'FIELD2.OPTION=VAL'),
+            metavar=("'FIELD1.OPTION=VAL'", "'FIELD2.OPTION=VAL'"),
             dest='field_options',
-            help="Arbitrarily set options for discrete Fields using dot-attribute syntax.",
+            help=(
+                "Set arbitrary options for discrete Fields using"
+                " dot-attribute syntax.",
+            )
         )
 
         self.add_argument(
