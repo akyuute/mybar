@@ -196,7 +196,9 @@ class BarConfig(dict):
         except FileNotFoundError as e:
             file = e.filename
             cls.maybe_make_config_dir()
-            cls.write_with_approval(file, overrides=bar_options)
+            write_ok = cls.write_with_approval(file, overrides=bar_options)
+            if not write_ok:
+                parser.quit("Exiting...")
             config = cls.from_file(file, overrides=bar_options)
 
         except OSError as e:
