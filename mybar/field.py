@@ -559,12 +559,13 @@ class Field:
         while running():
 
             if bar.count:
-                # Stop running before starting a cycle that could go over:
-                # if bar._print_countdown == 0:
-                if bar._print_countdown == 0 or self.interval > (bar.refresh_rate * bar._print_countdown):
-                    # print()
-                    # print(self.name, "returning")
-                # if bar._print_countdown == 1:
+                # Stop before running a cycle that could last too long:
+                if (
+                    bar._print_countdown == 0
+                    or self.interval > (
+                        bar._print_countdown * bar.refresh_rate 
+                    )
+                ):
                     bar._coros.pop(self.name, None)
                     return
 
@@ -712,15 +713,16 @@ class Field:
         while running():
 
             if bar.count:
-                # Stop running before starting a cycle that could go over:
-                # if bar._print_countdown == 0:
-                if bar._print_countdown == 0 or self.interval > (bar.refresh_rate * bar._print_countdown):
-                    # print()
-                    # print(self.name, "returning")
-                # if bar._print_countdown == 1:
-                    bar._coros.pop(self.name, None)
+                # Stop before running a cycle that could last too long:
+                if (
+                    bar._print_countdown == 0
+                    or self.interval > (
+                        bar._print_countdown * bar.refresh_rate 
+                    )
+                ):
                     local_loop.stop()
                     local_loop.close()
+                    bar._coros.pop(self.name, None)
                     return
 
 

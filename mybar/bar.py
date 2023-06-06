@@ -1048,20 +1048,12 @@ class Bar:
             for thread in tuple(self._threads.values()):
                 thread.start()
             self._preload_timely_fields()
-            # self._start_coros_in_thread()
 
             if not once:
                 self._start_printer()
 
-##            if self.count:
-##                self._coros.append(self._handle_counts())
             # This blocks:
-##            print()
-##            print("Starting coros")
             self._loop.run_until_complete(self._gather_coros())
-##            print()
-##            print("Stopping coros")
-##            print(self._threads)
 
             if once:
                 # Wait for threads to finish to get a full line, then print.
@@ -1070,20 +1062,9 @@ class Bar:
                 self._print_one_line()
                 self._can_run.clear()
 
-            # if not self._coros:
-            # print(self._threads)
-            # print(self._print_countdown)
+            # Prevent the bar from exiting when there are no coroutines:
             while self._running():
                 time.sleep(self._thread_cooldown)
-            # return
-
-            # self._shutdown()
-
-            # else:
-                # pass
-                # Block:
-                # self._continuous_line_printer()
-                # That's it, we're done!
 
         except KeyboardInterrupt:
             pass
@@ -1100,11 +1081,9 @@ class Bar:
             if field.threaded:
                 thread = field.make_thread(bar=self, run_once=self.run_once)
                 self._threads[thread.name] = thread
-                # thread.start()
             elif field.timely:
                 self._timely_fields.append(field)
             else:
-                # self._coros.append(field.run(bar=self, once=self.run_once))
                 self._coros[field.name] = field.run(
                     bar=self, once=self.run_once
                 )
@@ -1112,29 +1091,11 @@ class Bar:
 ##        if overriding:  # Currently disabled!
 ##            self._coros.append(self._handle_overrides())
 
-##    def _start_coros_in_thread(self) -> None:
-##        self._thread_loop = asyncio.new_event_loop()
-##        thread_name = 'COROS'
-##        self._coro_thread = threading.Thread(
-##            name=thread_name,
-##            target=self._start_coros_blocking
-##        )
-##        # self._threads[thread_name] = self._coro_thread
-##        self._coro_thread.start()
-##
-##    def _start_coros_blocking(self) -> None:
-##        self._thread_loop.run_until_complete(self._gather_coros())
-
     async def _gather_coros(self) -> None:
         '''
+        Run :class:`Bar` coroutines in parallel.
         '''
         await asyncio.gather(*self._coros.values())
-
-    def _start_threads(self) -> None:
-        '''
-        '''
-        for thread in self._threads:
-            thread.start()
 
     def _preload_timely_fields(self) -> None:
         '''
@@ -1158,8 +1119,11 @@ class Bar:
                     contents = result
             self._buffers[f.name] = contents
 
-
     def _start_printer(self, end: str = '\r') -> None:
+        '''
+        Make a thread in which to run
+            :meth:`Bar._threaded_continuous_line_printer` and start it.
+        '''
         thread_name = 'PRINTER'
         self._printer_thread = threading.Thread(
             target=self._threaded_continuous_line_printer,
@@ -1168,22 +1132,6 @@ class Bar:
         )
         self._threads[thread_name] = self._printer_thread
         self._printer_thread.start()
-
-##    async def _handle_counts(self) -> None:
-##        '''
-##        '''
-##        while self._running():
-##            print()
-##            print("Running handler")
-##            count = await self._count_queue.get()
-##            print()
-##            print(count)
-##            if count == 0:
-##                print()
-##                print("Returning handler")
-##                self._shutdown()
-##                return
-
 
     def _threaded_continuous_line_printer(self, end: str = '\r') -> None:
         '''
@@ -1257,8 +1205,6 @@ class Bar:
             if first_cycle:
                 first_cycle = False
 
-            # print("Spin")
-
             # Run time-sensitive fields right away:
             for f in self._timely_fields:
                 if f.is_async:
@@ -1290,17 +1236,11 @@ class Bar:
             self._stream.flush()
 
             if self.count:
-##                print()
-##                print("Spin", self._print_countdown)
                 self._print_countdown -= 1
-                # self._count_queue.put_nowait(self._print_countdown)
                 if self._print_countdown == 0:
+                    self._can_run.clear()
                     self._printer_loop.stop()
                     self._printer_loop.close()
-                    self._can_run.clear()
-##                    print()
-##                    print("Returning printer")
-##                    print(list(self._coros))
                     return
 
         self._printer_loop.stop()
@@ -1312,26 +1252,16 @@ class Bar:
         Also print a newline and unhide the cursor if the bar was
         running in a terminal.
         '''
-##        print()
-##        print("Running shutdown")
-        # print()
-        # print("Clearing run state")
         self._can_run.clear()
-        # self._loop.stop()
 
         threads = tuple(self._threads.items())
         for thread_name, thread in threads:
-            # print()
-            # print("Joining", thread_name)
             thread.join()
-            # print("Joined", thread_name)
             self._threads.pop(thread_name)
 
         if self.in_a_tty:
             self._stream.write('\n')
             self._stream.write(CSI + UNHIDE_CURSOR)
-
-##        print("Ran shutdown")
 
     async def _handle_overrides(self, end: str = '\r') -> None:
         '''
