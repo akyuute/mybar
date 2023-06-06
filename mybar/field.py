@@ -432,7 +432,7 @@ class Field:
 
         try:
             if asyncio.iscoroutinefunction(self._setupfunc):
-                setupvars = asyncio.run(
+                setupvars = asyncio.get_event_loop().run_until_complete(
                     self._setupfunc(*self.args, **self.kwargs)
                 )
             else:
@@ -459,7 +459,7 @@ class Field:
             return self._auto_format(self.constant_output)
 
         if self.is_async:
-            result = asyncio.run(self._func(*self.args, **self.kwargs))
+            result = asyncio.get_event_loop().run_until_complete(self._func(*self.args, **self.kwargs))
         else:
             result = self._func(*self.args, **self.kwargs)
         contents = self._auto_format(result)
@@ -476,7 +476,7 @@ class Field:
             if self.is_async:
                 result = self._func(*self.args, **self.kwargs)
             else:
-                result = asyncio.run(self._func(*self.args, **self.kwargs))
+                result = asyncio.get_event_loop().run_until_complete(self._func(*self.args, **self.kwargs))
             contents = self._auto_format(result)
 
             yield contents
@@ -557,6 +557,17 @@ class Field:
 
         # The main loop:
         while running():
+
+            if bar.count:
+                # Stop running before starting a cycle that could go over:
+                # if bar._print_countdown == 0:
+                if bar._print_countdown == 0 or self.interval > (bar.refresh_rate * bar._print_countdown):
+                    # print()
+                    # print(self.name, "returning")
+                # if bar._print_countdown == 1:
+                    bar._coros.pop(self.name, None)
+                    return
+
             result = await func(*self.args, **self.kwargs)
             # Latency from nonzero execution times causes drift, where
             # sleeps become out-of-sync and the bar skips field updates.
@@ -699,6 +710,19 @@ class Field:
 
         start_time = clock()
         while running():
+
+            if bar.count:
+                # Stop running before starting a cycle that could go over:
+                # if bar._print_countdown == 0:
+                if bar._print_countdown == 0 or self.interval > (bar.refresh_rate * bar._print_countdown):
+                    # print()
+                    # print(self.name, "returning")
+                # if bar._print_countdown == 1:
+                    bar._coros.pop(self.name, None)
+                    local_loop.stop()
+                    local_loop.close()
+                    return
+
 
             # Sleep until the next refresh cycle in little steps to
             # check if the bar has stopped.
