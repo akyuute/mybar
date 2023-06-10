@@ -243,8 +243,8 @@ class Parser(ArgumentParser):
             dest='field_options',
             help=(
                 "Set arbitrary options for discrete Fields using"
-                " dot-attribute syntax.",
-            )
+                " dot-attribute syntax."
+            ),
         )
 
         self.add_argument(
