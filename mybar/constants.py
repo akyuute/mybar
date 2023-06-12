@@ -37,6 +37,15 @@ UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 '''VT100 escape code to unhide the cursor.'''
 
 
-FONTAWESOME_ICONS = tuple('')
+FONTAWESOME_ICONS = {
+    'uptime': '',
+    'cpu_usage': '',
+    'cpu_temp': '',
+    'mem_usage': '',
+    'disk_usage': '',
+    'battery': '',
+    'net_stats': '',
+}
+
 USING_FONTAWESOME = False
 
