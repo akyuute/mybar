@@ -176,8 +176,8 @@ class Parser(ArgumentParser):
 
     def add_arguments(self) -> None:
         '''Equip the parser with all its arguments.'''
-        fields_or_fmt = self.add_mutually_exclusive_group()
-        fields_or_fmt.add_argument(
+        fields_or_tmpl = self.add_mutually_exclusive_group()
+        fields_or_tmpl.add_argument(
             '-t', '--template',
             metavar="'TEMPLATE'",
             dest='template',
@@ -187,7 +187,7 @@ class Parser(ArgumentParser):
             ),
         )
 
-        fields_or_fmt.add_argument(
+        fields_or_tmpl.add_argument(
             '-f', '--fields',
             action='extend',
             nargs='+',
@@ -196,13 +196,13 @@ class Parser(ArgumentParser):
             # type=ArgFormatter.SplitFirst(','),
             help=(
                 "A list of fields to be displayed."
-                " Not valid with --format/-m options."
+                " Not valid with --template/-t options."
             ),
         )
 
         fields_group = self.add_argument_group(
             title="Options for fields",
-            description="These options are not valid when using --format/-m."
+            description="These options are not valid when using --template/-t."
         )
 
         fields_group.add_argument(
@@ -257,15 +257,6 @@ class Parser(ArgumentParser):
         )
 
         self.add_argument(
-            '--config', '-c',
-            metavar='FILE',
-            dest='config_file',
-            help=(
-                "The config file to use for default settings."
-            ),
-        )
-
-        self.add_argument(
             '--count', '-n',
             type=int,
             metavar='TIMES',
@@ -274,6 +265,29 @@ class Parser(ArgumentParser):
                 "Print the bar this many times, then exit."
             ),
         )
+
+        self.add_argument(
+            '--config', '-c',
+            metavar='FILE',
+            dest='config_file',
+            help=(
+                "The config file to use for default settings."
+            ),
+        )
+
+##        self.add_argument(
+##            '--dump', '-d',
+##            type=int,
+##            nargs='?',
+##            metavar='INDENT',
+##            dest='dump_config',
+##            help=(
+##                "Instead of running the bar, print a JSON config using"
+##                " options specified in the command."
+##                " Optionally pass a number of spaces to indent by,"
+##                " which defaults to 4."
+##            ),
+##        )
 
         self.add_argument(
             '--debug',
