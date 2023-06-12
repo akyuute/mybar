@@ -1,7 +1,8 @@
 __all__ = (
     'FieldSpec',
     'BarSpec',
-    'BarConfigSpec'
+    'BarConfigSpec',
+    'CMDLineSpec',
 )
 
 
@@ -75,4 +76,10 @@ class BarConfigSpec(BarSpec, total=False):
     config_file: PathLike
     debug: bool
     field_icons: dict[FieldName, Icon]
+
+
+class CMDLineSpec(TypedDict, total=False):
+    '''
+    '''
+    dump_config: bool | int = 0
 
