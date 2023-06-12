@@ -17,7 +17,7 @@ from . import utils
 from .constants import DEBUG
 from .errors import *
 from .formatting import FormatterFieldSig
-from .templates import FieldSpec
+from .namespaces import FieldSpec
 from ._types import (
     FieldName,
     Icon,
@@ -132,7 +132,7 @@ class Field:
             'name': 'host',
             'func': field_funcs.get_host,
             'kwargs': {
-                'fmt': '{nodename}',
+                'fmt': "{nodename}",
             },
             'run_once': True
         },
@@ -140,68 +140,92 @@ class Field:
         'uptime': {
             'name': 'uptime',
             'func': field_funcs.get_uptime,
+            'kwargs': {
+                'fmt': '{days}d:{hours}h:{mins}m',
+                'dynamic': True,
+                'sep': ':',
+            },
             'setup': _setups.setup_uptime,
             'timely': True,
             'align_to_seconds': True,
-            'kwargs': {
-                'fmt': '{days}d:{hours}h:{mins}m',
-                'sep': ':'
-            },
-            'icons': [' ', 'Up '],
+            'icon': 'Up ',
         },
 
         'cpu_usage': {
             'name': 'cpu_usage',
             'func': field_funcs.get_cpu_usage,
+            'kwargs': {
+                'fmt': "{:02.0f}%",
+            },
             'interval': 5,
             'threaded': True,
-            'icons': [' ', 'CPU '],
+            'icon': 'CPU ',
         },
 
         'cpu_temp': {
             'name': 'cpu_temp',
             'func': field_funcs.get_cpu_temp,
+            'kwargs': {
+                'fmt': "{temp:02.0f}{scale}",
+            },
             'interval': 5,
             'threaded': True,
-            'icons': [' ', ''],
         },
 
         'mem_usage': {
             'name': 'mem_usage',
             'func': field_funcs.get_mem_usage,
+            'kwargs': {
+                'fmt': "{used:.1f}{unit}",
+                'unit': 'G',
+            },
             'interval': 5,
-            'icons': [' ', 'Mem '],
+            'icon': 'Mem ',
         },
 
         'disk_usage': {
             'name': 'disk_usage',
             'func': field_funcs.get_disk_usage,
+            'kwargs': {
+                'fmt': "{free:.1f}{unit}",
+                'path': '/',
+                'unit': 'G',
+            },
             'interval': 5,
-            'icons': [' ', '/:'],
+            'icon': '/:',
         },
 
         'battery': {
             'name': 'battery',
+            'kwargs': {
+                'fmt': "{pct:02.0f}{state}",
+            },
             'func': field_funcs.get_battery_info,
             'threaded': True,
-            'icons': [' ', 'Bat '],
+            'icon': 'Bat ',
         },
 
         'net_stats': {
             'name': 'net_stats',
             'func': field_funcs.get_net_stats,
+            'kwargs': {
+                # 'device': None,
+                'fmt': "{name}",
+                'nm': True,
+                'nm_filt': None,
+                'default': "",
+            },
             'interval': 5,
-            'icons': [' ', ''],
         },
 
         'datetime': {
             'name': 'datetime',
             'func': field_funcs.get_datetime,
+            'kwargs': {
+                'fmt': "%Y-%m-%d %H:%M:%S",
+            },
             'align_to_seconds': True,
             'timely': True,
-            'kwargs': {
-                'fmt': "%Y-%m-%d %H:%M:%S"
-            },
         }
 
     }
