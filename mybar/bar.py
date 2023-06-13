@@ -180,13 +180,16 @@ class BarConfig(dict):
         # Handle missing config files:
         if 'config_file' not in bar_options:
             file = CONFIG_FILE
-            wants_to_write = cls.write_with_approval(overrides=bar_options)
-            if not wants_to_write:
-                # Forget all this config file business.
-                # Our new user is in a rush. Let's give them a bar.
-                return cls(bar_options)
+            if not os.path.exists(file):
+                wants_to_write = cls.write_with_approval(overrides=bar_options)
+                if not wants_to_write:
+                    # Forget all this config file business.
+                    # Our new user is in a hurry, so
+                    # just give them what they need:
+                    return cls(bar_options)
 
-        file = bar_options.pop('config_file', None)
+        else:
+            file = bar_options.pop('config_file', None)
 
         try:
             # If 'config_file' is not in `overrides`,
@@ -1035,12 +1038,7 @@ class Bar:
             # Allow the bar to run repeatedly in the same interpreter:
             if self._loop.is_closed():
                 self._loop = asyncio.new_event_loop()
-            #NOTE: Need a way to handle stale coroutines.
-            # Like, run prepare_fields() again.
 
-##            self._coros = {}
-##            self._threads = {}
-##            self._timely_fields = []
             self._prepare_fields()
             self._can_run.set()
             for thread in tuple(self._threads.values()):
