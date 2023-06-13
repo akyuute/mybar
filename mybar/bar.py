@@ -1021,6 +1021,9 @@ class Bar:
         .. note::
             This method cannot be called within an async event loop.
         '''
+        if self.count == 0:
+            return
+
         try:
             if stream is not None:
                 self._stream = stream
