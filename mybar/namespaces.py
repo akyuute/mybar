@@ -31,7 +31,10 @@ Bar = TypeVar('Bar')
 P = ParamSpec('P')
 
 class FieldSpec(TypedDict, total=False):
-    '''A dict representation of :class:`mybar.Field` constructor parameters.'''
+    '''
+    Specifies the structure of :class:`mybar.Field` constructor
+    parameters.
+    '''
     name: Required[FieldName]
     func: Callable[P, str]
     icon: Icon
@@ -53,7 +56,9 @@ class FieldSpec(TypedDict, total=False):
 
 
 class BarSpec(TypedDict, total=False):
-    '''A dict representation of :class:`mybar.Bar` constructor parameters.'''
+    '''
+    Specifies the structure of :class:`mybar.Bar` constructor parameters.
+    '''
     refresh_rate: float
     run_once: bool
     align_to_seconds: bool
@@ -72,7 +77,10 @@ class BarSpec(TypedDict, total=False):
 
 
 class BarConfigSpec(BarSpec, total=False):
-    '''A dict representation of :class:`mybar.bar.BarConfig` constructor parameters.'''
+    '''
+    Specifies the structure of :class:`mybar.bar.BarConfig` constructor
+    parameters.
+    '''
     config_file: PathLike
     debug: bool
     field_icons: dict[FieldName, Icon]
@@ -80,6 +88,7 @@ class BarConfigSpec(BarSpec, total=False):
 
 class CmdOptionSpec(TypedDict, total=False):
     '''
+    Specifies the structure of command options.
     '''
-    dump_config: bool | int = 0
+    dump_config: bool | int = 4
 
