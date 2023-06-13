@@ -78,7 +78,7 @@ class BarConfigSpec(BarSpec, total=False):
     field_icons: dict[FieldName, Icon]
 
 
-class CMDLineSpec(TypedDict, total=False):
+class CmdOptionSpec(TypedDict, total=False):
     '''
     '''
     dump_config: bool | int = 0

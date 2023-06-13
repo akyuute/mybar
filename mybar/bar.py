@@ -32,7 +32,7 @@ from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
 from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
-from .templates import BarConfigSpec, BarSpec, FieldSpec
+from .namespaces import BarConfigSpec, BarSpec, FieldSpec
 from ._types import (
     Args,
     ConsoleControlCode,
@@ -166,36 +166,34 @@ class BarConfig(dict):
         '''
         parser = cli.Parser()
         try:
-            bar_options = parser.parse_args()
+            bar_options, command_options = parser.parse_args()
         except CLIUsageError as e:
             parser.error(e.msg)  # Shows usage
 
-        if 'field_options' in bar_options:
-            fields = parser.process_field_options(
-                bar_options.pop('field_options')
-            )
-            bar_options['field_definitions'] = fields
+        # Handle options that alter the behavior of the command itself:
+        if command_options:
+            if 'dump_config' in command_options:
+                indent = command_options.pop('dump_config', None)
+                config = cls(bar_options)
+                parser.quit(cls._as_json(config, indent=indent))
 
         # Handle missing config files:
         if 'config_file' not in bar_options:
-            if (first_use := (not os.path.exists(CONFIG_FILE))):
-                cls.welcome_new_users()
-                cls.maybe_make_config_dir()
-                wants_to_write = cls.write_with_approval(overrides=bar_options)
-                if not wants_to_write:
-                    # Forget all this config file business.
-                    # Our new user is in a rush. Let's give them a bar.
-                    return cls(bar_options)
+            file = CONFIG_FILE
+            wants_to_write = cls.write_with_approval(overrides=bar_options)
+            if not wants_to_write:
+                # Forget all this config file business.
+                # Our new user is in a rush. Let's give them a bar.
+                return cls(bar_options)
 
         file = bar_options.pop('config_file', None)
 
         try:
-            # config_file is in overrides or it defaults to CONFIG_FILE:
+            # If 'config_file' is not in `overrides`,
+            # it defaults to CONFIG_FILE.
             config = cls.from_file(file, overrides=bar_options)
 
         except FileNotFoundError as e:
-            file = e.filename
-            cls.maybe_make_config_dir()
             write_ok = cls.write_with_approval(file, overrides=bar_options)
             if not write_ok:
                 parser.quit("Exiting...")
@@ -228,7 +226,7 @@ class BarConfig(dict):
         if file is None:
             file = CONFIG_FILE
 
-        approved = cls._get_write_new_approval(
+        approved = cli.FileManager._get_write_new_approval(
             file,
             dft_choice=True
         )
@@ -248,52 +246,6 @@ class BarConfig(dict):
             return True
 
         return False
-
-    @classmethod
-    def _get_write_new_approval(
-        cls,
-        file: PathLike,
-        dft_choice: bool
-    ) -> bool:
-        '''
-        Get approval to write a new config file using
-            :class:`cli.OptionsAsker`.
-
-        :param file: The path to the config file
-        :type file: :class:`PathLike`
-
-        :param dft_choice: The default option to present to the user
-        :type dft_choice: :class:``
-        '''
-        dft = (file == CONFIG_FILE)
-        msg = (
-            f"The {'default' if dft else ''}"
-            f" config file at {file!r} does not exist."
-        )
-        question = "Would you like to make it now?"
-        write_options = {'y': True, 'n': False}
-        default = 'ny'[dft_choice]
-        handler = cli.OptionsAsker(write_options, default, question)
-
-        print(msg)
-        write_new_file_ok = handler.ask()
-        return write_new_file_ok
-
-    @classmethod
-    def maybe_make_config_dir(cls) -> None:
-        '''
-        Make a config directory in the default location if nonexistent.
-        '''
-        directory = os.path.dirname(CONFIG_FILE)
-        if not os.path.exists(directory):
-            os.mkdir(directory)
-
-    @classmethod
-    def welcome_new_users(cls) -> None:
-        msg = (
-            f"-- {__package__} --"
-        )
-        print(msg)
 
     @staticmethod
     def _read_file(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
@@ -318,30 +270,60 @@ class BarConfig(dict):
     def _write_file(
         cls,
         file: PathLike,
-        obj: BarSpec = {},
+        spec: BarSpec = {},
+        indent: int = 4,
         *,
         defaults: BarSpec = None
     ) -> None:
-        '''Write :class:`BarConfig` params to a JSON file.
+        '''
+        Write :class:`BarConfig` params to a JSON file.
 
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param obj: The :class:`_types.BarConfigSpec` to write
-        :type obj: :class:`_types.BarConfigSpec`, optional
+        :param spec: The :class:`_types.BarSpec` to write
+        :type spec: :class:`_types.BarSpec`, optional
 
-        :param defaults: Any default parameters that `obj` should override,
+        :param indent: How many spaces to indent by, defaults to ``4``
+        :type indent: :class:`int`
+
+        :param defaults: Any default parameters that `spec` should override,
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`_types.BarSpec`
+        '''
+        un_pythoned = cls._remove_unserializable(spec, defaults=defaults)
+        absolute = os.path.abspath(os.path.expanduser(file))
+        if absolute == CONFIG_FILE and not os.path.exists(absolute):
+            cli.FileManager._maybe_make_config_dir()
+        with open(os.path.expanduser(absolute), 'w') as f:
+            json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
+
+    @classmethod
+    def _remove_unserializable(
+        cls,
+        spec: BarConfigSpec,
+        *,
+        defaults: BarSpec = None
+    ) -> BarConfigSpec:
+        '''
+        Remove Python-specific API elements like functions which cannot
+        be serialized for writing to files.
+
+        :param spec: The :class:`_types.BarConfigSpec` to convert
+        :type spec: :class:`_types.BarConfigSpec`
+
+        :param defaults: Any default parameters that `spec` should override,
             defaults to :attr:`Bar._default_params`
         :type defaults: :class:`_types.BarSpec`
         '''
         if defaults is None:
             defaults = Bar._default_params.copy()
 
-        newobj = obj.copy()
+        newobj = spec.copy()
         newobj.pop('config_file', None)
-        newobj = defaults | obj
+        newobj = defaults | spec
 
-        fields = Field._default_fields.copy()
+        fields = newobj.pop('field_definitions', {})
 
         # Clean the dict of irrelevant Field implementation details:
         for name, field in fields.items():
@@ -352,13 +334,24 @@ class BarConfig(dict):
                 except KeyError:
                     pass
 
-        newobj['field_definitions'] = fields
+        if fields:
+            newobj['field_definitions'] = fields
 
-        absolute = os.path.abspath(os.path.expanduser(file))
-        if absolute == CONFIG_FILE and not os.path.exists(absolute):
-            cls.maybe_make_config_dir()
-        with open(os.path.expanduser(absolute), 'w') as f:
-            json.dump(newobj, f, indent=4, ) #separators=(',\n', ': '))
+        return newobj
+
+    @classmethod
+    def _as_json(cls, spec: BarSpec = {}, indent: int = 4) -> JSONText:
+        '''
+        Return a :class:`BarConfig` as a string with JSON formatting.
+
+        :param spec: The :class:`_types.BarSpec` to convert
+        :type spec: :class:`_types.BarSpec`, optional
+
+        :param indent: How many spaces to indent by, defaults to ``4``
+        :type indent: :class:`int`
+        '''
+        cleaned = cls._remove_unserializable(spec)
+        return json.dumps(cleaned, indent=indent)
 
 
 class Bar:

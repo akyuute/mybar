@@ -4,11 +4,15 @@ __all__ = (
 )
 
 
+import os.path
 from argparse import ArgumentParser, SUPPRESS, Namespace, HelpFormatter
 from enum import Enum
+from os import PathLike
 
+from . import __version__
+from .constants import CONFIG_FILE
 from .errors import AskWriteNewFile, CLIFatalError, CLIUsageError
-from .templates import BarConfigSpec, FieldSpec
+from .namespaces import BarConfigSpec, CmdOptionSpec, FieldSpec
 from ._types import (
     AssignmentOption,
     FieldName,
@@ -56,7 +60,10 @@ class Parser(ArgumentParser):
         )
         self.add_arguments()
 
-    def parse_args(self, args: None | list[str] = None) -> BarConfigSpec:
+    def parse_args(
+        self,
+        args: list[str] = None
+    ) -> tuple[BarConfigSpec, CmdOptionSpec]:
         '''
         Parse command line arguments and return a dict of options.
         This will additionally process args with key-value pairs.
@@ -68,7 +75,20 @@ class Parser(ArgumentParser):
         # Use vars() because dict items are more portable than attrs.
         opts = vars(super().parse_args(args))
         params = self.process_assignment_args(opts)
-        return params
+
+        # For options that control specific fields:
+        if 'field_options' in params:
+            fields = self.process_field_options(
+                params.pop('field_options')
+            )
+            params['field_definitions'] = fields
+
+        # For options that control what the command does:
+        keys = (
+            CmdOptionSpec.__optional_keys__ ^ CmdOptionSpec.__required_keys__
+        )
+        cmd_options = {k: params.pop(k) for k in keys if k in params}
+        return params, cmd_options
 
     def process_assignment_args(
         self,
@@ -178,26 +198,26 @@ class Parser(ArgumentParser):
         '''Equip the parser with all its arguments.'''
         fields_or_tmpl = self.add_mutually_exclusive_group()
         fields_or_tmpl.add_argument(
-            '-t', '--template',
-            metavar="'TEMPLATE'",
+            '--template', '-t',
             dest='template',
             help=(
                 "A curly-brace-delimited format string."
                 " Not valid with --fields/-f options."
             ),
+            metavar="'TEMPLATE'",
         )
 
         fields_or_tmpl.add_argument(
-            '-f', '--fields',
+            '--fields', '-f',
             action='extend',
-            nargs='+',
-            metavar=('FIELDNAME1', 'FIELDNAME2'),
             dest='field_order',
-            # type=ArgFormatter.SplitFirst(','),
             help=(
                 "A list of fields to be displayed."
                 " Not valid with --template/-t options."
             ),
+            metavar=('FIELDNAME1', 'FIELDNAME2'),
+            nargs='+',
+            # type=ArgFormatter.SplitFirst(','),
         )
 
         fields_group = self.add_argument_group(
@@ -208,21 +228,21 @@ class Parser(ArgumentParser):
         fields_group.add_argument(
             '--icons',
             action='extend',
-            nargs='+',
-            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
             dest='icon_pairs',
             help="A mapping of field names to icons.",
+            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
+            nargs='+',
         )
 
         fields_group.add_argument(
-            '-s', '--separator',
-            type=ArgFormatter.ToTuple(length=2),
-            metavar="'FIELD_SEPARATOR'",
+            '--separator', '-s',
             dest='separators',
             help=(
                 "The character used for joining fields."
                 " Only valid with --field/-f options."
             ),
+            metavar="'FIELD_SEPARATOR'",
+            type=ArgFormatter.ToTuple(length=2),
         )
 
         fields_group.add_argument(
@@ -238,61 +258,76 @@ class Parser(ArgumentParser):
         fields_group.add_argument(
             '--options', '-o',
             action='extend',
-            nargs='+',
-            metavar=("'FIELD1.OPTION=VAL'", "'FIELD2.OPTION=VAL'"),
             dest='field_options',
             help=(
                 "Set arbitrary options for discrete Fields using"
                 " dot-attribute syntax."
             ),
+            metavar=("'FIELD1.OPTION=VAL'", "'FIELD2.OPTION=VAL'"),
+            nargs='+',
         )
 
         self.add_argument(
             '-r', '--refresh',
-            type=float,
             dest='refresh_rate',
             help=(
                 "The bar's refresh rate in seconds per cycle."
             ),
+            type=float,
         )
 
         self.add_argument(
             '--count', '-n',
-            type=int,
-            metavar='TIMES',
             dest='count',
             help=(
                 "Print the bar this many times, then exit."
             ),
+            metavar='TIMES',
+            type=int,
         )
 
         self.add_argument(
             '--config', '-c',
-            metavar='FILE',
             dest='config_file',
             help=(
                 "The config file to use for default settings."
             ),
+            metavar='FILE',
         )
 
-##        self.add_argument(
-##            '--dump', '-d',
-##            type=int,
-##            nargs='?',
-##            metavar='INDENT',
-##            dest='dump_config',
-##            help=(
-##                "Instead of running the bar, print a JSON config using"
-##                " options specified in the command."
-##                " Optionally pass a number of spaces to indent by,"
-##                " which defaults to 4."
-##            ),
-##        )
+        self.add_argument(
+            '--dump', '-d',
+            action='store_const',
+            const=4,
+            dest='dump_config',
+            help=(
+                "Instead of running the Bar, print a JSON config using"
+                " options specified in the command."
+                " Optionally pass a number of spaces by which to indent."
+            ),
+        )
+
+        self.add_argument(
+            '--dump-raw', '-D',
+            action='store_const',
+            const=None,
+            dest='dump_config',
+            help=(
+                "Instead of running the Bar, print a JSON config using"
+                " options specified in the command."
+            ),
+        )
 
         self.add_argument(
             '--debug',
             action='store_true',
             help="Use debug mode. (Not implemented)",
+        )
+
+        self.add_argument(
+            '--version', '-v',
+            action='version',
+            version=f"{__package__} {__version__}",
         )
 
     def quit(self, message: str = "Exiting...") -> NoReturn:
@@ -415,4 +450,62 @@ class OptionsAsker:
                 continue
             prompt = options + " "
         return self.choices.get(answer)
+
+
+def welcome_new_users() -> None:
+    msg = (
+        f"-- {PROG} --"
+    )
+    print(msg)
+
+
+##class ConfigWizard:
+class FileManager:
+
+    @classmethod
+    def _get_write_new_approval(
+        cls,
+        file: PathLike,
+        dft_choice: bool
+    ) -> bool:
+        '''
+        Get approval to write a new config file using
+            :class:`cli.OptionsAsker`.
+
+        :param file: The path to the config file
+        :type file: :class:`PathLike`
+
+        :param dft_choice: The default option to present to the user
+            (``False`` means do not write)
+        :type dft_choice: :class:`bool`
+        '''
+        question = f"Would you like to write a new config file at {file!r}?"
+
+        if not os.path.exists(file):
+            maybe_default = ' '
+            if file == CONFIG_FILE:
+                welcome_new_users()
+                cls._maybe_make_config_dir()
+                maybe_default = ' default '
+            msg = (
+                f"The{maybe_default}config file at {file!r} does not exist."
+            )
+            print(msg)
+            question = "Would you like to make it now?"
+
+        write_options = {'y': True, 'n': False}
+        default = 'ny'[dft_choice]
+        handler = OptionsAsker(write_options, default, question)
+
+        write_new_file_ok = handler.ask()
+        return write_new_file_ok
+
+    @staticmethod
+    def _maybe_make_config_dir() -> None:
+        '''
+        Make a '.config' directory if nonexistent.
+        '''
+        directory = os.path.dirname(CONFIG_FILE)
+        if not os.path.exists(directory):
+            os.mkdir(directory)
 
