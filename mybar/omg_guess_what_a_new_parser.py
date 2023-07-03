@@ -46,7 +46,6 @@ class Literal(Enum):
 
 class Ignore(Enum):
     COMMENT = 'COMMENT'
-    # NEWLINE = 'NEWLINE'
     SPACE = 'SPACE'
 
 class Newline(Enum):
@@ -396,7 +395,7 @@ class Parser:
                             idx = keys.index(key)
                             vals[idx].keys.append(val.keys[-1])
                             vals[idx].values.append(val.values[-1])
-                        
+
                 reconciled = Dict(keys, vals)
                 # print(ast.dump(reconciled, indent=2))
 
