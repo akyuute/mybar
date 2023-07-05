@@ -4,16 +4,11 @@ import sys
 
 from ast import (
     AST,
-    Assign,
-    Attribute,
-    BinOp,
     Constant,
     Dict,
-    Expr,
     List,
     Module,
     Name,
-    UnaryOp,
 )
 
 from ast import Set 
@@ -21,6 +16,7 @@ from enum import Enum
 from io import StringIO
 from itertools import chain
 from os import PathLike
+from queue import LifoQueue
 from typing import NamedTuple, NoReturn, TypeAlias
 
 
@@ -29,41 +25,41 @@ LineNo: TypeAlias = int
 ColNo: TypeAlias = int
 TokenValue: TypeAlias = str
 Location: TypeAlias = tuple[LineNo, ColNo]
-Index: TypeAlias = int
-Tree: TypeAlias = list
-Tree: TypeAlias = Tree[Tree]
 
 
 FILE = 'test_config.conf'
+EOF = ''
+NEWLINE = '\n'
 
 
 class Literal(Enum):
-    LIT_FLOAT = 'LIT_FLOAT'
-    LIT_INT = 'LIT_INT'
-    LIT_STR = 'LIT_STR'
-    LIT_TRUE = 'LIT_TRUE'
-    LIT_FALSE = 'LIT_FALSE'
+    FLOAT = 'FLOAT'
+    INT = 'INT'
+    STR = 'STR'
+    TRUE = 'TRUE'
+    FALSE = 'FALSE'
 
 class Ignore(Enum):
     COMMENT = 'COMMENT'
     SPACE = 'SPACE'
 
-class Newline(Enum):
-    NEWLINE = 'NEWLINE'
+class File(Enum):
+    NEWLINE = NEWLINE
+    EOF = EOF
 
 class Symbol(Enum):
     IDENTIFIER = 'IDENTIFIER'
     KEYWORD = 'KEYWORD'
 
+class Keyword(Enum):
+    pass
 KEYWORDS = ()
-
 
 class BinOp(Enum):
     ADD = '+'
     SUBTRACT = '-'
     ATTRIBUTE = '.'
     ASSIGN = '='
-
 
 class Syntax(Enum):
     COMMA = ','
@@ -77,7 +73,14 @@ class Syntax(Enum):
 
 TokenKind = Enum(
     'TokenKind',
-    ((m.name, m.value) for m in (*Literal, *BinOp, *Syntax))
+    ((m.name, m.value) for m in (
+        *Literal,
+        *Symbol,
+        *Syntax,
+        *BinOp,
+        *Ignore,
+        *File,
+    ))
 )
 
 
@@ -107,22 +110,41 @@ class Token:
         return s
 
 
+class Grammar:
+    '''
+    mod = expr*
+        | Assign(identifier target, expr? value)
+
+    expr = Constant(constant value)
+         | Dict(Assign*)
+         | List(expr* elts)
+         | Attribute(identifier value, identifier attr)
+
+    constant = integer | float | string | boolean
+    string = speech_char (text? speech_char{2}? text?)* speech_char
+    speech_char = ['"`]{3} | ['"`]
+    boolean = 'True' | 'False' | 'yes' | 'no'
+    '''
+
 
 class Lexer:
+    STRING_CONCAT = True  # Concatenate neighboring strings
+    SPEECH_CHARS = tuple('"\'`') + ('"""', "'''")
+
     _rules = (
         # Data types
         (re.compile(
             r'^(?P<speech_char>["\'`]{3}|["\'`])'
-            r'(?P<text>(?!(?P=speech_char)).*?)'
+            r'(?P<text>(?!(?P=speech_char)).*?)*'
             r'(?P=speech_char)'
-        ), Literal.LIT_STR),
-        (re.compile(r'^\d*\.\d(\d|_)+'), Literal.LIT_FLOAT),
-        (re.compile(r'^\d+'), Literal.LIT_INT),
+        ), Literal.STR),
+        (re.compile(r'^\d*\.\d(\d|_)+'), Literal.FLOAT),
+        (re.compile(r'^\d+'), Literal.INT),
 
         # Ignore
         (re.compile(r'^\#.*(?=\n*)'), Ignore.COMMENT),  # Skip comments
-        (re.compile(r'^\n+'), Newline.NEWLINE),  # Finds empty assignments
-        (re.compile(r'^\s+'), Ignore.SPACE),  # Skip whitespace
+        (re.compile(r'^\n+'), File.NEWLINE),  # Finds empty assignments
+        (re.compile(r'^\s+'), Ignore.SPACE),  # Skip all other whitespace
 
         # Operators
         (re.compile(r'^='), BinOp.ASSIGN),
@@ -138,12 +160,13 @@ class Lexer:
         (re.compile(r'^\}'), Syntax.R_CURLY_BRACE),
 
         # Booleans
-        (re.compile(r'^(true|yes)', re.IGNORECASE), Literal.LIT_TRUE),
-        (re.compile(r'^(false|no)', re.IGNORECASE), Literal.LIT_FALSE),
+        (re.compile(r'^(true|yes)', re.IGNORECASE), Literal.TRUE),
+        (re.compile(r'^(false|no)', re.IGNORECASE), Literal.FALSE),
 
         # Symbols
         *tuple(dict.fromkeys(KEYWORDS, Symbol.KEYWORD).items()),
         (re.compile(r'^[a-zA-Z_]+'), Symbol.IDENTIFIER),
+        # (re.compile(r'^'), File.EOF),
     )
 
     def __init__(
@@ -153,8 +176,8 @@ class Lexer:
     ) -> None: 
         if string is None:
             if file is None:
-                file = FILE
-                # raise ValueError("Missing source")
+                msg = "`string` parameter is required when `file` is not given"
+                raise ValueError(msg)
 
             with open(file, 'r') as f:
                 string = f.read()
@@ -163,22 +186,57 @@ class Lexer:
         self._lines = self._string.split('\n')
         self._file = file
         self._stream = StringIO(self._string)
-        self._lookahead = None
+
+        self._token_stack = LifoQueue()
+
         self._cursor = 0
-        self._colno = 0
-        self.eof = ''
+        self._colno = 1
+        self.eof = File.EOF
 
-    def error_leader(self) -> str:
+    def highlight_error(self, token: str, pos: Location) -> str:
+        '''
+        Highlight the part of a line occupied by a token.
+        Return the original line surrounded by quotation marks followed
+        by a line of spaces and carets that point to the token.
+
+        :param token: The token to be highlighted
+        :type token: :class:`str`
+
+        :param pos: The token's position tuple, made of line number and
+            column number
+        :type pos: :class:`Location`
+        '''
+        lineno, colno = pos
+        line = self._lines[lineno - 1].rstrip()
+        # To dedent and preserve alignment, we need the column offset:
+        offset = len(line) - len(line.lstrip())
+        line = line.lstrip()
+
+        highlight = " "  # Account for the repr quotation mark.
+        highlight += (' ' * (colno - offset - 1)) + ('^' * len(token))
+        return '\n'.join((repr(line), highlight))
+
+    def error_leader(self, with_col: bool = False) -> str:
+        '''
+        '''
         file = self._file if self._file is not None else ''
-        return f"File {file!r}, line {self.lineno()}: "
+        column = ', column ' + str(self._colno) if with_col else ''
+        msg = f"File {file!r}, line {self.lineno()}{column}: "
+        return msg
 
-    def error(self, token: str) -> NoReturn:
-        pass
+    def unexpected_token(self, token: str) -> SyntaxError:
+        highlighted = self.highlight_error(token, self.coords())
+        explained = self.error_leader() + f"Unexpected token: {token!r}"
+        msg = '\n'.join((explained, highlighted))
+        e = SyntaxError(msg)
+        return e
 
-        e = ParserError(self.error_leader() + f"Unexpected token: {token!r}")
-
-    def error_ctx(self) -> dict:
-        return {'file': self._file, 'pos': self._cursor}
+    def unmatched_quote(self, token: str) -> SyntaxError:
+        highlighted = self.highlight_error(token, self.coords())
+        explained = self.error_leader() + f"Unmatched quote: {token!r}"
+        msg = '\n'.join((explained, highlighted))
+        e = SyntaxError(msg)
+        return e
 
     def lineno(self) -> int:
         return self._string[:self._cursor].count('\n') + 1
@@ -186,113 +244,215 @@ class Lexer:
     def curr_line(self) -> str:
         return self._lines[self.lineno - 1]
 
-    def locate(self) -> Location:
+    def coords(self) -> Location:
         return (self.lineno(), self._colno)
     
-    def at_eof(self) -> bool:
-        return self._cursor == len(self._string)
-
     def lex(self, string: str = None) -> list[Token]:
+        '''
+        '''
         if string is not None:
             self._string = string
 
         tokens = []
         while True:
             tok = self.get_token()
-            if tok == self.eof:
+            if tok.kind is self.eof:
+                print("EOF  caught by Lexer.lex()")
                 break
             tokens.append(tok)
+
+        self.reset()
         return tokens
+
+    def reset(self) -> None:
+        '''
+        Reset the cursor to the beginning of the lexer string.
+        '''
+        self._cursor = 0
+        self._colno = 1
 
     def get_token(self) -> Token:
         '''
         '''
-        if self.at_eof():
-            return self.eof
+        # The stack will have contents after string concatenation.
+        if not self._token_stack.empty():
+            return self._token_stack.get()
 
+        # Everything after and including the cursor position:
         s = self._string[self._cursor:]
 
+        # Match against each rule:
         for test, kind in self._rules:
             m = re.match(test, s)
 
             if m is None:
-                # Rule not matched.
+                # This rule not matched; try the next one.
                 continue
 
             tok = Token(
                 value=m.group(),
-                at=(self._cursor, self.locate()),
-                kind=kind, match=m
+                at=(self._cursor, self.coords()),
+                kind=kind,
+                match=m
             )
 
-            # Update location data:
-            self._cursor += len(m.group())
-            self._colno += len(m.group())
-            if kind is Newline.NEWLINE:
-                self._colno = 0
+            # Update location:
+            self._cursor += len(tok.value)
+            self._colno += len(tok.value)
+            if kind is File.NEWLINE:
+                self._colno = 1
+
+            if kind is Literal.STR:
+                # Process strings by removing quotes:
+                speech_char = tok.match.groups()[0]
+                tok.value = tok.value.strip(speech_char)
+
+                # Concatenate neighboring strings:
+                if self.STRING_CONCAT:
+                    while True:
+                        maybe_str = self.get_token()
+                        if maybe_str.kind in (*Ignore, File.NEWLINE):
+                            continue
+                        break
+
+                    if maybe_str.kind is Literal.STR:
+                        # Concatenate.
+                        tok.value += maybe_str.value
+                        return tok
+
+                    else:
+                        # Handle the next token separately.
+                        self._token_stack.put(maybe_str)
 
             return tok
 
-        # If a token is not returned, prepare an error message:
-        s = s.split(None, 1)[0]
-        raise SyntaxError(self.error_leader() + f"Unexpected token: {s!r}")
-        self.unexpected_token(s)
+        else:
+            if s is EOF:
+                tok = Token(
+                    value=s,
+                    at=(self._cursor, self.coords()),
+                    kind=self.eof,
+                    match=None
+                )
+                # print(tok)
 
+                return tok
 
-class ParserError(SyntaxError):
-    def __init__(
-        self,
-        cause: str,
-        file: PathLike = None,
-        pos: tuple[int] = None,
-        msg: str = "Unexpected token: ",
-    ) -> None:
-        # super().__init__(self, *args)
-        self.cause = cause
-        self.pos = pos
-        self.msg = msg
-
-    def __str__(self) -> str:
-        # return self.error_leader() + 
-        # if len(pos) == 1:
-            # at = 
-        file = self.file
-        pos = self.pos
-        msg = self.msg
-        cause = self.cause
-        return f"{file!r}, line {pos}: {msg}{cause!r}"
+            # If a token is not returned, prepare an error message:
+            # print(repr(s))
+            bad_token = s.split(None, 1)[0]
+            if bad_token in self.SPEECH_CHARS:
+                raise self.unmatched_quote(bad_token)
+            raise self.unexpected_token(bad_token)
 
 
 class Parser:
+    '''
+    Convert sequences of :class:`Token` to :class:`AST`.
+    '''
     def __init__(
         self,
-    ) -> None: 
-        self._lexer = Lexer()
-        self._tokens = self._lexer.lex()
-        self._lexer = Lexer()
+        string: str = None,
+        *,
+        file: PathLike = None,
+    ) -> None:
+        if string is None:
+            if file is None:
+                file = FILE
 
-    def parse(self) -> Tree:
+        self._string = string
+        self._file = file
+        self._lexer = Lexer(string, file)
+
+    def tokens(self) -> list[Token]:
+        return self._lexer.lex()
+
+    def parse_as_dict(self) -> dict:
         '''
+        Parse a config file and return its data as a :class:`dict`.
         '''
+        i = Interpreter()
+        mapping = {}
+        for n in self.parse():
+            mapping.update(i.visit(n))
+        return mapping
+
+    def parse(
+        self,
+        string: str = None,
+        *,
+        file: PathLike = None,
+    ) -> AST: 
+        '''
+        Parse a string or file and return an AST using special grammar
+        suited to config files.
+
+        :param string: The string to parse. If `string` is ``None``,
+            this method will open and read from `file`.
+        :type string: :class:`str`
+
+        :param file: The file to open and parse from. This is required
+            if `string` is not set.
+        :type file: :class:`PathLike`
+
+        :returns: An AST using the grammar defined in :class:`Grammar`.
+        :rtype: :class:`AST`
+        '''
+        new_data = False
+        if string is None:
+            if file is None:
+                if self._string is None:
+                    if self._file is None:
+                        msg = (
+                            "`string` parameter is required"
+                            " when `file` is not given"
+                        )
+                        raise ValueError(msg)
+                    file = self._file
+                string = self._string
+
+            else:
+                new_data = True
+
+            self._file = file
+            self._string = string
+
+        else:
+            new_data = True
+
+        if new_data:
+            self._lexer = Lexer(self._string)
+
         body = []
-        while not self._lexer.at_eof():
-            parsed = self.parse_expr()
+        while True:
+            try:
+                parsed = self.parse_expr()
+            except Exception as e:
+                msg = self._lexer.error_leader()
+                e.args = (msg + e.args[0],)
+                raise e#.with_traceback(None)
+
             if parsed is self._lexer.eof:
                 break
-            body.append(parsed)
-            # print(ast.dump(parsed, indent=2))
 
-        module = Module(body)
-        print(ast.dump(module, indent=2))
+            body.append(parsed)
+
+##            try:
+##                body.append(parsed)
+##                print(ast.dump(parsed))
+##            except TypeError:
+##                print(parsed)
+##            print()
+
+        return body
 
     def parse_expr(self, prev: Token = None) -> AST:
         '''
+        Parse an expression and return its AST.
+        This usually comes a key-value pair represented by a
+        :class:`Dict` node.
         '''
         curr = self._lexer.get_token()
-
-        if curr == self._lexer.eof:
-            # print("EOF")
-            return curr
 
         if prev is None:
             # The first token in a file.
@@ -301,15 +461,14 @@ class Parser:
         match curr.kind:
 
             case self._lexer.eof:
-                print("EOF")
-                return curr
+                return self._lexer.eof
 
             case Ignore.SPACE | Ignore.COMMENT:
                 # Skip spaces and comments.
                 node = self.parse_expr(prev)
                 return node
 
-            case Newline.NEWLINE:
+            case File.NEWLINE:
                 if prev.kind is BinOp.ASSIGN:
                     # Notify of empty assignment, if applicable.
                     node = curr
@@ -337,15 +496,12 @@ class Parser:
                         self._lexer.error_leader()
                         + f"Cannot assign to non-identifier {prev.value!r}"
                     )
-                # print(f"Assigning to {prev.value!r}")
-                # target = Name(prev.value)
-                target = prev.value
+                target = Name(prev.value)
 
                 nxt = self.parse_expr(prev=curr)
-                # print(f"{nxt = }")
                 if (
                     isinstance(nxt, Token)
-                    and nxt.kind in (Newline.NEWLINE, Syntax.COMMA)
+                    and nxt.kind in (File.NEWLINE, Syntax.COMMA)
                 ):
                     value = Constant(None)
 
@@ -356,23 +512,15 @@ class Parser:
                     value = nxt
 
                 node = Dict([target], [value])
-                # rep = ast.dump(node)
-                # print(rep)
-                # print(f"{{{target} = {rep}\n}}")
-                # return node
 
             case BinOp.ATTRIBUTE:
                 if not prev.kind is Symbol.IDENTIFIER:
-                # if not isinstance(prev, Name):
                     raise SyntaxError(f"{prev!r} doesn't do attributes")
-                base = prev.value
+                base = Name(prev.value)
                 attr = self.parse_expr(prev=curr)
                 node = Dict(keys=[base], values=[attr])
 
             case Syntax.L_CURLY_BRACE:
-                # print()
-                # print("Got assign for", prev.value)
-
                 keys = []
                 vals = []
 
@@ -397,12 +545,9 @@ class Parser:
                             vals[idx].values.append(val.values[-1])
 
                 reconciled = Dict(keys, vals)
-                # print(ast.dump(reconciled, indent=2))
-
                 node = reconciled
 
             case Syntax.L_BRACKET:
-                # print("Parsing list")
                 elems = []
                 while (node := self.parse_expr(prev=curr)):
                     if (
@@ -414,21 +559,20 @@ class Parser:
                     elems.append(node)
 
                 node = List(elts=elems)
-                # rep = ast.dump(node, indent=2)
-                # print(rep)
-                # return node
 
-            case Literal.LIT_STR:
-                speech_char = curr.match.groups()[0]
-                text = curr.value.strip(speech_char)
-                node = Constant(text)
-            case Literal.LIT_INT:
+            case Literal.STR:
+                node = Constant(curr.value)
+
+            case Literal.INT:
                 node = Constant(int(curr.value))
-            case Literal.LIT_FLOAT:
+
+            case Literal.FLOAT:
                 node = Constant(float(curr.value))
-            case Literal.LIT_TRUE:
+
+            case Literal.TRUE:
                 node = Constant(True)
-            case Literal.LIT_FALSE:
+
+            case Literal.FALSE:
                 node = Constant(False)
 
             case _:
@@ -437,15 +581,35 @@ class Parser:
         return node
 
 
-if __name__ == '__main__':
-    p = Parser()
-    # for t in p._tokens:
-        # print(t)
-    p.parse()
-    # t = Lexer(string=' '.join(sys.argv[1:]))
-    # t = Lexer()
-    # tokens = t.lex()
-    # print(tokens)
-    # return tokens
+class Interpreter(ast.NodeVisitor):
+    '''
+    Convert ASTs to literal Python expressions.
+    '''
+    def visit_Constant(self, node):
+        return node.value
 
+    def visit_Dict(self, node):
+        new_d = {}
+        for k, v in zip(node.keys, node.values):
+            new_d[self.visit(k)] = self.visit(v)
+        return new_d
+
+    def visit_List(self, node):
+        return [self.visit(e) for e in node.elts]
+
+    def visit_Module(self, node, map: bool = True):
+        return [self.visit(n) for n in node.body]
+
+    def visit_Name(self, node):
+        return node.id
+
+
+if __name__ == '__main__':
+    # l = Lexer(file=FILE)
+    # print('\n'.join(str(t) for t in l.lex()))
+    p = Parser()
+    # for t in p.tokens:
+        # print(t)
+    # parsed = p.parse()
+    print(p.parse_as_dict())
 
