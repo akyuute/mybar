@@ -40,7 +40,7 @@ class FieldSpec(TypedDict, total=False):
     icon: Icon
     template: FormatStr
     interval: float
-    align_to_seconds: bool
+    clock_align: bool
     overrides_refresh: bool
     threaded: bool
     always_show_icon: bool
@@ -59,9 +59,10 @@ class BarSpec(TypedDict, total=False):
     '''
     Specifies the structure of :class:`mybar.Bar` constructor parameters.
     '''
-    refresh_rate: float
+    refresh: float
     run_once: bool
-    align_to_seconds: bool
+    count: int
+    clock_align: bool
     join_empty_fields: bool
     override_cooldown: float
     thread_cooldown: float

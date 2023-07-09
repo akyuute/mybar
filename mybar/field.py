@@ -72,8 +72,8 @@ class Field:
     :param interval: How often in seconds field contents are updated, defaults to ``1.0``
     :type interval: :class:`float`
 
-    :param align_to_seconds: Update contents at the start of each second, defaults to ``False``
-    :type align_to_seconds: :class:`bool`
+    :param clock_align: Update contents at the start of each second, defaults to ``False``
+    :type clock_align: :class:`bool`
 
     :param timely: Run the field as soon as possible after every refresh, defaults to ``False``
     :type timely: :class:`bool`
@@ -147,7 +147,7 @@ class Field:
             },
             'setup': _setups.setup_uptime,
             'timely': True,
-            'align_to_seconds': True,
+            'clock_align': True,
             'icon': 'Up ',
         },
 
@@ -224,7 +224,7 @@ class Field:
             'kwargs': {
                 'fmt': "%Y-%m-%d %H:%M:%S",
             },
-            'align_to_seconds': True,
+            'clock_align': True,
             'timely': True,
         }
 
@@ -238,7 +238,7 @@ class Field:
         icon: str = '',
         template: FormatStr = None,
         interval: float = 1.0,
-        align_to_seconds: bool = False,
+        clock_align: bool = False,
         timely: bool = False,
         overrides_refresh: bool = False,
         threaded: bool = False,
@@ -302,7 +302,7 @@ class Field:
         self._bar = bar
 
         self.timely = utils.str_to_bool(timely)
-        self.align_to_seconds = utils.str_to_bool(align_to_seconds)
+        self.clock_align = utils.str_to_bool(clock_align)
         self.always_show_icon = utils.str_to_bool(always_show_icon)
         self._buffer = None
         self.constant_output = constant_output
@@ -323,7 +323,7 @@ class Field:
         if not all(
             getattr(self, attr) == getattr(other, attr)
             for attr in (
-                'align_to_seconds',
+                'clock_align',
                 'always_show_icon',
                 'constant_output',
                 'template',
@@ -573,7 +573,7 @@ class Field:
         if self.run_once or once:
             return
 
-        if self.align_to_seconds:
+        if self.clock_align:
             # Sleep until the beginning of the next second.
             clock = time.time
             await asyncio.sleep(1 - (clock() % 1))
@@ -728,7 +728,7 @@ class Field:
         count = 0
         first_cycle = True
 
-        if self.align_to_seconds:
+        if self.clock_align:
             # Sleep until the beginning of the next second.
             clock = time.time
             time.sleep(1 - (clock() % 1))
