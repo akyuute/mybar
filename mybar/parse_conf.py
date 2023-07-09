@@ -4,9 +4,10 @@ import sys
 from ast import (
     AST,
     Constant,
-    Dict,
+    Dict as _Dict,
     List,
     Name,
+    NodeVisitor,
 )
 from enum import Enum
 from io import StringIO
@@ -14,6 +15,8 @@ from itertools import chain
 from os import PathLike
 from queue import LifoQueue
 from typing import NamedTuple, NoReturn, Self, TypeAlias, TypeVar
+
+from ._types import FileContents
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
@@ -535,7 +538,17 @@ class Lexer:
                 raise StackTraceSilencer(1)  # Sorry...
 
 
-class Interpreter(ast.NodeVisitor):
+class Dict(_Dict):
+    '''
+    A custom ast.Dict class with an instance attribute for logging
+    whether or not a mapping encloses other mappings.
+    '''
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._enclosing = False
+
+
+class Interpreter(NodeVisitor):
     '''
     Convert ASTs to literal Python expressions.
     '''
@@ -551,12 +564,8 @@ class Interpreter(ast.NodeVisitor):
     def visit_List(self, node):
         return [self.visit(e) for e in node.elts]
 
-    def visit_Module(self, node, map: bool = True):
-        return [self.visit(n) for n in node.body]
-
     def visit_Name(self, node):
         return node.id
-
 
 class Parser:
     '''
@@ -606,7 +615,7 @@ class Parser:
         string: str = None,
         *,
         file: PathLike = None,
-    ) -> AST: 
+    ) -> list[AST]:
         '''
         Parse a string or file and return an AST using special grammar
         suited to config files.
@@ -654,6 +663,10 @@ class Parser:
 
                 if parsed is self._lexer.eof:
                     break
+
+                if isinstance(parsed, Dict):
+                    if isinstance(parsed.values[0], Dict):
+                        parsed._enclosing = True
 
                 body.append(parsed)
 
@@ -741,7 +754,10 @@ class Parser:
                         # Consecutive identifiers are valid inside lists.
                         return Name(curr.value)
 
-                return self.parse_expr(prev=curr)
+                nxt = self.parse_expr(prev=curr)
+                # if isinstance(nxt, Dict):
+                return nxt
+
 
             case BinOp.ASSIGN:
                 if isinstance(prev, Token):
@@ -874,12 +890,159 @@ class Parser:
             node._token = curr
         return node
 
+class Uninterpreter(NodeVisitor):
+    '''
+    Convert ASTs back into string representations.
+    '''
+    indent = 4 * ' '
+
+    def stringify(self, tree: list[AST]) -> FileContents:
+        for n in tree:
+            print(f"{ast.dump(n) = }")
+            string = self.visit(n)
+            # print(repr(string))
+            print(string)
+        return '\n'.join((self.visit(n) for n in tree))
+
+    def visit_Constant(self, node):
+        val = node.value
+        if isinstance(val, str):
+            return repr(val)
+        if val is None:
+            return ""
+        return str(val)
+
+    def visit_Dict(self, node):
+        assignments = []
+        if node._enclosing:
+            keys = node.values[-1].keys
+            values = node.values[-1].values
+
+            for k, v in zip(keys, values):
+                print(v)
+                key = self.visit(k)
+                value = self.visit(v)
+
+                if isinstance(v, Dict):
+                    # Kwargs, for example, gotten by attributes.
+                    string = f"{key}.{value}"
+                    assignments.append(string)
+
+                else:
+                    # Plain assignments to a simplex identifier.
+                    assignments.append(' = '.join((key, value)))
+
+            target = self.visit(node.keys[-1])
+            joined = ('\n' + self.indent).join(assignments)
+            string = f"{target} {{\n{self.indent}{joined}\n}}"
+
+            return string
+
+
+        else:
+            k = node.keys[-1]
+            v = node.values[-1]
+            value = self.visit(v)
+            string = ' = '.join((self.visit(k), self.visit(v)))
+            return string
+
+    def visit_List(self, node):
+        elems = tuple(self.visit(e) for e in node.elts)
+        if len(elems) > 3:
+            joined = ('\n' + self.indent).join(elems)
+            string = f"[\n{self.indent}{joined}\n]"
+        else:
+            joined = ', '.join(elems)
+            string = f"[{joined}]"
+        return string
+
+    def visit_Name(self, node):
+        string = node.id
+        return string
+
+
+#TODO: Finish dict unparse implementation!
+class Unparser:
+    '''
+    Convert Python dictionaries to ASTs.
+    '''
+    def unparse(self, mapping: dict) -> list[AST]:
+        '''
+        '''
+        keys = []
+        vals = []
+        assignments = []
+
+        for key, val in mapping.items():
+            key = Name(key)
+
+            if isinstance(val, dict):
+                assign = Dict([key], self.unparse(val))
+                keys.append(key)
+                vals.append(assign)
+                
+
+
+            elif isinstance(val, list):
+                # vals = [Constant(v) for v in val]
+                values = [Name(v) for v in val]
+                assign = Dict([key], [List(values)])
+
+            elif isinstance(val, (int, float, str)):
+                assign = Dict([key], [Constant(val)])
+
+            elif val in (None, True, False):
+                assign = Dict([key], [Constant(val)])
+
+            elif isinstance(val, Dict):
+                assign = val
+                # print(f"{ast.dump(val) = }")
+                # assign = Dict([key], [val])
+                
+            # keys.append(key)
+            # vals.append(assign)
+            # assignments.append(assign)
+        # print([ast.dump(k) for k in keys])
+        # print([ast.dump(v) for v in vals])
+        # print(assignments)
+
+        # print(vals)
+        # return assignments
+        # return Dict(keys, vals)
+
+    def unparse_from_dict(self, mapping: dict) -> FileContents:
+        '''
+        '''
+        d = Uninterpreter()
+        unparsed = self.unparse(mapping)
+        for d in unparsed:
+            print(ast.dump(d, indent=2))
+        # return d.stringify(self.unparse(mapping))
+
+
+
 
 if __name__ == '__main__':
     # l = Lexer(file=FILE)
     # l.lex()
     # print('\n'.join(str(t) for t in l.lex() if not t.kind in (*Ignore, Misc.NEWLINE)))
     p = Parser()
-    # parsed = p.parse()
-    print(p.parse_as_dict())
+    # print(p.parse())
+    # print(p.parse_as_dict())
+##    for n in p.parse():
+##        print(ast.dump(n, ))
+##    p._lexer.reset()
+    # print()
+    # print()
+    # print()
+##    for n in Unparser().unparse(p.parse_as_dict()):
+##        print(ast.dump(n, ))
+    # print(Unparser().unparse_from_dict(p.parse_as_dict()))
 
+##    p._lexer.reset()
+##    print()
+##    print(Uninterpreter().stringify(p.parse()))
+##    p._lexer.reset()
+##    print()
+##    print(Uninterpreter().stringify(Unparser().unparse(p.parse_as_dict())))
+##
