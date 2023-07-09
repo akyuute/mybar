@@ -33,6 +33,7 @@ from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
 from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
 from .namespaces import BarConfigSpec, BarSpec, FieldSpec
+from .parse_conf import Parser
 from ._types import (
     Args,
     ConsoleControlCode,
@@ -79,7 +80,6 @@ class BarConfig(dict):
         of form :class:`_types.BarConfigSpec`
 
     '''
-
     def __init__(
         self,
         options: BarConfigSpec = {},
@@ -94,6 +94,7 @@ class BarConfig(dict):
         # This is why we subclass dict:
         self.update(self.defaults | self.options)
         self.file = None
+        self.file_contents = None
         debug = self.options.pop('debug', None) or DEBUG
 
     def __repr__(self) -> str:
@@ -143,9 +144,34 @@ class BarConfig(dict):
         except OSError as e:
             raise e.with_traceback(None)
 
-        options = file_spec | overrides
+        processed = cls._process_file(file_spec)
+        options = processed | overrides
         config = cls(options, defaults)
         config.file = absolute
+        config.file_contents = text
+        return config
+
+    @classmethod
+    def _process_file(cls, params: BarConfigSpec) -> BarSpec:
+        '''
+        '''
+        params = params.copy()
+        config = {}
+        spec = dict.fromkeys((
+            *BarSpec.__required_keys__,
+            *BarSpec.__optional_keys__
+        ))
+
+        spec.pop('field_definitions', None)
+        spec.pop('config_file', None)
+        spec.pop('field_icons', None)
+
+        for p in spec:
+            if p in params:
+                config[p] = params.pop(p)
+
+        field_defs = {**params}
+        config['field_definitions'] = field_defs
         return config
 
     @classmethod
@@ -251,10 +277,68 @@ class BarConfig(dict):
         return False
 
     @staticmethod
-    def _read_file(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
+    def _read_file(file: PathLike) -> tuple[BarSpec, str]:
         '''
         Read a given config file.
-        Convert its JSON contents to a dict and return it along with the
+        Parse and convert its contents to a dict.
+        Return the dict along with the raw text of the file.
+
+        :param file: The file to convert
+        :type file: :class:`PathLike`
+
+        :returns: The converted file and its raw text contents
+        :rtype: tuple[
+            :class:`_types.BarSpec`,
+            :class:`_types.FileContents`
+            ]
+        '''
+        absolute = os.path.abspath(os.path.expanduser(file))
+        p = Parser(file=absolute)
+        data = p.parse_as_dict()
+        text = p._string
+        return data, text
+
+    @classmethod
+    def _write_file(
+        cls,
+        file: PathLike,
+        spec: BarSpec = {},
+        indent: int = 4,
+        *,
+        defaults: BarSpec = None
+    ) -> None:
+        '''
+        Write :class:`BarConfig` params to a config file.
+
+        :param file: The file to write to
+        :type file: :class:`PathLike`
+
+        :param spec: The :class:`_types.BarSpec` to write
+        :type spec: :class:`_types.BarSpec`, optional
+
+        :param indent: How many spaces to indent by, defaults to ``4``
+        :type indent: :class:`int`
+
+        :param defaults: Any default parameters that `spec` should
+            override, defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`_types.BarSpec`
+        '''
+        un_pythoned = cls._remove_unserializable(spec, defaults=defaults)
+        absolute = os.path.abspath(os.path.expanduser(file))
+        if absolute == CONFIG_FILE and not os.path.exists(absolute):
+            cli.FileManager._maybe_make_config_dir()
+
+        unparser = Unparser()
+        text = assembler.stringify(spec)  #NOTE: Needs work!
+        with open(os.path.expanduser(absolute), 'w') as f:
+            f.write(text)
+            # json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
+
+    @staticmethod
+    def _read_json(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
+        '''
+        Read a given JSON config file.
+        Convert its contents to a dict and return it along with the
         raw text of the file.
 
         :param file: The file to convert
@@ -264,13 +348,16 @@ class BarConfig(dict):
         :rtype: tuple[:class:`_types.BarConfigSpec`, :class:`_types.JSONText`]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
+        p = Parser(file=absolute)
+        data = p.parse_as_dict()
+        text = p._string
         with open(absolute, 'r') as f:
             data = json.load(f)
             text = f.read()
         return data, text
 
     @classmethod
-    def _write_file(
+    def _write_json(
         cls,
         file: PathLike,
         spec: BarSpec = {},
@@ -357,6 +444,9 @@ class BarConfig(dict):
         return json.dumps(cleaned, indent=indent)
 
 
+    def convert():
+        pass
+
 class Bar:
     '''
     Create highly customizable status bars.
@@ -377,11 +467,11 @@ class Bar:
     :param run_once: Whether the bar should print once and return, defaults to ``False``
     :type run_once: :class:`bool`
 
-    :param refresh_rate: How often in seconds the bar automatically redraws itself, defaults to ``1.0``
-    :type refresh_rate: :class:`float`
+    :param refresh: How often in seconds the bar automatically redraws itself, defaults to ``1.0``
+    :type refresh: :class:`float`
 
-    :param align_to_seconds: Whether to synchronize redraws at the start of each new second (updates to the clock are shown accurately), defaults to ``True``
-    :type align_to_seconds: :class:`bool`
+    :param clock_align: Whether to synchronize redraws at the start of each new second (updates to the clock are shown accurately), defaults to ``True``
+    :type clock_align: :class:`bool`
 
     :param join_empty_fields: Whether to draw separators around fields with no content, defaults to ``False``
     :type join_empty_fields: :class:`bool`
@@ -432,7 +522,7 @@ class Bar:
 
     _default_params = {
         'separator': '|',
-        'refresh_rate': 1.0,
+        'refresh': 1.0,
         'field_order': list(_default_field_order)
     }
 
@@ -443,11 +533,11 @@ class Bar:
         *,
         field_order: Iterable[FieldName] = None,
         separator: str = '|',
-        refresh_rate: float = 1.0,
+        refresh: float = 1.0,
         stream: IO = sys.stdout,
         count: int = None,
         run_once: bool = False,
-        align_to_seconds: bool = True,
+        clock_align: bool = True,
         join_empty_fields: bool = False,
         override_cooldown: float = 1/8,
         thread_cooldown: float = 1/8,
@@ -514,21 +604,18 @@ class Bar:
         self.join_empty_fields = join_empty_fields
 
         # How often in seconds the bar is regularly printed:
-        self.refresh_rate = refresh_rate
-
+        self.refresh_rate = refresh
 
         if count == 0 or count == 1:
             run_once = True
         self.count = count
         self._print_countdown = count
-        # self._count_queue = asyncio.Queue()
-
 
         # Whether the bar should exit after printing once:
         self.run_once = run_once
 
         # Whether the bar is printed at the top of every clock second:
-        self.align_to_seconds = align_to_seconds
+        self.clock_align = clock_align
 
         # Make a queue to which fields with overrides_refresh send updates.
         # Process only one item per refresh cycle to reduce flickering in a PTY.
@@ -547,7 +634,6 @@ class Bar:
         # The dict mapping Field names to the threads running them.
         # The bar must join each before printing a line with `run_once`:
         self._threads = {}
-        # self._threads = set()
         self._printer_thread = None
         self._printer_loop = None
         self._funcs = {}
@@ -1167,7 +1253,7 @@ class Bar:
         count = 0
         first_cycle = True
 
-        if self.align_to_seconds:
+        if self.clock_align:
             # Sleep until the beginning of the next second.
             clock = time.time
             time.sleep(1 - (clock() % 1))

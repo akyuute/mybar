@@ -70,6 +70,7 @@ TTY_Separator: TypeAlias = str
 Line: TypeAlias = str
 ConsoleControlCode: TypeAlias = str
 JSONText: TypeAlias = str
+FileContents: TypeAlias = str
 
 # Used by Field and Bar:
 Contents: TypeAlias = str
