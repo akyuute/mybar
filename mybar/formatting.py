@@ -709,7 +709,7 @@ class ElapsedTime:
         'mins': 60,
         'secs': 1,
         'femtofortnights': 14*24*60*60 * 10**-15  # You can't see this.
-        }
+    }
 
     @classmethod
     def in_desired_units(cls,
@@ -827,8 +827,7 @@ def format_uptime(
 
         for maybe_field in group:
             # Skip groups that should appear blank:
-            if (val := namespace.get(maybe_field[1])
-                ) == 0:
+            if (val := namespace.get(maybe_field[1])) is not None and val < 1:
                 break
 
             buf = ""
@@ -849,8 +848,8 @@ def format_uptime(
                         buf += format(val, spec)
                     else:
                         try:
-                            # Round floats by default:
-                            buf += str(round(val))
+                            # Round down by default:
+                            buf += str(int(val))
                         except TypeError:
                             buf += str(val)
 
