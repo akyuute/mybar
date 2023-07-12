@@ -362,7 +362,6 @@ class Lexer:
         # Symbols
         *tuple(dict.fromkeys(KEYWORDS, Symbol.KEYWORD).items()),
         (re.compile(r'^[a-zA-Z_]+'), Symbol.IDENTIFIER),
-        # (re.compile(r'^'), Misc.EOF),
     )
 
     def __init__(
@@ -541,71 +540,47 @@ class Lexer:
 
 class Dict(_Dict):
     '''
-    A custom ast.Dict class with an instance attribute for logging
-    whether or not a mapping encloses other mappings.
+    A custom ast.Dict class with instance attribute `_nested`
+    logging whether or not a mapping encloses other mappings.
     '''
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._enclosing = False
+        self._nested = False
 
     def __repr__(self) -> str:
         cls = type(self).__name__
-        enc = self._enclosing
-        # keys = [ast.dump(k) for k in self.keys]
-        # values = [ast.dump(v) for v in self.values]
+        enc = self._nested
         keys = [k if isinstance(k, str) else k.id for k in self.keys]
-        # keys = [k if isinstance(k, str) else ast.dump(k) for k in self.keys]
-        # values = [v if isinstance(v, str) else ast.dump(v) for v in self.keys]
         r = f"{cls}({enc=}, {keys=})"
-        # r = f"{cls}({keys=}, {values=})"
         return r
 
 
 class Interpreter(NodeVisitor):
     '''
-    Convert ASTs to literal Python expressions.
+    Convert ASTs to literal Python code.
     '''
-    def visit_Constant(self, node):
+    def visit_Constant(self, node: AST) -> str:
         return node.value
 
-    def visit_Dict(self, node):
-        # print()
-        # print(ast.dump(node))
-
-
+    def visit_Dict(self, node: AST) -> dict:
         new_d = {}
 
         for key, value in zip(node.keys, node.values):
-            # print()
             k = self.visit(key)
             v = self.visit(value)
-            # print(ast.dump(key), ast.dump(value))
-            # new_d[self.visit(key)] = self.visit(v)
-
-                # if maybe_assign.pop(self.__NESTED, False):
-                    # 'kwargs.foo'
-                    # base, attr = maybe_assign.popitem()
-
             if key not in new_d:
                 new_d[k] = v
             else:
                 new_d[k].update(v)
 
-##        new_d = {}
-##        # print(
-##        for key, val in zip(node.keys, node.values):
-##            print()
-##            print(ast.dump(key), ast.dump(val))
-##            new_d[self.visit(key)] = self.visit(val)
-
-
         return new_d
 
-    def visit_List(self, node):
+    def visit_List(self, node: AST) -> list:
         return [self.visit(e) for e in node.elts]
 
-    def visit_Name(self, node):
+    def visit_Name(self, node: AST) -> str:
         return node.id
+
 
 class Parser:
     '''
@@ -629,7 +604,7 @@ class Parser:
     def tokens(self) -> list[Token]:
         return self._lexer.lex()
 
-    def parse_as_dict(self, tree = None) -> dict:
+    def as_dict(self, tree = None) -> dict:
         '''
         Parse a config file and return its data as a :class:`dict`.
         '''
@@ -640,7 +615,6 @@ class Parser:
         i = Interpreter()
         mapping = {}
         for n in tree:
-        # for n in self.parse():
             if not isinstance(n, Dict):
                 # Each expression must map one thing to another.
                 # This expression breaks the rules.
@@ -652,8 +626,8 @@ class Parser:
                 raise ParseError.with_highlighting(n._token, msg)
 
             parsed = i.visit(n)
-            # print(parsed)
             mapping.update(parsed)
+
         return mapping
 
     def parse(
@@ -712,17 +686,16 @@ class Parser:
 
                 if isinstance(parsed, Dict):
                     if any(isinstance(v, Dict) for v in parsed.values):
-                        parsed._enclosing = True
-                    # print(repr(parsed))
+                        parsed._nested = True
 
                 body.append(parsed)
-                # print([repr(d_) for d in parsed.values for d_ in d.values])
 
         except TokenError as e:
             import traceback, sys
             traceback.print_exc(limit=1)
             sys.exit(1)
 
+        self._lexer.reset()
         return body
 
     def parse_expr(self, prev: Token = None) -> AST:
@@ -760,7 +733,7 @@ class Parser:
         match curr.kind:
 
             case self._lexer.eof:
-                if prev.value in '[{(':
+                if prev.value in tuple('[{('):
                     msg = f"Unterminated {prev.value!r}"
                     raise ParseError.with_highlighting(prev, msg)
 
@@ -834,14 +807,14 @@ class Parser:
                 node = Dict([target], [value])
                 if isinstance(prev, Token) and prev.kind is Syntax.L_CURLY_BRACE:
                     print("Found an assign following a {")
-                    node._enclosing = True
+                    node._nested = True
 
             case BinOp.ATTRIBUTE:
                 curr.check_expected_after(prev, (Symbol.IDENTIFIER,))
                 base = Name(prev.value)
                 attr = self.parse_expr(prev=curr)
                 node = Dict(keys=[base], values=[attr])
-                # node._enclosing = True
+                # node._nested = True
 
             case Syntax.L_CURLY_BRACE:
                 keys = []
@@ -893,7 +866,7 @@ class Parser:
                     # No. ('foo {bar=1, baz=2, ...')
                     # Wrap ourselves in Dict as if assigning to 'foo':
                     node = Dict(keys=[Name(prev.value)], values=[reconciled])
-                    node._enclosing = True
+                    node._nested = True
                 else:
                     # Yes. ('foo = {bar=1, baz=2, ...')
                     # Return ourselves to the '=':
@@ -928,10 +901,6 @@ class Parser:
                     # Return ourselves to the '=':
                     node = reconciled
 
-                # node._enclosing = True
-                # print(repr(node))
-                # print()
-
             case Syntax.R_BRACKET:
                 curr.check_expected_after(
                     prev, (Syntax.L_BRACKET, Syntax.COMMA)
@@ -961,160 +930,48 @@ class Parser:
             node._token = curr
         return node
 
-class Uninterpreter(NodeVisitor):
-    '''
-    Convert ASTs back into string representations.
-    '''
-    indent = 4 * ' '
 
-    def stringify(self, tree: list[AST]) -> FileContents:
-        for n in tree:
-            # print(f"{ast.dump(n) = }")
-            string = self.visit(n)
-            # print(repr(string))
-            # print(string)
-        return '\n'.join((self.visit(n) for n in tree))
+class ConfigFileMaker(NodeVisitor):
+    '''
+    Convert ASTs to string representations with config file syntax.
+    '''
+    def __init__(self) -> None:
+        self.indent = 4 * ' '
+
+    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
+        strings = [self.visit(n) for n in tree]
+        return sep.join(strings)
+
+    def visit_Constant(self, node):
+        val = node.value
+        if isinstance(val, str):
+            return repr(val)
+        if val is None:
+            return ""
+        return str(val)
 
     def visit_Dict(self, node):
-        print()
-        # print(ast.dump(node))
-        # print(node._enclosing)
-        # print(repr(node))
-        # print("Got dict")
-        # print(ast.dump(node))
-
-        if node._enclosing:
-            print("Enclosing:")
-            # print([ast.dump(v) for v in node.values])
-            # print("Targets:", [k.id for k in node.keys])
-
-            target = self.visit(node.keys[-1])  # There will only be one.
-            print(target)
-            # assignments = [self.visit(v) for v in node.values]
-            assignments = self.visit(node.values[-1])
-            # print(assignments)
-            # joined = ('\n' + self.indent).join(assignments)
-            string = f"{target} {{\n{self.indent}{assignments}\n}}"
-            # string = f"{target} {{\n{self.indent}{joined}\n}}"
+        if node._nested:
+            target = self.visit(*node.keys)  # There will only be one.
+            joined = self.visit(*node.values)  # There will only be one.
+            string = f"{target} {{\n{self.indent}{joined}\n}}"
             return string
 
         assignments = []
-        print("Not enclosing")
         for k, v in zip(node.keys, node.values):
-            print(ast.dump(node))
-            # print(v)
             key = self.visit(k)
-            value = self.visit(v)
-            print((v))
-            print(key)
-            print(key, value)
-
             if isinstance(v, Dict):
-                # Kwargs, for example, gotten by attributes.
-                print("Yes a dict")
-                # vals = [f"{key}.{val}" for val in value]
-
-
-                vals = []
-                for val in v.values:
-                    attr = self.visit(val) if isinstance(val, Dict) else value
-                    vals.append(f"{key}.{attr}")
-                    print(vals)
-                # vals = [f"{key}.{value}" for val in v.values]
-
-
-                # attribute = f"{key}.{value}"
-                attributes = ('\n' + self.indent).join(vals)
-                # print(string)
-                # assignments.append(attribute)
-                assignments.append(attributes)
+                attrs = (self.visit(attr) for attr in v.keys)
+                vals = (self.visit(value) for value in v.values)
+                for attr, val in zip(attrs, vals):
+                    assignments.append(f"{key}.{attr} = {val}")
 
             else:
-                print("Not a dict:")
-                print(key, value)
-                # print(ast.dump(value))
-                # Plain assignments to a simplex identifier.
-                assign = f"{key} = {value}"
-                assignments.append(assign)
-
-##            else:
-##                print("Not enclosing:")
-####                for k, v in zip(node.keys, node.values):
-####                    # print(v)
-####                    key = self.visit(k)
-####                    value = self.visit(v)
-####                    # print(ast.dump(v))
-##                print(f"{key = }")
-##                print(f"{value = }")
-##
-##                if value.startswith("{"):
-##                    string = f"{key} {value}"
-##                else:
-##                    string = f"{key} = {value}"
-
-
-            print(f"{assignments = }")
+                val = self.visit(v)
+                assignments.append(f"{key} = {val}")
 
         joined = ('\n' + self.indent).join(assignments)
-        string = f"{self.indent}{joined}\n}}"
-        string = joined
-        print(string)
-        return string
-        # return assignments
-
-        # return string
-
-        # return string
-
-##        if node._enclosing:
-
-##            # print("Enclosing:")
-##            # print([ast.dump(v) for v in node.values])
-##            # keys = node.values[-1].keys
-##            # values = node.values[-1].values
-##
-##            for k, v in zip(node.keys, node.values):
-##                # print(v)
-##                key = self.visit(k)
-##                value = self.visit(v)
-##
-##                if isinstance(v, Dict):
-##                    # Kwargs, for example, gotten by attributes.
-##                    attribute = f"{key}.{value}"
-##                    # print(string)
-##                    assignments.append(attribute)
-##
-##                else:
-##                    # print("Not a dict:")
-##                    # print(key, value)
-##                    # print(ast.dump(value))
-##                    # Plain assignments to a simplex identifier.
-##                    assign = f"{key} = {value}"
-##                    assignments.append(assign)
-##
-##                print(f"{assignments = }")
-##
-##            # print("Targets:", [k.id for k in node.keys])
-##            joined = ('\n' + self.indent).join(assignments)
-##            string = f"{{\n{self.indent}{joined}\n}}"
-##
-##            # return string
-##
-##        else:
-##            print("Not enclosing:")
-##            for k, v in zip(node.keys, node.values):
-##                # print(v)
-##                key = self.visit(k)
-##                value = self.visit(v)
-##                # print(ast.dump(v))
-##                print(f"{key = }")
-##                print(f"{value = }")
-##                if value.startswith("{"):
-##                    string = f"{key} {value}"
-##                else:
-##                    string = f"{key} = {value}"
-
-        return string
+        return joined
 
     def visit_List(self, node):
         elems = tuple(self.visit(e) for e in node.elts)
@@ -1130,136 +987,66 @@ class Uninterpreter(NodeVisitor):
         string = node.id
         return string
 
-    def visit_Constant(self, node):
-        val = node.value
-        if isinstance(val, str):
-            return repr(val)
-        if val is None:
-            return ""
-        return str(val)
 
-
-#TODO: Finish dict unparse implementation!
-class Unparser:
+class DictConverter:
     '''
     Convert Python dictionaries to ASTs.
     '''
-    def unparse(self, mapping: dict) -> list[AST]:
+    @classmethod
+    def unparse(cls, mapping: dict) -> list[AST]:
         if not isinstance(mapping, dict):
-            # print(mapping)
             return mapping
 
         assignments = []
-        # keys = []
-        # vals = []
-
-        # return [Dict([Name(k)], [self.unparse_node(v)]) for k, v in mapping.items()]
 
         for key, val in mapping.items():
-            # keys.append(key)
-            # vals.append()
-            node = Dict([Name(key)], [self.unparse_node(val)])
-            # node._enclosing = True
+            node = Dict([Name(key)], [cls.unparse_node(val)])
+            if any(isinstance(v, Dict) for v in node.values):
+                node._nested = True
             assignments.append(node)
         return assignments
 
-    def unparse_node(self, thing) -> list[AST]:
+    @classmethod
+    def unparse_node(cls, thing) -> AST:
         '''
         '''
         if isinstance(thing, dict):
             keys = []
             vals = []
 
-            # print(thing.items())
             for key, val in thing.items():
                 
-                # print(self.unparse_node(val))
-
                 if key not in keys:
-                    # print(f"{key} not in {keys}")
                     keys.append(key)
-                    vals.append(self.unparse_node(val))
+                    vals.append(cls.unparse_node(val))
                 else:
-                    # print(f"{key} in {keys}")
+                    # The equivalent of dict.update():
                     idx = keys.index(key)
-                    vals[idx].keys.append(v.keys[-1])
-                    vals[idx].values.append(v.values[-1])
-
-##                subkeys = []
-##                subvals = []
-##                for k, v in val.items():
-##
-##                    if k not in subkeys:
-##                        print(f"{k} not in {subkeys}")
-##                        subkeys.append(k)
-##                        subvals.append(self.unparse(v))
-##                    else:
-##                        print(f"{k} in {subkeys}")
-##                        idx = keys.index(k)
-##                        subvals[idx].values.append(self.unparse(v))
-
-                # print(subkeys, subvals)
-                # print(subkeys, [ast.dump(v) for v in vals])
-
-            # keys.append(key)
-            # vals.append(Dict(subkeys, subvals))
+                    vals[idx].keys.append(*v.keys)
+                    vals[idx].values.append(*v.values)
 
             node = Dict([Name(k) for k in keys], vals)
-            # if any(isinstance(v, Dict) for v in vals):
-                # node._enclosing = True
-                # print("Enclosing", ast.dump(node))
-            # print(keys, vals)
-            # node = Dict(keys, vals)
-
-            # print([ast.dump(v) for v in vals])
-            # node = Dict([k], v)
-            # print(ast.dump(node))
-            # print()
             return node
 
-            # vals.append(node)
-            
-
-
         elif isinstance(thing, list):
-            # vals = [Constant(v) for v in thing]
             values = [Name(v) for v in thing]
-            # node = Dict([target], [List(values)])
             return List(values)
 
         elif isinstance(thing, (int, float, str)):
             return Constant(thing)
-            # node = Dict([target], [Constant(thing)])
 
         elif thing in (None, True, False):
             return Constant(thing)
-            # node = Dict([target], [Constant(thing)])
-
-        # keys.append(key)
-        # vals.append(node)
-        # assignments.append(node)
-
-        # node = Dict(keys, vals)
-        # print(f"{ast.dump(node) = }")
-        # print([ast.dump(k) for k in keys])
-        # print([ast.dump(v) for v in vals])
-        # print(assignments)
 
         return node
-        # print(vals)
-        # assignments.append(Dict(keys, vals))
-        # return assignments
 
-    def unparse_from_dict(self, mapping: dict) -> FileContents:
+    @classmethod
+    def as_file(cls, mapping: dict) -> FileContents:
         '''
         '''
-        d = Uninterpreter()
-        unparsed = self.unparse(mapping)
-        for d in unparsed:
-            print(ast.dump(d, indent=2))
-        # return d.stringify(self.unparse(mapping))
-
-
+        tree = cls.unparse(mapping)
+        text = ConfigFileMaker().stringify(tree)
+        return text
 
 
 if __name__ == '__main__':
@@ -1267,48 +1054,26 @@ if __name__ == '__main__':
     # l.lex()
     # print('\n'.join(str(t) for t in l.lex() if not t.kind in (*Ignore, Misc.NEWLINE)))
     p = Parser()
-    # print(ast.dump(p.parse()[0]))
-    # print(p.parse_as_dict())
-##    for n in p.parse():
-##        print(ast.dump(n, ))
-    # p._lexer.reset()
-    # print()
-    # print()
-    # print()
-##    print("From config file:")
-    parsed = p.parse_as_dict()
-##    print(parsed)
-##    print()
-####    for k, v in parsed.items():
-####        print(v)
-####        print(f"<{k}: {ast.dump(Unparser().unparse_node(v))}>")
-##    print("From unparsing and reparsing the above")
-##    print("(should be exactly the same):")
-    unparsed = Unparser().unparse(parsed)
-    unreparsed = p.parse_as_dict(unparsed)
-##    print(unreparsed)
-    # for n in Unparser().unparse(parsed):
-        # print(ast.dump(n))
-    # for n in Unparser().unparse(parsed):
-        # print(ast.dump(n, ))
-    # print(Unparser().unparse_from_dict(p.parse_as_dict()))
-
-    p._lexer.reset()
+    parsed = p.as_dict()
+    unparsed = DictConverter().unparse(parsed)
+    unreparsed = p.as_dict(unparsed)
+    print(DictConverter().as_file(p.as_dict()))
+    # print(DictConverter().as_file(unreparsed))
 
 ##    print()
 ##    # print([repr(d_) for d in p.parse() for d_ in d.values])
 ##    # print([repr(d_) for d in unparsed for d_ in d.values])
-##    print([(d._enclosing, ast.dump(d)) for d in p.parse()])
+##    print([(d._nested, ast.dump(d)) for d in p.parse()])
 ##    p._lexer.reset()
-##    print([(d_._enclosing, ast.dump(d_)) for d in p.parse() for d_ in d.values])
+##    print([(d_._nested, ast.dump(d_)) for d in p.parse() for d_ in d.values])
 ##    print()
-##    print([(d._enclosing, ast.dump(d)) for d in unparsed])
-##    print([(d_._enclosing, ast.dump(d_)) for d in unparsed for d_ in d.values])
+##    print([(d._nested, ast.dump(d)) for d in unparsed])
+##    print([(d_._nested, ast.dump(d_)) for d in unparsed for d_ in d.values])
 ##    print()
-##    print(Uninterpreter().stringify(unparsed))
-    print(Uninterpreter().stringify(p.parse()))
-    # print(Uninterpreter().stringify(unparsed))
+##    print(ConfigFileMaker().stringify(unparsed))
+    # print(ConfigFileMaker().stringify(p.parse()))
+    # print(ConfigFileMaker().stringify(unparsed))
 ##    p._lexer.reset()
 ##    print()
-##    print(Uninterpreter().stringify(Unparser().unparse(p.parse_as_dict())))
+##    print(ConfigFileMaker().stringify(DictConverter().unparse(p.as_dict())))
 ##
