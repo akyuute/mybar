@@ -28,12 +28,12 @@ from .constants import (
 
 from . import cli
 from . import field_funcs
+from . import parse_conf
 from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
 from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
 from .namespaces import BarConfigSpec, BarSpec, FieldSpec
-from .parse_conf import Parser
 from ._types import (
     Args,
     ConsoleControlCode,
@@ -293,8 +293,8 @@ class BarConfig(dict):
             ]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
-        p = Parser(file=absolute)
-        data = p.parse_as_dict()
+        p = parse_conf.Parser(file=absolute)
+        data = p.as_dict()
         text = p._string
         return data, text
 
@@ -323,16 +323,14 @@ class BarConfig(dict):
             override, defaults to :attr:`Bar._default_params`
         :type defaults: :class:`_types.BarSpec`
         '''
-        un_pythoned = cls._remove_unserializable(spec, defaults=defaults)
+        unpythoned = cls._remove_unserializable(spec, defaults=defaults)
         absolute = os.path.abspath(os.path.expanduser(file))
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        unparser = Unparser()
-        text = assembler.stringify(spec)  #NOTE: Needs work!
+        text = parse_conf.DictConverter().as_file(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
-            # json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
 
     @staticmethod
     def _read_json(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
