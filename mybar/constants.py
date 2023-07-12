@@ -15,7 +15,8 @@ import os.path
 
 
 CONFIG_FILE: str = os.path.abspath(os.path.expanduser(
-    '~/.config/mybar/conf.json'
+    # '~/.config/mybar/conf.json'
+    '~/.config/mybar/mybar.conf'
 ))
 '''The default bar config file path.'''
 
