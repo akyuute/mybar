@@ -269,7 +269,7 @@ class Parser(ArgumentParser):
 
         self.add_argument(
             '-r', '--refresh',
-            dest='refresh_rate',
+            dest='refresh',
             help=(
                 "The bar's refresh rate in seconds per cycle."
             ),
