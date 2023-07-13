@@ -140,12 +140,17 @@ class BarConfig(dict):
         absolute = os.path.abspath(os.path.expanduser(file))
         file_spec = {}
         try:
-            file_spec, text = cls._read_file(absolute)
+            unprocessed, text = cls._read_file(absolute)
         except OSError as e:
             raise e.with_traceback(None)
 
-        processed = cls._process_file(file_spec)
-        options = processed | overrides
+        from_file = cls._process_file(unprocessed)
+        options = from_file | overrides
+
+        # Don't clobber a file's field definitions:
+        for key in ('field_definitions',):
+            if key in options:
+                options[key] = from_file[key] | overrides.get(key, {})
         config = cls(options, defaults)
         config.file = absolute
         config.file_contents = text
@@ -170,6 +175,7 @@ class BarConfig(dict):
             if p in params:
                 config[p] = params.pop(p)
 
+        # The `field_definitions` should be all that's left of `params`:
         field_defs = {**params}
         config['field_definitions'] = field_defs
         return config
@@ -215,7 +221,7 @@ class BarConfig(dict):
                     return cls(bar_options)
 
         else:
-            file = bar_options.pop('config_file', None)
+            file = bar_options.pop('config_file')
 
         try:
             # If 'config_file' is not in `overrides`,
@@ -775,10 +781,24 @@ class Bar:
 
         # Gather Field parameters and instantiate new Fields:
         fields = {}
-        expctd_name="the name of a default or properly defined `custom` Field"
+        expctd_name = (
+            "the name of a default or"
+            " properly defined `custom` Field in field list"
+        )
 
         for name in field_order:
             field_params = field_defs.get(name)
+
+            # Convert values from strings:
+            if field_params is not None:
+                conversions = {
+                    'custom': utils.str_to_bool,
+                }
+                for key, conv in conversions.items():
+                    try:
+                        field_params[key] = conv(field_params[key])
+                    except KeyError:
+                        continue
 
             match field_params:
                 case None:
@@ -1217,6 +1237,8 @@ class Bar:
         '''
         The bar's primary line-printing mechanism.
         Fields with the ``timely`` attribute get run here.
+        They run once every refresh,
+        effectively ignoring their ``interval`` attributes.
         Other fields are responsible for sending data to bar buffers.
         This only writes using the current buffer contents.
 
