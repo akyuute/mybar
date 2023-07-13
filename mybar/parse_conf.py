@@ -16,8 +16,7 @@ from os import PathLike
 from queue import LifoQueue
 from typing import NamedTuple, NoReturn, Self, TypeAlias, TypeVar
 
-# from ._types import FileContents
-FileContents = str
+from ._types import FileContents
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
@@ -120,12 +119,12 @@ class TokenError(ConfigError):
         self.msg = '\n' + msg
 
     @classmethod
-    def with_highlighting(
+    def hl_error(
         cls,
         tokens: Token | tuple[Token],
         msg: str,
-        leader: str = None,
         with_col: bool = True,
+        leader: str = None,
         indent: int = 2
     ):
         '''
@@ -140,14 +139,14 @@ class TokenError(ConfigError):
             column number
         :type msg: :class:`str`
 
-        :param leader: The error leader to use,
-            defaults to that of the lexer of the first token
-        :type leader: :class:`str`
-
         :param with_col: Display the column number of the token,
             defaults to ``True``
         :type with_col: :class:`bool`
         
+        :param leader: The error leader to use,
+            defaults to that of the lexer of the first token
+        :type leader: :class:`str`
+
         :param indent: Indent by this many spaces * 2,
             defaults to 2
         :type indent: :class:`int`
@@ -155,11 +154,12 @@ class TokenError(ConfigError):
         :returns: A new :class:`TokenError` with a custom error message
         :rtype: :class:`TokenError`
         '''
+        # print(tokens)
         if isinstance(tokens, Token):
             tokens = (tokens,)
 
-        token = tokens[0]
-        lexer = token.lexer
+        first_tok = tokens[0]
+        lexer = first_tok.lexer
 
         if indent is None:
             indent = 0
@@ -167,31 +167,30 @@ class TokenError(ConfigError):
 
         if leader is None:
             if lexer is not None:
-                leader = dent + token.error_leader(with_col)
+                leader = dent + first_tok.error_leader(with_col)
             else:
-                leader = ''
+                leader = ""
 
+        max_len = 100
+        break_line = "\n" + dent if len(leader + msg) > max_len else ""
         dent = 2 * dent  # Double indent for following lines.
-        line = lexer.get_line(token).rstrip()
-        # To preserve alignment after lstrip(), we need the offset:
-        lstrip_offset = len(line) - len(line.lstrip())
-        space = ' ' * (token.colno - lstrip_offset - 1)
-        highlight = dent + space
-        line = dent + line.lstrip()
-
+        highlight = ""
 
         if len(tokens) == 1:
-            if token.kind is Literal.STRING:
-                text = token.match.group()
+            line = lexer.get_line(first_tok)
+            if first_tok.kind is Literal.STRING:
+                text = first_tok.match.group()
             else:
-                text = token.value
+                text = first_tok.value
+            # highlight = '^' * len(text)
+            between = tokens
 
-            highlight += '^' * len(text)
-        
         else:
             # Highlight multiple tokens using all in the range:
             start = tokens[0].cursor
             end = tokens[-1].cursor
+            # print(start, end)
+            line_bridge = " "
 
             try:
                 # Reset the lexer since it's already passed our tokens:
@@ -199,20 +198,52 @@ class TokenError(ConfigError):
             except TokenError:
                 all_toks = tokens
 
-            all_between = [t for t in all_toks if start <= t.cursor <= end]
+            between = tuple(t for t in all_toks if start <= t.cursor <= end)
 
-            for t in all_between:
-                if t.kind is Misc.NEWLINE:
-                    break
+            if any(t.kind is Misc.NEWLINE for t in between):
+                # Consolidate multiple lines:
+                with_dups = (lexer.get_line(t) for t in between)
+                lines = dict.fromkeys(with_dups)
+                # Don't count line breaks twice:
+                lines.pop('', None)
+                line = line_bridge.join(lines)
+            else:
+                line = lexer.get_line(first_tok)
 
-                if t.kind is Literal.STRING:
-                    text = t.match.group()
-                else:
-                    text = t.value
+        # Work out the highlight line:
+        # print(between)
+        for t in between:
+            # print(t)
+            match t.kind:
+                case Ignore.SPACE:
+                    highlight += " " * len(t.value)
+                    continue
 
-                highlight += '^' * len(text)
+                case t.kind if t.kind in Ignore:
+                    continue
 
-        errmsg = leader + msg + '\n'.join(('', line, highlight))
+                case Misc.NEWLINE:
+                    highlight += line_bridge
+                    continue
+
+                case Literal.STRING:
+                    # match.group() has the quotation marks:
+                    token_length = len(t.match.group())
+
+                case _:
+                    token_length = len(t.value)
+
+            highlight += '^' * token_length
+
+
+        # Determine how far along the first token is in the line:
+        line_start_distance = len(line) - len(line.lstrip())
+        tok_start_distance = first_tok.colno - line_start_distance - 1
+        offset = ' ' * tok_start_distance
+        highlight = dent + offset + highlight
+        line = dent + line.strip()
+
+        errmsg = leader + break_line + msg + '\n'.join(('', line, highlight))
         return cls(errmsg)
 
 
@@ -264,7 +295,7 @@ class Token:
 
     def __repr__(self):
         cls = type(self).__name__
-        ignore = ('cursor', 'lineno', 'colno', 'lexer')
+        ignore = ('cursor', 'lineno', 'colno', 'lexer', 'file')
         pairs = (
             (k, getattr(self, k)) for k in self.__slots__
             if k not in ignore
@@ -314,7 +345,7 @@ class Token:
             if error:
                 if msg is None:
                     msg = f"Unexpected token: {self.value!r}"
-                raise TokenError.with_highlighting(self, msg)
+                raise TokenError.hl_error(self, msg)
 
             return False
         return True
@@ -431,8 +462,20 @@ class Lexer:
         Reset the cursor to the beginning of the lexer string.
         '''
         self._cursor = 0
+        self._lineno = 1
         self._colno = 1
         return self
+
+    def get_prev(self, token: Token = None, back: int = 1) -> tuple[Token]:
+        '''
+        '''
+        tokens = self.reset().lex()
+        idx = tuple(tok.cursor for tok in self.lex()).index(token.cursor)
+        # idx = cursors.index(token.cursor)
+        ret = tokens[idx - back : idx + 1]
+        # print(ret)
+        return ret
+
 
     def error_leader(self, with_col: bool = False) -> str:
         '''
@@ -473,7 +516,7 @@ class Lexer:
             self._cursor += len(tok.value)
             self._colno += len(tok.value)
             if kind is Misc.NEWLINE:
-                self._lineno += len(m.group())
+                self._lineno += len(tok.value)
                 self._colno = 1
 
             if kind is Literal.STRING:
@@ -529,7 +572,7 @@ class Lexer:
                 else:
                     msg = f"Unexpected token: {bad_value!r}"
 
-                raise TokenError.with_highlighting(bad_token, msg)
+                raise TokenError.hl_error(bad_token, msg)
 
             except TokenError as e:
                 # Avoid recursive stack traces with hundreds of frames:
@@ -549,9 +592,9 @@ class Dict(_Dict):
 
     def __repr__(self) -> str:
         cls = type(self).__name__
-        enc = self._nested
+        nest = self._nested
         keys = [k if isinstance(k, str) else k.id for k in self.keys]
-        r = f"{cls}({enc=}, {keys=})"
+        r = f"{cls}({nest=}, {keys=})"
         return r
 
 
@@ -604,6 +647,9 @@ class Parser:
     def tokens(self) -> list[Token]:
         return self._lexer.lex()
 
+    def token_dict(self) -> dict[int, Token]:
+        return {t.cursor: t for t in self._lexer.lex()}
+
     def as_dict(self, tree = None) -> dict:
         '''
         Parse a config file and return its data as a :class:`dict`.
@@ -623,7 +669,7 @@ class Parser:
                     f" the start of an expression."
                 )
                 msg = f"Invalid syntax: {n._token.match.group()!r} ({note})"
-                raise ParseError.with_highlighting(n._token, msg)
+                raise ParseError.hl_error(n._token, msg)
 
             parsed = i.visit(n)
             mapping.update(parsed)
@@ -710,19 +756,25 @@ class Parser:
             # The first token in an expression.
             if curr.kind is Syntax.COMMA:
                 msg = "Invalid syntax: Comma used outside [] or {}:"
-                raise ParseError.with_highlighting(curr, msg)
+                raise ParseError.hl_error(curr, msg)
 
             if curr.kind in Syntax:
-                msg = f"Unmatched {curr.value!r}"
-                raise ParseError.with_highlighting(curr, msg)
+                msg = f"Unmatched {curr.value!r}:"
+                raise ParseError.hl_error(curr, msg)
 
-            # if curr.kind in BinOp:
-            if curr.kind in (*BinOp, ): #*Syntax, *Literal):
+            if curr.kind in BinOp:
                 # One cannot begin an expression with any of these.
-                # msg = "Invalid syntax"
-                line = curr.lexer.get_line(curr).lstrip()
+
+                # tokens = self.tokens()
+
+                # prev = self._lexer.get_prev(curr)
+                # prev = tokens[tokens.index(curr.cursor) - 1]
+                # prev = tuple(self.token_dict[curr.cursor])
+##                prev = self._lexer.get_prev(curr)
+                # raise ParseError.hl_error((prev, curr), msg)
+
                 msg = f"Invalid syntax:" #{line!r}"
-                raise ParseError.with_highlighting(curr, msg)
+                raise ParseError.hl_error(curr, msg)
 
             # Advance to the next expression:
             self._previous_token = curr
@@ -735,7 +787,7 @@ class Parser:
             case self._lexer.eof:
                 if prev.value in tuple('[{('):
                     msg = f"Unterminated {prev.value!r}"
-                    raise ParseError.with_highlighting(prev, msg)
+                    raise ParseError.hl_error(prev, msg)
 
                 return self._lexer.eof
 
@@ -759,33 +811,40 @@ class Parser:
                 return self.parse_expr(prev=curr)
 
             case Symbol.IDENTIFIER:
-                # Continue, giving context.
                 if isinstance(prev, Token):
                     if prev.kind is Symbol.IDENTIFIER:
-                        msg = f"Unexpected identifier: {curr.value!r}"
-                        raise ParseError.with_highlighting(curr, msg)
+                        msg = (
+                            f"Multiple identifiers ({prev.value!r}"
+                            f" and {curr.value!r}) not allowed together:"
+                        )
+                        raise ParseError.hl_error((prev, curr), msg, False)
 
                     # Remove once scoped self-reference is available:
                     if prev.kind is BinOp.ASSIGN:
-                        note = "cannot assign an identifier"
+                        note = f"cannot evaluate {curr.value!r}, an identifier"
                         msg = f"Invalid assignment ({note}):"
-                        raise ParseError.with_highlighting((prev, curr), msg)
+                        raise ParseError.hl_error((prev, curr), msg)
 
                     if prev.kind is Syntax.L_BRACKET:
                         # Consecutive identifiers are valid inside lists.
                         return Name(curr.value)
 
+                # Continue, giving context.
                 nxt = self.parse_expr(prev=curr)
-                # if isinstance(nxt, Dict):
                 return nxt
 
             case BinOp.ASSIGN:
-                # print(prev)
                 if isinstance(prev, Token):
                     # Only ever assign to identifiers:
+                    if prev.kind is Syntax.L_CURLY_BRACE:
+                        # This assignment is missing a target.
+                        msg = f"Invalid syntax:"
+                        raise ParseError.hl_error(curr, msg)
+
                     if prev.kind is not Symbol.IDENTIFIER:
-                        msg = "Invalid syntax:"
-                        raise ParseError.with_highlighting((prev, curr), msg)
+                        note = f"cannot assign to {prev.kind.value}"
+                        msg = f"Invalid assignment: {note}:"
+                        raise ParseError.hl_error((prev, curr), msg)
                         
                 target = Name(prev.value)
 
@@ -798,15 +857,14 @@ class Parser:
                     # Unreachable?
                     else:
                         msg = f"Invalid syntax for assignment: {val.value!r}"
-                        # raise ParseError.with_highlighting(val, msg)
-                        raise ParseError.with_highlighting((prev, curr, val), msg)
+                        raise ParseError.hl_error((prev, curr, val), msg)
 
                 else:
                     value = val
 
                 node = Dict([target], [value])
                 if isinstance(prev, Token) and prev.kind is Syntax.L_CURLY_BRACE:
-                    print("Found an assign following a {")
+                    # Label this node as being at root level.
                     node._nested = True
 
             case BinOp.ATTRIBUTE:
@@ -814,7 +872,6 @@ class Parser:
                 base = Name(prev.value)
                 attr = self.parse_expr(prev=curr)
                 node = Dict(keys=[base], values=[attr])
-                # node._nested = True
 
             case Syntax.L_CURLY_BRACE:
                 keys = []
@@ -822,41 +879,37 @@ class Parser:
 
                 # Gather assignments, which come in the form of `Dict`:
                 while True:
-                    # print(keys)
-                    # print([ast.dump(v) for v in vals])
                     assign = self.parse_expr(prev=curr)
                     if isinstance(assign, Token):
                         if assign.kind is Syntax.R_CURLY_BRACE:
                             break
 
+                    elif isinstance(assign, Constant):
+                        nxt = self.parse_expr(assign._token)
+                        # print(f"{nxt = }")
+                        # nxt = self.parse_expr(assign._token)
+                        # print(f"{nxt = }")
+                        note = "Are you trying to assign to a constant?"
+                        msg = f"Invalid syntax ({note}):"
+                        raise ParseError.hl_error((assign._token, ), msg)
                     elif isinstance(assign, Dict):
                         if not assign.keys:
                             continue
                         
-                        # print(f"{ast.dump(assign) = }")
                         # Assignments only have one key and one value:
                         key = assign.keys[-1].id
                         val = assign.values[-1]
-                        # print(ast.dump(val))
 
                         if key not in keys:
                             keys.append(key)
                             vals.append(val)
 
                         else:
-                            # Make nested dicts:
-                            # if isinstance(val, Dict):
-                                
-
+                            # Make nested dicts.
                             idx = keys.index(key)
-                            # print(key, idx)
-                            # vals[idx].values.append(val)
-                            # print([ast.dump(v) for v in vals[idx].values])
+                            # Equivalent to dict.update():
                             vals[idx].keys.append(val.keys[-1])
                             vals[idx].values.append(val.values[-1])
-                            # vals[idx].keys.append(val.keys[idx])
-                            # vals[idx].values.append(val.values[idx])
-                            # print([ast.dump(v) for v in vals[idx].values])
 
                 # Put all the assignments together:
                 reconciled = Dict([Name(k) for k in keys], vals)
@@ -866,6 +919,7 @@ class Parser:
                     # No. ('foo {bar=1, baz=2, ...')
                     # Wrap ourselves in Dict as if assigning to 'foo':
                     node = Dict(keys=[Name(prev.value)], values=[reconciled])
+                    # Label this node as being at root level.
                     node._nested = True
                 else:
                     # Yes. ('foo = {bar=1, baz=2, ...')
@@ -873,6 +927,7 @@ class Parser:
                     node = reconciled
 
             case Syntax.R_CURLY_BRACE:
+                # print(prev, repr(curr))
                 curr.check_expected_after(
                     prev, (Syntax.L_CURLY_BRACE, Syntax.COMMA)
                 )
@@ -1048,32 +1103,3 @@ class DictConverter:
         text = ConfigFileMaker().stringify(tree)
         return text
 
-
-if __name__ == '__main__':
-    # l = Lexer(file=FILE)
-    # l.lex()
-    # print('\n'.join(str(t) for t in l.lex() if not t.kind in (*Ignore, Misc.NEWLINE)))
-    p = Parser()
-    parsed = p.as_dict()
-    unparsed = DictConverter().unparse(parsed)
-    unreparsed = p.as_dict(unparsed)
-    print(DictConverter().as_file(p.as_dict()))
-    # print(DictConverter().as_file(unreparsed))
-
-##    print()
-##    # print([repr(d_) for d in p.parse() for d_ in d.values])
-##    # print([repr(d_) for d in unparsed for d_ in d.values])
-##    print([(d._nested, ast.dump(d)) for d in p.parse()])
-##    p._lexer.reset()
-##    print([(d_._nested, ast.dump(d_)) for d in p.parse() for d_ in d.values])
-##    print()
-##    print([(d._nested, ast.dump(d)) for d in unparsed])
-##    print([(d_._nested, ast.dump(d_)) for d in unparsed for d_ in d.values])
-##    print()
-##    print(ConfigFileMaker().stringify(unparsed))
-    # print(ConfigFileMaker().stringify(p.parse()))
-    # print(ConfigFileMaker().stringify(unparsed))
-##    p._lexer.reset()
-##    print()
-##    print(ConfigFileMaker().stringify(DictConverter().unparse(p.as_dict())))
-##
