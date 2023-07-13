@@ -75,6 +75,7 @@ def str_to_bool(value: str | bool, /) -> bool:
     '''Returns `True` or `False` bools for truthy or falsy strings.'''
     if isinstance(value, bool):
         return value
+    value = str(value)
     truthy = "true t yes y on 1".split()
     falsy = "false f no n off 0".split()
     pattern = value.lower()
