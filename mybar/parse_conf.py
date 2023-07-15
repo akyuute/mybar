@@ -33,6 +33,7 @@ FILE = 'test_config.conf'
 EOF = ''
 NEWLINE = '\n'
 
+
 class Grammar:
     # I have no clue whether or not the following makes sense.
     '''
@@ -63,8 +64,8 @@ class Ignore(Enum):
     SPACE = 'SPACE'
 
 class Misc(Enum):
-    NEWLINE = NEWLINE
-    EOF = EOF
+    NEWLINE = repr(NEWLINE)
+    EOF = repr(EOF)
     UNKNOWN = 'UNKNOWN'
 
 class Symbol(Enum):
@@ -76,10 +77,10 @@ class Keyword(Enum):
 KEYWORDS = ()
 
 class BinOp(Enum):
+    ASSIGN = '='
+    ATTRIBUTE = '.'
     ADD = '+'
     SUBTRACT = '-'
-    ATTRIBUTE = '.'
-    ASSIGN = '='
 
 class Syntax(Enum):
     COMMA = ','
@@ -154,7 +155,6 @@ class TokenError(ConfigError):
         :returns: A new :class:`TokenError` with a custom error message
         :rtype: :class:`TokenError`
         '''
-        # print(tokens)
         if isinstance(tokens, Token):
             tokens = (tokens,)
 
@@ -177,6 +177,7 @@ class TokenError(ConfigError):
         highlight = ""
 
         if len(tokens) == 1:
+            line_bridge = " "
             line = lexer.get_line(first_tok)
             if first_tok.kind is Literal.STRING:
                 text = first_tok.match.group()
@@ -189,7 +190,6 @@ class TokenError(ConfigError):
             # Highlight multiple tokens using all in the range:
             start = tokens[0].cursor
             end = tokens[-1].cursor
-            # print(start, end)
             line_bridge = " "
 
             try:
@@ -202,7 +202,7 @@ class TokenError(ConfigError):
 
             if any(t.kind is Misc.NEWLINE for t in between):
                 # Consolidate multiple lines:
-                with_dups = (lexer.get_line(t) for t in between)
+                with_dups = tuple(lexer.get_line(t) for t in between if t.kind not in Ignore)
                 lines = dict.fromkeys(with_dups)
                 # Don't count line breaks twice:
                 lines.pop('', None)
@@ -211,11 +211,10 @@ class TokenError(ConfigError):
                 line = lexer.get_line(first_tok)
 
         # Work out the highlight line:
-        # print(between)
         for t in between:
-            # print(t)
             match t.kind:
-                case Ignore.SPACE:
+                case Ignore.COMMENT | Ignore.SPACE:
+                    continue
                     highlight += " " * len(t.value)
                     continue
 
@@ -413,6 +412,7 @@ class Lexer:
         self._file = file
         self._stream = StringIO(self._string)
         self._token_stack = LifoQueue()
+        self._tokens = []
 
         self._cursor = 0  # 0-indexed
         self._lineno = 1  # 1-indexed
@@ -464,18 +464,21 @@ class Lexer:
         self._cursor = 0
         self._lineno = 1
         self._colno = 1
+        self._tokens.clear()
         return self
 
-    def get_prev(self, token: Token = None, back: int = 1) -> tuple[Token]:
+    def get_prev(self, back: int = 1, since: Token = None) -> tuple[Token]:
         '''
         '''
-        tokens = self.reset().lex()
-        idx = tuple(tok.cursor for tok in self.lex()).index(token.cursor)
+        if since is None:
+            return self._tokens[-back:]
+            # token = self._tokens[-1]
+        # tokens = self.reset().lex()
+        tokens = self._tokens
+        idx = tuple(tok.cursor for tok in tokens).index(since.cursor)
         # idx = cursors.index(token.cursor)
         ret = tokens[idx - back : idx + 1]
-        # print(ret)
         return ret
-
 
     def error_leader(self, with_col: bool = False) -> str:
         '''
@@ -490,7 +493,9 @@ class Lexer:
         '''
         # The stack will have contents after string concatenation.
         if not self._token_stack.empty():
-            return self._token_stack.get()
+            tok = self._token_stack.get()
+            self._tokens.append(tok)
+            return tok
 
         # Everything after and including the cursor position:
         s = self._string[self._cursor:]
@@ -535,12 +540,14 @@ class Lexer:
                     if maybe_str.kind is Literal.STRING:
                         # Concatenate.
                         tok.value += maybe_str.value
+                        self._tokens.append(tok)
                         return tok
 
                     else:
                         # Handle the next token separately.
                         self._token_stack.put(maybe_str)
 
+            self._tokens.append(tok)
             return tok
 
         else:
@@ -554,6 +561,7 @@ class Lexer:
                     file=self._file
                 )
 
+                self._tokens.append(tok)
                 return tok
 
             # If a token is not returned, prepare an error message:
@@ -576,8 +584,13 @@ class Lexer:
 
             except TokenError as e:
                 # Avoid recursive stack traces with hundreds of frames:
+                import __main__ as possibly_repl
+                if not hasattr(possibly_repl, '__file__'):
+                    # User is in a REPL; Don't yeet them.
+                    raise
                 import traceback
                 traceback.print_exc(limit=1)
+                # OK, yeet:
                 raise StackTraceSilencer(1)  # Sorry...
 
 
@@ -737,6 +750,10 @@ class Parser:
                 body.append(parsed)
 
         except TokenError as e:
+            import __main__ as possibly_repl
+            if not hasattr(possibly_repl, '__file__'):
+                # User is in a REPL; Don't yeet them.
+                raise
             import traceback, sys
             traceback.print_exc(limit=1)
             sys.exit(1)
@@ -763,24 +780,28 @@ class Parser:
                 raise ParseError.hl_error(curr, msg)
 
             if curr.kind in BinOp:
-                # One cannot begin an expression with any of these.
+                note = f"expected identifier, got {curr.value!r}"
+                # note = f"{curr.value!r} used outside expression" #{line!r}"
+                msg = f"Invalid syntax: {note}:"
+                raise ParseError.hl_error(curr, msg)
 
-                # tokens = self.tokens()
-
-                # prev = self._lexer.get_prev(curr)
-                # prev = tokens[tokens.index(curr.cursor) - 1]
-                # prev = tuple(self.token_dict[curr.cursor])
-##                prev = self._lexer.get_prev(curr)
-                # raise ParseError.hl_error((prev, curr), msg)
-
-                msg = f"Invalid syntax:" #{line!r}"
+            if curr.kind in Literal:
+                typ = curr.kind.value
+                note = f"expected identifier, got {typ} value"
+                msg = f"Invalid syntax: {note}:"
                 raise ParseError.hl_error(curr, msg)
 
             # Advance to the next expression:
-            self._previous_token = curr
             return self.parse_expr(prev=curr)
 
-        self._previous_token = curr
+        if curr.kind in Literal:
+            # Ensure that a literal does not begin an expression:
+            if isinstance(prev, Token):
+                if prev.kind not in (BinOp.ASSIGN, *Syntax):
+                    typ = curr.kind.value
+                    note = f"expected identifier, got {typ} value"
+                    msg = f"Invalid syntax: {note}:"
+                    raise ParseError.hl_error(curr, msg)
 
         match curr.kind:
 
@@ -793,7 +814,7 @@ class Parser:
 
             case Ignore.SPACE | Ignore.COMMENT:
                 # Skip spaces and comments.
-                node = self.parse_expr(prev)
+                node = self.parse_expr(prev=prev)
                 return node
 
             case Misc.NEWLINE:
@@ -813,17 +834,18 @@ class Parser:
             case Symbol.IDENTIFIER:
                 if isinstance(prev, Token):
                     if prev.kind is Symbol.IDENTIFIER:
-                        msg = (
+                        note = (
                             f"Multiple identifiers ({prev.value!r}"
-                            f" and {curr.value!r}) not allowed together:"
+                            f" and {curr.value!r}) not allowed together"
                         )
+                        msg = f"Invalid syntax: {note}:"
                         raise ParseError.hl_error((prev, curr), msg, False)
 
                     # Remove once scoped self-reference is available:
                     if prev.kind is BinOp.ASSIGN:
-                        note = f"cannot evaluate {curr.value!r}, an identifier"
-                        msg = f"Invalid assignment ({note}):"
-                        raise ParseError.hl_error((prev, curr), msg)
+                        note = f"value of {curr.value!r} cannot be a variable"
+                        msg = f"Invalid assignment: {note}:"
+                        raise ParseError.hl_error(curr, msg)
 
                     if prev.kind is Syntax.L_BRACKET:
                         # Consecutive identifiers are valid inside lists.
@@ -835,23 +857,35 @@ class Parser:
 
             case BinOp.ASSIGN:
                 if isinstance(prev, Token):
-                    # Only ever assign to identifiers:
-                    if prev.kind is Syntax.L_CURLY_BRACE:
-                        # This assignment is missing a target.
-                        msg = f"Invalid syntax:"
-                        raise ParseError.hl_error(curr, msg)
 
-                    if prev.kind is not Symbol.IDENTIFIER:
-                        note = f"cannot assign to {prev.kind.value}"
+                    # Only ever assign to identifiers:
+
+                    if prev.kind in Literal:
+                        typ = prev.kind.value.lower()
+                        note = f"cannot assign to {typ} value"
                         msg = f"Invalid assignment: {note}:"
                         raise ParseError.hl_error((prev, curr), msg)
-                        
+
+                    if prev.kind is not Symbol.IDENTIFIER:
+                        # This assignment is missing a target.
+                        msg = f"Invalid syntax:"
+                        # typ = prev.kind.value.lower()
+                        if prev.kind in Syntax:
+                            note = f"If this is an assignment, it needs a valid variable name"
+                            msg = f"Invalid syntax: {note}:"
+                        # note = f"{curr.value!r} missing target identifier"
+                        raise ParseError.hl_error((prev, curr), msg, False)
+                        # raise ParseError.hl_error(curr, msg)
+
+
                 target = Name(prev.value)
 
                 val = self.parse_expr(prev=curr)
-                if isinstance(val, Token):
+                if val is Misc.EOF:
+                    value = Constant(None)
+                elif isinstance(val, Token):
                     # Handle empty assignments:
-                    if val.kind in (Misc.NEWLINE, Syntax.COMMA):
+                    if val.kind in (*Misc, Syntax.COMMA):
                         value = Constant(None)
 
                     # Unreachable?
@@ -874,6 +908,9 @@ class Parser:
                 node = Dict(keys=[base], values=[attr])
 
             case Syntax.L_CURLY_BRACE:
+                # if prev.kind is Symbol.IDENTIFIER:
+                    # self._current_assignment = prev
+
                 keys = []
                 vals = []
 
@@ -885,14 +922,12 @@ class Parser:
                             break
 
                     elif isinstance(assign, Constant):
-                        nxt = self.parse_expr(assign._token)
-                        # print(f"{nxt = }")
-                        # nxt = self.parse_expr(assign._token)
-                        # print(f"{nxt = }")
-                        note = "Are you trying to assign to a constant?"
-                        msg = f"Invalid syntax ({note}):"
+                        typ = assign._token.kind.value
+                        note = f"expected identifier, got {typ} value"
+                        msg = f"Invalid syntax: {note}:"
                         raise ParseError.hl_error((assign._token, ), msg)
-                    elif isinstance(assign, Dict):
+
+                    if isinstance(assign, Dict):
                         if not assign.keys:
                             continue
                         
@@ -927,13 +962,16 @@ class Parser:
                     node = reconciled
 
             case Syntax.R_CURLY_BRACE:
-                # print(prev, repr(curr))
                 curr.check_expected_after(
                     prev, (Syntax.L_CURLY_BRACE, Syntax.COMMA)
                 )
                 node = curr
 
             case Syntax.L_BRACKET:
+
+                # if prev.kind is Symbol.IDENTIFIER:
+                    # self._current_assignment = prev
+
                 b = Syntax.R_BRACKET
                 elems = []
                 # Gather elements.
@@ -953,7 +991,7 @@ class Parser:
                     node = Dict(keys=[Name(prev.value)], values=[node])
                 else:
                     # Yes. ('foo = {bar=1, baz=2, ...')
-                    # Return ourselves to the '=':
+                    # Return ourself to the '=':
                     node = reconciled
 
             case Syntax.R_BRACKET:
@@ -961,20 +999,17 @@ class Parser:
                     prev, (Syntax.L_BRACKET, Syntax.COMMA)
                 )
                 node = curr
+                # self._current_assignment = None
 
             # Return literals as Constants:
             case Literal.STRING:
                 node = Constant(curr.value)
-
             case Literal.INTEGER:
                 node = Constant(int(curr.value))
-
             case Literal.FLOAT:
                 node = Constant(float(curr.value))
-
             case Literal.TRUE:
                 node = Constant(True)
-
             case Literal.FALSE:
                 node = Constant(False)
 
