@@ -1,5 +1,6 @@
 import ast
 import re
+import string
 import sys
 from ast import (
     AST,
@@ -32,6 +33,7 @@ Location: TypeAlias = tuple[LineNo, ColNo]
 FILE = 'test_config.conf'
 EOF = ''
 NEWLINE = '\n'
+NOT_IN_IDS = string.punctuation.replace('_', '\s')
 
 
 class Grammar:
@@ -94,7 +96,7 @@ class Syntax(Enum):
 
 TokenKind = Enum(
     'TokenKind',
-    ((m.name, m.value) for m in (
+    ((k.name, k.value) for k in (
         *Literal,
         *Symbol,
         *Syntax,
@@ -391,7 +393,7 @@ class Lexer:
 
         # Symbols
         *tuple(dict.fromkeys(KEYWORDS, Symbol.KEYWORD).items()),
-        (re.compile(r'^[a-zA-Z_]+'), Symbol.IDENTIFIER),
+        (re.compile(r'^[^' + NOT_IN_IDS + r']+'), Symbol.IDENTIFIER),
     )
 
     def __init__(
@@ -586,7 +588,7 @@ class Lexer:
                 # Avoid recursive stack traces with hundreds of frames:
                 import __main__ as possibly_repl
                 if not hasattr(possibly_repl, '__file__'):
-                    # User is in a REPL; Don't yeet them.
+                    # User is in a REPL! Don't yeet them.
                     raise
                 import traceback
                 traceback.print_exc(limit=1)
@@ -596,16 +598,16 @@ class Lexer:
 
 class Dict(_Dict):
     '''
-    A custom ast.Dict class with instance attribute `_nested`
+    A custom ast.Dict class with instance attribute `_root`
     logging whether or not a mapping encloses other mappings.
     '''
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._nested = False
+        self._root = False
 
     def __repr__(self) -> str:
         cls = type(self).__name__
-        nest = self._nested
+        nest = self._root
         keys = [k if isinstance(k, str) else k.id for k in self.keys]
         r = f"{cls}({nest=}, {keys=})"
         return r
@@ -675,11 +677,11 @@ class Parser:
         mapping = {}
         for n in tree:
             if not isinstance(n, Dict):
-                # Each expression must map one thing to another.
-                # This expression breaks the rules.
+                # Each statement must map one thing to another.
+                # This statement breaks the rules.
                 note = (
                     f"{n._token.kind.value} cannot be at"
-                    f" the start of an expression."
+                    f" the start of a statement"
                 )
                 msg = f"Invalid syntax: {n._token.match.group()!r} ({note})"
                 raise ParseError.hl_error(n._token, msg)
@@ -738,21 +740,21 @@ class Parser:
         body = []
         try:
             while True:
-                parsed = self.parse_expr()
+                parsed = self.parse_stmt()
 
                 if parsed is self._lexer.eof:
                     break
 
                 if isinstance(parsed, Dict):
                     if any(isinstance(v, Dict) for v in parsed.values):
-                        parsed._nested = True
+                        parsed._root = True
 
                 body.append(parsed)
 
         except TokenError as e:
             import __main__ as possibly_repl
             if not hasattr(possibly_repl, '__file__'):
-                # User is in a REPL; Don't yeet them.
+                # User is in a REPL! Don't yeet them.
                 raise
             import traceback, sys
             traceback.print_exc(limit=1)
@@ -761,16 +763,16 @@ class Parser:
         self._lexer.reset()
         return body
 
-    def parse_expr(self, prev: Token = None) -> AST:
+    def parse_stmt(self, prev: Token | AST = None) -> AST:
         '''
-        Parse an expression and return its AST.
-        This usually comes a key-value pair represented by a
+        Parse a regular statement and return its AST.
+        Each statement should result in a key-value pair represented by a
         :class:`Dict` node.
         '''
         curr = self._lexer.get_token()
 
         if prev is None:
-            # The first token in an expression.
+            # The first token in a statement.
             if curr.kind is Syntax.COMMA:
                 msg = "Invalid syntax: Comma used outside [] or {}:"
                 raise ParseError.hl_error(curr, msg)
@@ -781,7 +783,6 @@ class Parser:
 
             if curr.kind in BinOp:
                 note = f"expected identifier, got {curr.value!r}"
-                # note = f"{curr.value!r} used outside expression" #{line!r}"
                 msg = f"Invalid syntax: {note}:"
                 raise ParseError.hl_error(curr, msg)
 
@@ -791,11 +792,11 @@ class Parser:
                 msg = f"Invalid syntax: {note}:"
                 raise ParseError.hl_error(curr, msg)
 
-            # Advance to the next expression:
-            return self.parse_expr(prev=curr)
+            # Advance to the next statement:
+            return self.parse_stmt(prev=curr)
 
         if curr.kind in Literal:
-            # Ensure that a literal does not begin an expression:
+            # Ensure that a literal does not begin a statement:
             if isinstance(prev, Token):
                 if prev.kind not in (BinOp.ASSIGN, *Syntax):
                     typ = curr.kind.value
@@ -814,7 +815,7 @@ class Parser:
 
             case Ignore.SPACE | Ignore.COMMENT:
                 # Skip spaces and comments.
-                node = self.parse_expr(prev=prev)
+                node = self.parse_stmt(prev=prev)
                 return node
 
             case Misc.NEWLINE:
@@ -824,12 +825,12 @@ class Parser:
                     return node
                 else:
                     # Skip, otherwise.
-                    node = self.parse_expr(prev=prev)
+                    node = self.parse_stmt(prev=prev)
                     return node
 
             case Syntax.COMMA:
-                # Continue, giving context.
-                return self.parse_expr(prev=curr)
+                # Continue:
+                return self.parse_stmt(prev=prev)
 
             case Symbol.IDENTIFIER:
                 if isinstance(prev, Token):
@@ -843,17 +844,24 @@ class Parser:
 
                     # Remove once scoped self-reference is available:
                     if prev.kind is BinOp.ASSIGN:
-                        note = f"value of {curr.value!r} cannot be a variable"
+                        # note = f"value of {curr.value!r} cannot be a variable"
+                        note = f"expected literal value, got {curr.kind.value}"
                         msg = f"Invalid assignment: {note}:"
                         raise ParseError.hl_error(curr, msg)
 
                     if prev.kind is Syntax.L_BRACKET:
                         # Consecutive identifiers are valid inside lists.
-                        return Name(curr.value)
+                        node = Name(curr.value)
 
-                # Continue, giving context.
-                nxt = self.parse_expr(prev=curr)
-                return nxt
+                    else:
+                        # Continue, giving context.
+                        nxt = self.parse_stmt(prev=curr)
+                        node = nxt
+
+                else:
+                    # Continue, giving context.
+                    nxt = self.parse_stmt(prev=curr)
+                    node = nxt
 
             case BinOp.ASSIGN:
                 if isinstance(prev, Token):
@@ -862,25 +870,37 @@ class Parser:
 
                     if prev.kind in Literal:
                         typ = prev.kind.value.lower()
-                        note = f"cannot assign to {typ} value"
-                        msg = f"Invalid assignment: {note}:"
+                        # note = f"cannot assign to {typ} value"
+                        note = f"cannot assign to literal {typ} value"
+                        note += " (expected identifier)"
+                        msg = f"Invalid syntax: {note}:"
                         raise ParseError.hl_error((prev, curr), msg)
 
                     if prev.kind is not Symbol.IDENTIFIER:
                         # This assignment is missing a target.
                         msg = f"Invalid syntax:"
                         # typ = prev.kind.value.lower()
-                        if prev.kind in Syntax:
-                            note = f"If this is an assignment, it needs a valid variable name"
-                            msg = f"Invalid syntax: {note}:"
+                        # if prev.kind in Syntax:
+
+                        if prev.kind is Syntax.L_CURLY_BRACE:
+                            note = (
+                                f"If this is an assignment,"
+                                f" it needs a valid variable name"
+                            )
+                            msg = f"Invalid syntax: {note}"
+                            raise ParseError.hl_error((prev, curr), msg, False)
+                        elif prev.kind is Syntax.L_BRACKET:
+                            note = "Assignments are not valid inside []."
+
+                        msg = f"Invalid syntax: {note}"
                         # note = f"{curr.value!r} missing target identifier"
-                        raise ParseError.hl_error((prev, curr), msg, False)
-                        # raise ParseError.hl_error(curr, msg)
+                        # raise ParseError.hl_error((prev, curr), msg, False)
+                        raise ParseError.hl_error(curr, msg)
 
 
                 target = Name(prev.value)
 
-                val = self.parse_expr(prev=curr)
+                val = self.parse_stmt(prev=curr)
                 if val is Misc.EOF:
                     value = Constant(None)
                 elif isinstance(val, Token):
@@ -899,12 +919,12 @@ class Parser:
                 node = Dict([target], [value])
                 if isinstance(prev, Token) and prev.kind is Syntax.L_CURLY_BRACE:
                     # Label this node as being at root level.
-                    node._nested = True
+                    node._root = True
 
             case BinOp.ATTRIBUTE:
                 curr.check_expected_after(prev, (Symbol.IDENTIFIER,))
                 base = Name(prev.value)
-                attr = self.parse_expr(prev=curr)
+                attr = self.parse_stmt(prev=curr)
                 node = Dict(keys=[base], values=[attr])
 
             case Syntax.L_CURLY_BRACE:
@@ -916,14 +936,15 @@ class Parser:
 
                 # Gather assignments, which come in the form of `Dict`:
                 while True:
-                    assign = self.parse_expr(prev=curr)
+                    assign = self.parse_stmt(prev=curr)
                     if isinstance(assign, Token):
                         if assign.kind is Syntax.R_CURLY_BRACE:
                             break
 
                     elif isinstance(assign, Constant):
                         typ = assign._token.kind.value
-                        note = f"expected identifier, got {typ} value"
+                        note = f"cannot assign to literal {typ} value"
+                        note += " (expected identifier)"
                         msg = f"Invalid syntax: {note}:"
                         raise ParseError.hl_error((assign._token, ), msg)
 
@@ -955,7 +976,7 @@ class Parser:
                     # Wrap ourselves in Dict as if assigning to 'foo':
                     node = Dict(keys=[Name(prev.value)], values=[reconciled])
                     # Label this node as being at root level.
-                    node._nested = True
+                    node._root = True
                 else:
                     # Yes. ('foo = {bar=1, baz=2, ...')
                     # Return ourselves to the '=':
@@ -976,7 +997,7 @@ class Parser:
                 elems = []
                 # Gather elements.
                 while True:
-                    node = self.parse_expr(prev=curr)
+                    node = self.parse_stmt(prev=curr)
                     if isinstance(node, Token) and node.kind is b:
                         break
 
@@ -1041,7 +1062,7 @@ class ConfigFileMaker(NodeVisitor):
         return str(val)
 
     def visit_Dict(self, node):
-        if node._nested:
+        if node._root:
             target = self.visit(*node.keys)  # There will only be one.
             joined = self.visit(*node.values)  # There will only be one.
             string = f"{target} {{\n{self.indent}{joined}\n}}"
@@ -1092,7 +1113,7 @@ class DictConverter:
         for key, val in mapping.items():
             node = Dict([Name(key)], [cls.unparse_node(val)])
             if any(isinstance(v, Dict) for v in node.values):
-                node._nested = True
+                node._root = True
             assignments.append(node)
         return assignments
 
