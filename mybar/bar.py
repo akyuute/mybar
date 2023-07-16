@@ -353,7 +353,7 @@ class BarConfig(dict):
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         p = Parser(file=absolute)
-        data = p.parse_as_dict()
+        data = p.as_dict()
         text = p._string
         with open(absolute, 'r') as f:
             data = json.load(f)
