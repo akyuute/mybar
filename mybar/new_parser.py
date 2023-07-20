@@ -5,6 +5,7 @@ import sys
 from ast import (
     AST,
     Assign,
+    Attribute,
     Constant,
     Dict as _Dict,
     List,
@@ -813,6 +814,7 @@ class Parser:
         self._lexer = Lexer(string, file)
         self._tokens = self._lexer.lex()
         self._cursor = 0
+        self._current_expr = None
         # self._previous_token = None
 
     def tokens(self) -> list[Token]:
@@ -895,6 +897,7 @@ class Parser:
         '''
         print("Parsing statement")
         self.expect_curr(Symbol.IDENTIFIER, "Not an identifier")
+        self._current_expr = Assign
         curr = self.cur_tok()
         target = Name(curr.value)
         # print(f"Assigning to {ast.dump(target)}")
@@ -912,6 +915,8 @@ class Parser:
         node._token = curr
         # print(ast.dump(node))
         self.advance()
+
+        # Needed?:
         while self.is_empty():
             # print("advance:", self.advance())
             self.advance()
@@ -934,14 +939,20 @@ class Parser:
 
             match kind:
                 case EndOfFile.EOF:
-                    return tok
+                    return kind
+                    # return tok
                 case kind if kind in Ignore:
+                    # print("Ignoring")
                     continue
-                case Syntax.COMMA:
-                    return tok
-                case Newline.NEWLINE:
-                    # node = Constant(None)
-                    return tok
+                # case Syntax.COMMA:
+                    # return tok
+                case Newline.NEWLINE | Syntax.COMMA:
+                    print(tok, self._current_expr)
+                    if self._current_expr in (Assign, Dict):
+                        node = Constant(None)
+                    else:
+                        continue
+                    # return tok
                 case kind if kind in Literal:
                     node = self.parse_literal(tok)
                 case BinOp.ATTRIBUTE:
@@ -949,35 +960,34 @@ class Parser:
                 case Syntax.L_BRACKET:
                     node = self.parse_list()
                 case Syntax.L_CURLY_BRACE:
-                    # print("Calling parse_object")
                     node = self.parse_object()
                 case Symbol.IDENTIFIER:
                     node = Name(tok.value)
                 case _:
+                    print(tok)
                     print("Huh?")
                     return tok
                     # node = tok
 
             # self.advance()
             node._token = tok
-            # print("returning", node)
+            print("returning", node)
             return node
+
+    def parse_attribute(self) -> Attribute:
+        pass
 
     def parse_list(self) -> List:
         print("Parsing list")
         self.expect_curr(Syntax.L_BRACKET, "")
+        self._current_expr = List
         elems = []
         while True:
-            tok = self.advance()
-            if tok.kind is Syntax.R_BRACKET:
-                break
-            node = self.parse_expr()
-            if isinstance(node, Token):
-                if node.kind in (Syntax.COMMA, *Ignore, Newline.NEWLINE):
-                    continue
-
-            elems.append(node)
-            # print(elems)
+            elem = self.parse_expr()
+            if isinstance(elem, Token):
+                if elem.kind is Syntax.R_BRACKET:
+                    break
+            elems.append(elem)
         return List(elems)
 
         
@@ -988,14 +998,22 @@ class Parser:
         '''
         print("Parsing mapping")
         self.expect_curr(Symbol.IDENTIFIER, "Not an identifier")
+        self._current_expr = Dict
         curr = self.cur_tok()
         target = Name(curr.value)
         target._token = curr
         self.expect_next(BinOp.ASSIGN, "Not '='")
+        # maybe_attr = self.advance()
+        # if isinstance(
         value = self.parse_expr()
-        if isinstance(value, Token):
-            if value.kind in (Newline.NEWLINE, Syntax.COMMA):
-                value = Constant(None)
+        if isinstance(value, Name):
+            typ = value._token.kind.value
+            note = f"expected expression, got {typ}"
+            msg = f"Invalid assignment: {note}:"
+            raise ParseError.hl_error(value._token, msg)
+        # if isinstance(value, Token):
+            # if value.kind in (Newline.NEWLINE, Syntax.COMMA):
+                # value = Constant(None)
         node = Dict([target], [value])
         node._token = curr
         return node
@@ -1012,6 +1030,7 @@ class Parser:
         '''
         print("Parsing obj")
         self.expect_curr(Syntax.L_CURLY_BRACE, "Not '{'")
+        self._current_expr = Dict
         keys = []
         vals = []
 
@@ -1022,7 +1041,7 @@ class Parser:
                 case Syntax.R_CURLY_BRACE:
                     # print("BREAKING object")
                     break
-                case kind if kind in (*Ignore, Syntax.COMMA):
+                case kind if kind in (*Ignore, Syntax.COMMA, Newline.NEWLINE):
                     continue
                 case Symbol.IDENTIFIER:
                     # key = tok.value
@@ -1043,7 +1062,9 @@ class Parser:
 
                     # print(keys)
                 case _:
-                    raise ParseError("What? " + repr(tok))
+                    note = f"expected variable name, got {kind.value}"
+                    msg = f"Invalid target for assignment: {note}:"
+                    raise ParseError.hl_error(tok, msg)
 
         # Put all the assignments together:
         # reconciled = Dict([Name(k) for k in keys], vals)
@@ -1054,6 +1075,7 @@ class Parser:
 
     def parse_literal(self, tok) -> AST:
         print("Parsing literal")
+        self._current_expr = Constant
         match tok.kind:
             # Return literals as Constants:
             case Literal.STRING:
@@ -1094,6 +1116,9 @@ class Parser:
 
         
     def get_stmts(self) -> list[AST]:
+        # print(self._tokens)
+        # for t in self._tokens:
+            # print(repr(t.value))
         body = []
         while self.not_eof():
             body.append(self.parse_stmt())
