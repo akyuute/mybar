@@ -646,22 +646,57 @@ class Interpreter(NodeVisitor):
     '''
     Convert ASTs to literal Python code.
     '''
+    _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
+
     def visit_Assign(self, node: AST) -> dict:
         return {self.visit((node.targets[-1])): self.visit(node.value)}
+
+    def visit_Attribute(self, node: AST) -> dict:
+        base = self.visit(node.value)
+        attr = self.visit(node.attr)
+        if isinstance(base, str):
+            return {base: {attr: self._EXPR_PLACEHOLDER}}
+        return self._process_nested_attr(base, attr)
+
+    def _process_nested_attr(
+        self,
+        dct: dict,
+        newattr: str,
+        store: bool = False
+    ) -> dict:
+        '''
+        '''
+        for k, v in dct.items():
+            if isinstance(v, dict):
+                dct[k].update(self._process_nested_attr(v, newattr, store))
+            elif v is self._EXPR_PLACEHOLDER:
+                if store:
+                    dct[k] = newattr
+                else:
+                    dct[k] = {newattr: self._EXPR_PLACEHOLDER}
+        return dct
 
     def visit_Constant(self, node: AST) -> str | int | float | None:
         return node.value
 
     def visit_Dict(self, node: AST) -> dict:
+        print(ast.dump(node))
         new_d = {}
 
         for key, value in zip(node.keys, node.values):
             k = self.visit(key)
             v = self.visit(value)
-            if key not in new_d:
+            if isinstance(k, dict):
+                nested = self._process_nested_attr(k, v, store=True)
+                print(nested)
+                k, v = nested.popitem()
+                    
+            if k not in new_d:
                 new_d[k] = v
             else:
                 new_d[k].update(v)
+                #TODO:
+                # Still need a func to safely dict.update() for nesteds!
 
         return new_d
 
@@ -868,7 +903,7 @@ class Parser:
         # print(tok)
         if tok.kind not in kind:
             raise ParseError.hl_error(tok, errmsg)
-        return True
+        return tok
 
     def advance(self) -> Token:
         # if self.not_eof():
@@ -895,7 +930,7 @@ class Parser:
         A 1-to-1 mapping in the outermost scope::
         foo = 'bar'
         '''
-        print("Parsing statement")
+        ##print("Parsing statement")
         self.expect_curr(Symbol.IDENTIFIER, "Not an identifier")
         self._current_expr = Assign
         curr = self.cur_tok()
@@ -903,9 +938,8 @@ class Parser:
         # print(f"Assigning to {ast.dump(target)}")
         target._token = curr
         possible_starts = (BinOp.ASSIGN, Syntax.L_CURLY_BRACE)
-        self.expect_next(possible_starts, "Not '=' or '{'")
-        if self.cur_tok().kind is Syntax.L_CURLY_BRACE:
-            # print("Calling parse_object from stmt")
+        curr = self.expect_next(possible_starts, "Not '=' or '{'")
+        if curr.kind is Syntax.L_CURLY_BRACE:
             value = self.parse_object()
         else:
             value = self.parse_expr()
@@ -930,7 +964,7 @@ class Parser:
 
 
     def parse_expr(self) -> AST:
-        print("Starting parse_expr()")
+        ##print("Starting parse_expr()")
         # tok = self._lexer.get_token()
         while self.not_eof():
             tok = self.advance()
@@ -947,7 +981,7 @@ class Parser:
                 # case Syntax.COMMA:
                     # return tok
                 case Newline.NEWLINE | Syntax.COMMA:
-                    print(tok, self._current_expr)
+                    ##print(tok, self._current_expr)
                     if self._current_expr in (Assign, Dict):
                         node = Constant(None)
                     else:
@@ -964,21 +998,18 @@ class Parser:
                 case Symbol.IDENTIFIER:
                     node = Name(tok.value)
                 case _:
-                    print(tok)
-                    print("Huh?")
+                    ##print(tok)
+                    ##print("Huh?")
                     return tok
                     # node = tok
 
             # self.advance()
             node._token = tok
-            print("returning", node)
+            ##print("returning", node)
             return node
 
-    def parse_attribute(self) -> Attribute:
-        pass
-
     def parse_list(self) -> List:
-        print("Parsing list")
+        ##print("Parsing list")
         self.expect_curr(Syntax.L_BRACKET, "")
         self._current_expr = List
         elems = []
@@ -996,16 +1027,23 @@ class Parser:
         A 1-to-1 mapping inside an object::
         {key = 5}
         '''
-        print("Parsing mapping")
+        ##print("Parsing mapping")
         self.expect_curr(Symbol.IDENTIFIER, "Not an identifier")
         self._current_expr = Dict
-        curr = self.cur_tok()
-        target = Name(curr.value)
-        target._token = curr
-        self.expect_next(BinOp.ASSIGN, "Not '='")
-        # maybe_attr = self.advance()
-        # if isinstance(
+        target_tok = self.cur_tok()
+        target = Name(target_tok.value)
+        target._token = target_tok
+
+        ##print(f"{target_tok = }")
+
+        maybe_attr = self.advance()
+        ##print(f"{maybe_attr = }")
+        if maybe_attr.kind is BinOp.ATTRIBUTE:
+            target = self.parse_attribute(target)
+
+        assign_tok = self.expect_curr(BinOp.ASSIGN, "Not '=' or '.'")
         value = self.parse_expr()
+        # Disallow assigning identifiers:
         if isinstance(value, Name):
             typ = value._token.kind.value
             note = f"expected expression, got {typ}"
@@ -1015,8 +1053,42 @@ class Parser:
             # if value.kind in (Newline.NEWLINE, Syntax.COMMA):
                 # value = Constant(None)
         node = Dict([target], [value])
-        node._token = curr
+        node._token = assign_tok
+        ##print(f"{ast.dump(node) = }")
         return node
+
+    def parse_attribute(self, value: Name | Attribute) -> Attribute:
+        ##print("parsing attribute")
+        # base_tok = self.cur_tok()
+        curr = self.cur_tok()
+        # curr = self.advance()
+        msg = "parse_attr: Not an identifier"
+        # while curr.kind is BinOp.ATTRIBUTE:
+        # while True:
+        curr = self.expect_curr(BinOp.ATTRIBUTE, "parse_attribute() called when no '.' found")
+        maybe_attr = self.expect_next(Symbol.IDENTIFIER, msg)
+            # value = Name(base_tok)
+            # value._token = base_tok
+
+        attr = Name(maybe_attr.value)
+        attr._token = maybe_attr
+
+        target = Attribute(value, attr)
+        target._token = curr
+        # base_tok = self.expect_next(Symbol.IDENTIFIER, msg)
+        # curr = self.advance()
+        # if curr.kind is Symbol.IDENTIFIER:
+            # return self.parse_attribute(
+        maybe_another = self.advance()
+        if maybe_another.kind is BinOp.ATTRIBUTE:
+            target = self.parse_attribute(target)
+            # target = self.parse_attribute(target)
+##                target = Attribute(target, self.parse_attribute())
+##            curr = self.advance()
+
+        ##print(f"parse_attr {ast.dump(target) = }")
+        return target
+            
 
 
     def parse_object(self) -> AST:
@@ -1028,7 +1100,7 @@ class Parser:
             ...
         }
         '''
-        print("Parsing obj")
+        ##print("Parsing obj")
         self.expect_curr(Syntax.L_CURLY_BRACE, "Not '{'")
         self._current_expr = Dict
         keys = []
@@ -1069,12 +1141,12 @@ class Parser:
         # Put all the assignments together:
         # reconciled = Dict([Name(k) for k in keys], vals)
         reconciled = Dict(keys, vals)
-        print("reconciled:")
-        print(ast.dump(reconciled))
+        ##print("reconciled:")
+        ##print(ast.dump(reconciled))
         return reconciled
 
     def parse_literal(self, tok) -> AST:
-        print("Parsing literal")
+        ##print("Parsing literal")
         self._current_expr = Constant
         match tok.kind:
             # Return literals as Constants:
@@ -1132,3 +1204,4 @@ class Parser:
 if __name__ == '__main__':
     p = Parser()
     print(p.as_dict())
+
