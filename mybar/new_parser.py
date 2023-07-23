@@ -666,9 +666,15 @@ class Interpreter(NodeVisitor):
     ) -> dict:
         '''
         '''
+        # print(f"{newattr = }")
         for k, v in dct.items():
+            print(k, v)
             if isinstance(v, dict):
-                dct[k].update(self._process_nested_attr(v, newattr, store))
+                if k == newattr:
+                    # Don't clobber:
+                    dct[k] = self._process_nested_attr(v, newattr, store)
+                else:
+                    dct[k].update(self._process_nested_attr(v, newattr, store))
             elif v is self._EXPR_PLACEHOLDER:
                 if store:
                     dct[k] = newattr
@@ -679,24 +685,34 @@ class Interpreter(NodeVisitor):
     def visit_Constant(self, node: AST) -> str | int | float | None:
         return node.value
 
+    def _nested_update(self, dct, upd, assign) -> dict:
+        print(dct)
+        for k, v in upd.items():
+            if v is self._EXPR_PLACEHOLDER:
+                v = assign
+            print(k, v, assign)
+            if isinstance(v, dict):
+                dct[k] = self._nested_update(dct.get(k, {}), v, assign)
+            else:
+                dct[k] = v
+                # if isinstance(dct
+                # dct[k] = self._nested_update(
+        return dct
+
     def visit_Dict(self, node: AST) -> dict:
         print(ast.dump(node))
         new_d = {}
+        keys = []
+        vals = []
 
-        for key, value in zip(node.keys, node.values):
-            k = self.visit(key)
-            v = self.visit(value)
-            if isinstance(k, dict):
-                nested = self._process_nested_attr(k, v, store=True)
+        for key, val in zip(node.keys, node.values):
+            target = self.visit(key)
+            value = self.visit(val)
+            # print(target, value)
+            if isinstance(target, dict):
+                nested = self._nested_update(new_d, target, value)
                 print(nested)
-                k, v = nested.popitem()
-                    
-            if k not in new_d:
-                new_d[k] = v
-            else:
-                new_d[k].update(v)
-                #TODO:
-                # Still need a func to safely dict.update() for nesteds!
+                # else:
 
         return new_d
 
