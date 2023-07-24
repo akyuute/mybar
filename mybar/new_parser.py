@@ -17,7 +17,7 @@ from io import StringIO
 from itertools import chain
 from os import PathLike
 from queue import LifoQueue
-from typing import NamedTuple, NoReturn, Self, TypeAlias, TypeVar
+from typing import Any, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
 
 # from ._types import FileContents
 FileContents = str
@@ -668,7 +668,7 @@ class Interpreter(NodeVisitor):
         '''
         # print(f"{newattr = }")
         for k, v in dct.items():
-            print(k, v)
+            # print(k, v)
             if isinstance(v, dict):
                 if k == newattr:
                     # Don't clobber:
@@ -685,22 +685,20 @@ class Interpreter(NodeVisitor):
     def visit_Constant(self, node: AST) -> str | int | float | None:
         return node.value
 
-    def _nested_update(self, dct, upd, assign) -> dict:
-        print(dct)
+    def _nested_update(self, dct: dict | Any, upd: dict, assign: Any) -> dict:
+        if not isinstance(dct, dict):
+            return {upd.popitem()[0]: assign}
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
-            print(k, v, assign)
             if isinstance(v, dict):
                 dct[k] = self._nested_update(dct.get(k, {}), v, assign)
             else:
                 dct[k] = v
-                # if isinstance(dct
-                # dct[k] = self._nested_update(
         return dct
 
     def visit_Dict(self, node: AST) -> dict:
-        print(ast.dump(node))
+        # print(ast.dump(node))
         new_d = {}
         keys = []
         vals = []
@@ -708,11 +706,9 @@ class Interpreter(NodeVisitor):
         for key, val in zip(node.keys, node.values):
             target = self.visit(key)
             value = self.visit(val)
-            # print(target, value)
             if isinstance(target, dict):
                 nested = self._nested_update(new_d, target, value)
-                print(nested)
-                # else:
+                # print(nested)
 
         return new_d
 
@@ -734,11 +730,15 @@ class ConfigFileMaker(NodeVisitor):
         strings = [self.visit(n) for n in tree]
         return sep.join(strings)
 
+    def visit_Attribute(self, node: AST) -> dict:
+        base = self.visit(node.targets[-1])
+        attr = self.visit(node.value)
+        return f"{base}.{attr}"
+
     def visit_Assign(self, node: AST) -> dict:
         target = self.visit(node.targets[-1])
         value = self.visit(node.value)
         return f"{target} = {value}"
-        # return {(node.targets[-1]): node.value}
 
     def visit_Constant(self, node):
         val = node.value
@@ -788,7 +788,7 @@ class ConfigFileMaker(NodeVisitor):
 
 class DictConverter:
     '''
-    Convert Python dictionaries to ASTs.
+    Convert Python objects to ASTs.
     '''
     @classmethod
     def unparse(cls, mapping: dict) -> list[AST]:
@@ -1219,5 +1219,9 @@ class Parser:
 
 if __name__ == '__main__':
     p = Parser()
-    print(p.as_dict())
+    d = p.as_dict()
+    print(d)
+    # u = DictConverter.unparse(d)
+    # c = ConfigFileMaker().stringify(u)
+    # print(c)
 
