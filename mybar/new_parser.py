@@ -716,7 +716,7 @@ class Interpreter(NodeVisitor):
         vals = []
 
         for key, val in zip(node.keys, node.values):
-            print(ast.dump(key))
+            # print(ast.dump(key))
             target = self.visit(key)
             value = self.visit(val)
             if isinstance(target, dict):
@@ -813,140 +813,70 @@ class DictConverter:
         for key, val in mapping.items():
             node = Assign([Name(key)], cls.unparse_node(val))
             assignments.append(node)
-
         return assignments
 
-##    @classmethod
-##    def _process_nested_attr(
-##        cls,
-##        dct: dict,
-##        newattr: str,
-##        store: bool = False
-##    ) -> dict:
-##        '''
-##        '''
-##        attrs = []
-##        # print(f"{newattr = }")
-##        for attr, val in dct.items():
-##            # print(k, v)
-##            if isinstance(val, dict):
-##                if k == newattr:
-##                    # Don't clobber:
-##                    dct[k] = cls._process_nested_attr(v, newattr, store)
-##                else:
-##                    dct[k].update(cls._process_nested_attr(v, newattr, store))
-##            elif v is cls._EXPR_PLACEHOLDER:
-##                if store:
-##                    dct[k] = newattr
-##                else:
-##                    dct[k] = {newattr: cls._EXPR_PLACEHOLDER}
-##        return dct
-
-
     @classmethod
-    def unparse_attr(cls, mapping: dict, root_name: str = None) -> tuple[AST]:
+    def _unparse_dict(cls, mapping: dict, root_name: str = None) -> tuple[AST]:
         '''
         '''
         for base, attr_or_assign in mapping.items():
             if isinstance(attr_or_assign, dict):
-                attr, assign = cls.unparse_attr(attr_or_assign)
+                attr, assign = cls._unparse_dict(attr_or_assign)
                 if root_name is None:
                     name = Attribute(Name(base), attr)
                 else:
                     root = Attribute(Name(root_name), Name(base))
                     name = Attribute(root, attr)
-                # print(attr, assign, name)
                 return name, assign
+            elif root_name is not None:
+                root = Attribute(Name(root_name), Name(base))
+                return root, attr_or_assign
             else:
                 return Name(base), attr_or_assign
                 # Enable updates later on
-        # return key, assign
-
-    @classmethod
-    def unparse_dict(cls, dct, enclosing = None) -> AST:
-        '''
-        '''
-        key_ref = []
-        keys = []
-        vals = []
-
-        for key, val in dct.items():
-            print(f"{key = }  {val  = }  {enclosing = }")
-            
-            if isinstance(val, dict):
-                # if enclosing is not None:
-                if True:
-                # if key in key_ref:  # Handle multiple pairs later.
-                    # An attribute: only one key-value pair.
-                    # key.val
-                    print("Expecting attr")
-                    name, assign = cls.unparse_attr(val, key)
-                    print(f"{ast.dump(name) = }  {assign = }")
-                    # keys.append(Attribute( name, Name(key)))
-                    keys.append(name)
-                    vals.append(cls.unparse_node(assign))
-                    # print(f"{name = } {attr_or_assign = }")
-                    # return Assign(Name(key), cls.unparse_node(val))
-                    # return Attribute(Name(key), cls.unparse_dict(val))
-                    # return Attribute(name, attr_or_assign)
-                    # return name
-
-##            else:
-##                # A root dict
-##
-##            # key_ref.append(name)
-##            # key = Attribute(Name(key), cls.unparse_node(val, dct))
-##            # keys.append(key)
-##            # vals.append(cls.unparse_node(val, dct))
-##
-##                # The equivalent of dict.update():
-##
-##                idx = key_ref.index(key)
-##                vals[idx].keys.extend(v)
-##                vals[idx].values.extend(v.values())
-
-                else:
-                    keys.append(Name(key))
-                    vals.append(cls.unparse_dict(val, dct))
-
-            else:
-                print("Expecting assignment")
-                # An assignment. Float the value back to the top.
-                keys.append(Name(key))
-                vals.append(cls.unparse_node(val))
-
-            print(*map(ast.dump, (*keys, *vals)))
-        return Dict(keys, vals)
-
-                
-##                if isinstance(val, dict):
-##                    print(val)
-##                    # if len(v) == 1:
-##                    if key not in key_ref:
-##                        key_ref.append(key)
-##                        key = Attribute(Name(key), cls.unparse_node(val))
-##                        keys.append(key)
-##                        vals.append(cls.unparse_node(val))
-##                    else:
-##                        # The equivalent of dict.update():
-##                        idx = key_ref.index(key)
-##                        vals[idx].keys.extend(v)
-##                        vals[idx].values.extend(v.values())
-##                elif key not in keys:
-##                    keys.append(Name(key))
-##                    vals.append(cls.unparse_node(val))
-##                # else:
-##                    # node = Attribute(Name(key), cls.unparse_node(v))
-##
-##            # if 
-##            print(keys, vals)
-##            node = Attribute(keys, vals)
-##            return node
 
     @classmethod
     def unparse_node(cls, thing) -> AST:
         if isinstance(thing, dict):
-            return cls.unparse_dict(thing)
+            key_ref = []
+            keys = []
+            vals = []
+
+            for key, val in thing.items():
+                # print(f"{key = }  {val = }  {enclosing = }")
+
+                if isinstance(val, dict):
+                    # An attribute, possibly nested.
+                # if key in key_ref:  # Handle multiple pairs later.
+                    # key.val
+                    name, assign = cls._unparse_dict(val, root_name=key)
+                    # print(f"{ast.dump(name) = }  {assign = }")
+                    keys.append(name)
+                    vals.append(cls.unparse_node(assign))
+
+                else:
+                    # An assignment.
+                    keys.append(Name(key))
+                    vals.append(cls.unparse_node(val))
+
+                # print(list(map(ast.dump, keys,)), list(map(ast.dump, vals)))
+
+    ##            else:
+    ##                # A root dict
+    ##
+    ##            # key_ref.append(name)
+    ##            # key = Attribute(Name(key), cls.unparse_node(val, thing))
+    ##            # keys.append(key)
+    ##            # vals.append(cls.unparse_node(val, thing))
+    ##
+    ##                # The equivalent of dict.update():
+    ##
+    ##                idx = key_ref.index(key)
+    ##                vals[idx].keys.extend(v)
+    ##                vals[idx].values.extend(v.values())
+
+
+            return Dict(keys, vals)
 
         elif isinstance(thing, list):
             values = [Name(v) for v in thing]
@@ -1363,11 +1293,11 @@ if __name__ == '__main__':
     # print(ast.dump(p.get_stmts()[0]))
     print(ast.dump(p.get_stmts()[-1].value))
     d = p.as_dict()
-    print(d['net_stats'])
-    u = DictConverter.unparse(d)
+    # print(d['net_stats'])
     print()
-    print(ast.dump(u[-1].value))
+    u = DictConverter.unparse(d)
     print(ast.dump(p.get_stmts()[-1].value))
+    print(ast.dump(u[-1].value))
     # print(*map(ast.dump, u))
     # c = ConfigFileMaker().stringify(u)
     # print(c)
