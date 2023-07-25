@@ -649,270 +649,6 @@ class Dict(_Dict):
         return r
 
 
-class Interpreter(NodeVisitor):
-    '''
-    Convert ASTs to literal Python code.
-    '''
-    _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
-
-    def visit_Assign(self, node: AST) -> dict:
-        return {self.visit((node.targets[-1])): self.visit(node.value)}
-
-    def visit_Attribute(self, node: AST) -> dict:
-        base = self.visit(node.value)
-        attr = self.visit(node.attr)
-        if isinstance(base, str):
-            return {base: {attr: self._EXPR_PLACEHOLDER}}
-        return self._process_nested_attr(base, attr)
-
-    def _process_nested_attr(
-        self,
-        dct: dict,
-        newattr: str,
-        store: bool = False
-    ) -> dict:
-        '''
-        '''
-        # print(f"{newattr = }")
-        for k, v in dct.items():
-            # print(k, v)
-            if isinstance(v, dict):
-                if k == newattr:
-                    # Don't clobber:
-                    dct[k] = self._process_nested_attr(v, newattr, store)
-                else:
-                    dct[k].update(self._process_nested_attr(v, newattr, store))
-            elif v is self._EXPR_PLACEHOLDER:
-                if store:
-                    dct[k] = newattr
-                else:
-                    dct[k] = {newattr: self._EXPR_PLACEHOLDER}
-        return dct
-
-    def visit_Constant(self, node: AST) -> str | int | float | None:
-        return node.value
-
-    def _nested_update(
-        self, dct: dict | Any,
-        upd: dict,
-        assign: Any
-    ) -> dict:
-        dct = dct.copy()
-        upd = upd.copy()
-        if not isinstance(dct, dict):
-            return {upd.popitem()[0]: assign}
-        for k, v in upd.items():
-            if v is self._EXPR_PLACEHOLDER:
-                v = assign
-            if isinstance(v, dict):
-                dct[k] = self._nested_update(dct.get(k, {}), v, assign)
-            else:
-                dct[k] = v
-        return dct
-
-    def visit_Dict(self, node: AST) -> dict:
-        new_d = {}
-        keys = []
-        vals = []
-
-        for key, val in zip(node.keys, node.values):
-            # print(ast.dump(key))
-            target = self.visit(key)
-            value = self.visit(val)
-            if isinstance(target, dict):
-                new_d = self._nested_update(new_d, target, value)
-            else:
-                new_d.update({target: value})
-
-        return new_d
-
-    def visit_List(self, node: AST) -> list:
-        return [self.visit(e) for e in node.elts]
-
-    def visit_Name(self, node: AST) -> str:
-        return node.id
-
-
-class ConfigFileMaker(NodeVisitor):
-    '''
-    Convert ASTs to string representations with config file syntax.
-    '''
-    def __init__(self) -> None:
-        self.indent = 4 * ' '
-
-    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
-        strings = [self.visit(n) for n in tree]
-        return sep.join(strings)
-
-    def visit_Attribute(self, node: AST) -> dict:
-        base = self.visit(node.value)
-        attr = self.visit(node.attr)
-        return f"{base}.{attr}"
-
-    def visit_Assign(self, node: AST) -> dict:
-        target = self.visit(node.targets[-1])
-        value = self.visit(node.value)
-        return f"{target} = {value}"
-
-    def visit_Constant(self, node):
-        val = node.value
-        if isinstance(val, str):
-            return repr(val)
-        if val is None:
-            return ""
-        return str(val)
-
-    def visit_Dict(self, node):
-        keys = (self.visit(k) for k in node.keys)
-        values = (self.visit(v) for v in node.values)
-        assignments = (' = '.join(pair) for pair in zip(keys, values))
-        joined = f"\n{self.indent}".join(assignments)
-        string = f"{{\n{self.indent}{joined}\n}}"
-        return string
-
-        assignments = []
-        for k, v in zip(node.keys, node.values):
-            key = self.visit(k)
-            if isinstance(v, Dict):
-                attrs = (self.visit(attr) for attr in v.keys)
-                vals = (self.visit(value) for value in v.values)
-                for attr, val in zip(attrs, vals):
-                    assignments.append(f"{key}.{attr} = {val}")
-
-            else:
-                val = self.visit(v)
-                assignments.append(f"{key} = {val}")
-
-        joined = ('\n' + self.indent).join(assignments)
-        return joined
-
-    def visit_List(self, node):
-        elems = tuple(self.visit(e) for e in node.elts)
-        if len(elems) > 3:
-            joined = ('\n' + self.indent).join(elems)
-            string = f"[\n{self.indent}{joined}\n]"
-        else:
-            joined = ', '.join(elems)
-            string = f"[{joined}]"
-        return string
-
-    def visit_Name(self, node):
-        string = node.id
-        return string
-
-
-class DictConverter:
-    '''
-    Convert Python objects to ASTs.
-    '''
-    @classmethod
-    def unparse(cls, mapping: dict) -> list[AST]:
-        if not isinstance(mapping, dict):
-            return mapping
-
-        assignments = []
-        for key, val in mapping.items():
-            node = Assign([Name(key)], cls.unparse_node(val))
-            assignments.append(node)
-        return assignments
-
-    @classmethod
-    def _unparse_dict(cls, mapping: dict, root_name: str = None) -> tuple[AST]:
-        '''
-        '''
-        for base, attr_or_assign in mapping.items():
-            if isinstance(attr_or_assign, dict):
-                attr, assign = cls._unparse_dict(attr_or_assign)
-                if root_name is None:
-                    name = Attribute(Name(base), attr)
-                else:
-                    root = Attribute(Name(root_name), Name(base))
-                    name = Attribute(root, attr)
-                return name, assign
-            elif root_name is not None:
-                root = Attribute(Name(root_name), Name(base))
-                return root, attr_or_assign
-            else:
-                return Name(base), attr_or_assign
-                # Enable updates later on
-
-    @classmethod
-    def unparse_node(cls, thing) -> AST:
-        if isinstance(thing, dict):
-            key_ref = []
-            keys = []
-            vals = []
-
-            for key, val in thing.items():
-                # print(f"{key = }  {val = }  {enclosing = }")
-
-                if isinstance(val, dict):
-                    # An attribute, possibly nested.
-                # if key in key_ref:  # Handle multiple pairs later.
-                    # key.val
-                    name, assign = cls._unparse_dict(val, root_name=key)
-                    # print(f"{ast.dump(name) = }  {assign = }")
-                    keys.append(name)
-                    vals.append(cls.unparse_node(assign))
-
-                else:
-                    # An assignment.
-                    keys.append(Name(key))
-                    vals.append(cls.unparse_node(val))
-
-                # print(list(map(ast.dump, keys,)), list(map(ast.dump, vals)))
-
-    ##            else:
-    ##                # A root dict
-    ##
-    ##            # key_ref.append(name)
-    ##            # key = Attribute(Name(key), cls.unparse_node(val, thing))
-    ##            # keys.append(key)
-    ##            # vals.append(cls.unparse_node(val, thing))
-    ##
-    ##                # The equivalent of dict.update():
-    ##
-    ##                idx = key_ref.index(key)
-    ##                vals[idx].keys.extend(v)
-    ##                vals[idx].values.extend(v.values())
-
-
-            return Dict(keys, vals)
-
-        elif isinstance(thing, list):
-            values = [Name(v) for v in thing]
-            return List(values)
-
-        elif isinstance(thing, (int, float, str)):
-            return Constant(thing)
-
-        elif thing in (None, True, False):
-            return Constant(thing)
-
-        else:
-            return thing
-
-    @classmethod
-    def _nested_update(cls, dct: dict | Any, upd: dict, assign: Any) -> dict:
-        if not isinstance(dct, dict):
-            return {upd.popitem()[0]: assign}
-        for k, v in upd.items():
-            if v is self._EXPR_PLACEHOLDER:
-                v = assign
-            if isinstance(v, dict):
-                dct[k] = cls._nested_update(dct.get(k, {}), v, assign)
-            else:
-                dct[k] = v
-        return dct
-
-    @classmethod
-    def as_file(cls, mapping: dict) -> FileContents:
-        '''
-        '''
-        tree = cls.unparse(mapping)
-        text = ConfigFileMaker().stringify(tree)
-        return text
-
 class Parser:
     '''
     Convert sequences of :class:`Token` to :class:`AST`.
@@ -1287,6 +1023,270 @@ class Parser:
         self.reset()
         return body
 
+
+class DictConverter:
+    '''
+    Convert Python objects to ASTs.
+    '''
+    @classmethod
+    def unparse(cls, mapping: dict) -> list[AST]:
+        if not isinstance(mapping, dict):
+            return mapping
+
+        assignments = []
+        for key, val in mapping.items():
+            node = Assign([Name(key)], cls.unparse_node(val))
+            assignments.append(node)
+        return assignments
+
+    @classmethod
+    def _unparse_dict(cls, mapping: dict, root_name: str = None) -> tuple[AST]:
+        '''
+        '''
+        for base, attr_or_assign in mapping.items():
+            if isinstance(attr_or_assign, dict):
+                attr, assign = cls._unparse_dict(attr_or_assign)
+                if root_name is None:
+                    name = Attribute(Name(base), attr)
+                else:
+                    root = Attribute(Name(root_name), Name(base))
+                    name = Attribute(root, attr)
+                return name, assign
+            elif root_name is not None:
+                root = Attribute(Name(root_name), Name(base))
+                return root, attr_or_assign
+            else:
+                return Name(base), attr_or_assign
+                # Enable updates later on
+
+    @classmethod
+    def unparse_node(cls, thing) -> AST:
+        if isinstance(thing, dict):
+            key_ref = []
+            keys = []
+            vals = []
+
+            for key, val in thing.items():
+                # print(f"{key = }  {val = }  {enclosing = }")
+
+                if isinstance(val, dict):
+                    # An attribute, possibly nested.
+                # if key in key_ref:  # Handle multiple pairs later.
+                    # key.val
+                    name, assign = cls._unparse_dict(val, root_name=key)
+                    # print(f"{ast.dump(name) = }  {assign = }")
+                    keys.append(name)
+                    vals.append(cls.unparse_node(assign))
+
+                else:
+                    # An assignment.
+                    keys.append(Name(key))
+                    vals.append(cls.unparse_node(val))
+
+                # print(list(map(ast.dump, keys,)), list(map(ast.dump, vals)))
+
+    ##            else:
+    ##                # A root dict
+    ##
+    ##            # key_ref.append(name)
+    ##            # key = Attribute(Name(key), cls.unparse_node(val, thing))
+    ##            # keys.append(key)
+    ##            # vals.append(cls.unparse_node(val, thing))
+    ##
+    ##                # The equivalent of dict.update():
+    ##
+    ##                idx = key_ref.index(key)
+    ##                vals[idx].keys.extend(v)
+    ##                vals[idx].values.extend(v.values())
+
+
+            return Dict(keys, vals)
+
+        elif isinstance(thing, list):
+            values = [Name(v) for v in thing]
+            return List(values)
+
+        elif isinstance(thing, (int, float, str)):
+            return Constant(thing)
+
+        elif thing in (None, True, False):
+            return Constant(thing)
+
+        else:
+            return thing
+
+    @classmethod
+    def _nested_update(cls, dct: dict | Any, upd: dict, assign: Any) -> dict:
+        if not isinstance(dct, dict):
+            return {upd.popitem()[0]: assign}
+        for k, v in upd.items():
+            if v is self._EXPR_PLACEHOLDER:
+                v = assign
+            if isinstance(v, dict):
+                dct[k] = cls._nested_update(dct.get(k, {}), v, assign)
+            else:
+                dct[k] = v
+        return dct
+
+    @classmethod
+    def as_file(cls, mapping: dict) -> FileContents:
+        '''
+        '''
+        tree = cls.unparse(mapping)
+        text = ConfigFileMaker().stringify(tree)
+        return text
+
+
+class ConfigFileMaker(NodeVisitor):
+    '''
+    Convert ASTs to string representations with config file syntax.
+    '''
+    def __init__(self) -> None:
+        self.indent = 4 * ' '
+
+    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
+        strings = [self.visit(n) for n in tree]
+        return sep.join(strings)
+
+    def visit_Attribute(self, node: AST) -> dict:
+        base = self.visit(node.value)
+        attr = self.visit(node.attr)
+        return f"{base}.{attr}"
+
+    def visit_Assign(self, node: AST) -> dict:
+        target = self.visit(node.targets[-1])
+        value = self.visit(node.value)
+        return f"{target} = {value}"
+
+    def visit_Constant(self, node):
+        val = node.value
+        if isinstance(val, str):
+            return repr(val)
+        if val is None:
+            return ""
+        return str(val)
+
+    def visit_Dict(self, node):
+        keys = (self.visit(k) for k in node.keys)
+        values = (self.visit(v) for v in node.values)
+        assignments = (' = '.join(pair) for pair in zip(keys, values))
+        joined = f"\n{self.indent}".join(assignments)
+        string = f"{{\n{self.indent}{joined}\n}}"
+        return string
+
+        assignments = []
+        for k, v in zip(node.keys, node.values):
+            key = self.visit(k)
+            if isinstance(v, Dict):
+                attrs = (self.visit(attr) for attr in v.keys)
+                vals = (self.visit(value) for value in v.values)
+                for attr, val in zip(attrs, vals):
+                    assignments.append(f"{key}.{attr} = {val}")
+
+            else:
+                val = self.visit(v)
+                assignments.append(f"{key} = {val}")
+
+        joined = ('\n' + self.indent).join(assignments)
+        return joined
+
+    def visit_List(self, node):
+        elems = tuple(self.visit(e) for e in node.elts)
+        if len(elems) > 3:
+            joined = ('\n' + self.indent).join(elems)
+            string = f"[\n{self.indent}{joined}\n]"
+        else:
+            joined = ', '.join(elems)
+            string = f"[{joined}]"
+        return string
+
+    def visit_Name(self, node):
+        string = node.id
+        return string
+
+
+class Interpreter(NodeVisitor):
+    '''
+    Convert ASTs to literal Python code.
+    '''
+    _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
+
+    def visit_Assign(self, node: AST) -> dict:
+        return {self.visit((node.targets[-1])): self.visit(node.value)}
+
+    def visit_Attribute(self, node: AST) -> dict:
+        base = self.visit(node.value)
+        attr = self.visit(node.attr)
+        if isinstance(base, str):
+            return {base: {attr: self._EXPR_PLACEHOLDER}}
+        return self._process_nested_attr(base, attr)
+
+    def _process_nested_attr(
+        self,
+        dct: dict,
+        newattr: str,
+        store: bool = False
+    ) -> dict:
+        '''
+        '''
+        # print(f"{newattr = }")
+        for k, v in dct.items():
+            # print(k, v)
+            if isinstance(v, dict):
+                if k == newattr:
+                    # Don't clobber:
+                    dct[k] = self._process_nested_attr(v, newattr, store)
+                else:
+                    dct[k].update(self._process_nested_attr(v, newattr, store))
+            elif v is self._EXPR_PLACEHOLDER:
+                if store:
+                    dct[k] = newattr
+                else:
+                    dct[k] = {newattr: self._EXPR_PLACEHOLDER}
+        return dct
+
+    def visit_Constant(self, node: AST) -> str | int | float | None:
+        return node.value
+
+    def _nested_update(
+        self, dct: dict | Any,
+        upd: dict,
+        assign: Any
+    ) -> dict:
+        dct = dct.copy()
+        upd = upd.copy()
+        if not isinstance(dct, dict):
+            return {upd.popitem()[0]: assign}
+        for k, v in upd.items():
+            if v is self._EXPR_PLACEHOLDER:
+                v = assign
+            if isinstance(v, dict):
+                dct[k] = self._nested_update(dct.get(k, {}), v, assign)
+            else:
+                dct[k] = v
+        return dct
+
+    def visit_Dict(self, node: AST) -> dict:
+        new_d = {}
+        keys = []
+        vals = []
+
+        for key, val in zip(node.keys, node.values):
+            # print(ast.dump(key))
+            target = self.visit(key)
+            value = self.visit(val)
+            if isinstance(target, dict):
+                new_d = self._nested_update(new_d, target, value)
+            else:
+                new_d.update({target: value})
+
+        return new_d
+
+    def visit_List(self, node: AST) -> list:
+        return [self.visit(e) for e in node.elts]
+
+    def visit_Name(self, node: AST) -> str:
+        return node.id
 
 
 if __name__ == '__main__':
