@@ -910,8 +910,6 @@ class Parser:
 
         ##print(f"parse_attr {ast.dump(target) = }")
         return target
-            
-
 
     def parse_object(self) -> AST:
         '''
@@ -986,8 +984,6 @@ class Parser:
                 raise ParseError("Not a literal: " + repr(tok))
         return Constant(value)
 
-
-
     def parse_stmt(self) -> AST:
         while self.not_eof():
             # tok = self._lexer.get_token()
@@ -1024,7 +1020,7 @@ class Parser:
         return body
 
 
-class DictConverter:
+class DictUnparser:
     '''
     Convert Python objects to ASTs.
     '''
@@ -1137,74 +1133,6 @@ class DictConverter:
         return text
 
 
-class ConfigFileMaker(NodeVisitor):
-    '''
-    Convert ASTs to string representations with config file syntax.
-    '''
-    def __init__(self) -> None:
-        self.indent = 4 * ' '
-
-    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
-        strings = [self.visit(n) for n in tree]
-        return sep.join(strings)
-
-    def visit_Attribute(self, node: AST) -> dict:
-        base = self.visit(node.value)
-        attr = self.visit(node.attr)
-        return f"{base}.{attr}"
-
-    def visit_Assign(self, node: AST) -> dict:
-        target = self.visit(node.targets[-1])
-        value = self.visit(node.value)
-        return f"{target} = {value}"
-
-    def visit_Constant(self, node):
-        val = node.value
-        if isinstance(val, str):
-            return repr(val)
-        if val is None:
-            return ""
-        return str(val)
-
-    def visit_Dict(self, node):
-        keys = (self.visit(k) for k in node.keys)
-        values = (self.visit(v) for v in node.values)
-        assignments = (' = '.join(pair) for pair in zip(keys, values))
-        joined = f"\n{self.indent}".join(assignments)
-        string = f"{{\n{self.indent}{joined}\n}}"
-        return string
-
-        assignments = []
-        for k, v in zip(node.keys, node.values):
-            key = self.visit(k)
-            if isinstance(v, Dict):
-                attrs = (self.visit(attr) for attr in v.keys)
-                vals = (self.visit(value) for value in v.values)
-                for attr, val in zip(attrs, vals):
-                    assignments.append(f"{key}.{attr} = {val}")
-
-            else:
-                val = self.visit(v)
-                assignments.append(f"{key} = {val}")
-
-        joined = ('\n' + self.indent).join(assignments)
-        return joined
-
-    def visit_List(self, node):
-        elems = tuple(self.visit(e) for e in node.elts)
-        if len(elems) > 3:
-            joined = ('\n' + self.indent).join(elems)
-            string = f"[\n{self.indent}{joined}\n]"
-        else:
-            joined = ', '.join(elems)
-            string = f"[{joined}]"
-        return string
-
-    def visit_Name(self, node):
-        string = node.id
-        return string
-
-
 class Interpreter(NodeVisitor):
     '''
     Convert ASTs to literal Python code.
@@ -1289,6 +1217,74 @@ class Interpreter(NodeVisitor):
         return node.id
 
 
+class ConfigFileMaker(NodeVisitor):
+    '''
+    Convert ASTs to string representations with config file syntax.
+    '''
+    def __init__(self) -> None:
+        self.indent = 4 * ' '
+
+    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
+        strings = [self.visit(n) for n in tree]
+        return sep.join(strings)
+
+    def visit_Attribute(self, node: AST) -> dict:
+        base = self.visit(node.value)
+        attr = self.visit(node.attr)
+        return f"{base}.{attr}"
+
+    def visit_Assign(self, node: AST) -> dict:
+        target = self.visit(node.targets[-1])
+        value = self.visit(node.value)
+        return f"{target} = {value}"
+
+    def visit_Constant(self, node):
+        val = node.value
+        if isinstance(val, str):
+            return repr(val)
+        if val is None:
+            return ""
+        return str(val)
+
+    def visit_Dict(self, node):
+        keys = (self.visit(k) for k in node.keys)
+        values = (self.visit(v) for v in node.values)
+        assignments = (' = '.join(pair) for pair in zip(keys, values))
+        joined = f"\n{self.indent}".join(assignments)
+        string = f"{{\n{self.indent}{joined}\n}}"
+        return string
+
+        assignments = []
+        for k, v in zip(node.keys, node.values):
+            key = self.visit(k)
+            if isinstance(v, Dict):
+                attrs = (self.visit(attr) for attr in v.keys)
+                vals = (self.visit(value) for value in v.values)
+                for attr, val in zip(attrs, vals):
+                    assignments.append(f"{key}.{attr} = {val}")
+
+            else:
+                val = self.visit(v)
+                assignments.append(f"{key} = {val}")
+
+        joined = ('\n' + self.indent).join(assignments)
+        return joined
+
+    def visit_List(self, node):
+        elems = tuple(self.visit(e) for e in node.elts)
+        if len(elems) > 3:
+            joined = ('\n' + self.indent).join(elems)
+            string = f"[\n{self.indent}{joined}\n]"
+        else:
+            joined = ', '.join(elems)
+            string = f"[{joined}]"
+        return string
+
+    def visit_Name(self, node):
+        string = node.id
+        return string
+
+
 if __name__ == '__main__':
     p = Parser()
     # print(ast.dump(p.get_stmts()[0]))
@@ -1301,7 +1297,7 @@ if __name__ == '__main__':
     print(d)
     # print(d['net_stats'])
     # print()
-    u = DictConverter.unparse(d)
+    u = DictUnparser.unparse(d)
     for t in u:
         print(ast.dump(t))
     # print([ast.dump(t) for t in u])
