@@ -745,8 +745,8 @@ class ConfigFileMaker(NodeVisitor):
         return sep.join(strings)
 
     def visit_Attribute(self, node: AST) -> dict:
-        base = self.visit(node.targets[-1])
-        attr = self.visit(node.value)
+        base = self.visit(node.value)
+        attr = self.visit(node.attr)
         return f"{base}.{attr}"
 
     def visit_Assign(self, node: AST) -> dict:
@@ -763,11 +763,12 @@ class ConfigFileMaker(NodeVisitor):
         return str(val)
 
     def visit_Dict(self, node):
-        if node._root:
-            target = self.visit(*node.keys)  # There will only be one.
-            joined = self.visit(*node.values)  # There will only be one.
-            string = f"{target} {{\n{self.indent}{joined}\n}}"
-            return string
+        keys = (self.visit(k) for k in node.keys)
+        values = (self.visit(v) for v in node.values)
+        assignments = (' = '.join(pair) for pair in zip(keys, values))
+        joined = f"\n{self.indent}".join(assignments)
+        string = f"{{\n{self.indent}{joined}\n}}"
+        return string
 
         assignments = []
         for k, v in zip(node.keys, node.values):
@@ -1291,14 +1292,23 @@ class Parser:
 if __name__ == '__main__':
     p = Parser()
     # print(ast.dump(p.get_stmts()[0]))
-    print(ast.dump(p.get_stmts()[-1].value))
+    # print(ast.dump(p.get_stmts()[-1].value))
+    for t in p.get_stmts():
+        print(ast.dump(t))
+        # print([ast.dump(t) for t in p.get_stmts()])
     d = p.as_dict()
-    # print(d['net_stats'])
     print()
+    print(d)
+    # print(d['net_stats'])
+    # print()
     u = DictConverter.unparse(d)
-    print(ast.dump(p.get_stmts()[-1].value))
-    print(ast.dump(u[-1].value))
+    for t in u:
+        print(ast.dump(t))
+    # print([ast.dump(t) for t in u])
+    # print(ast.dump(p.get_stmts()[-1].value))
+    # print(ast.dump(u[-1].value))
     # print(*map(ast.dump, u))
-    # c = ConfigFileMaker().stringify(u)
-    # print(c)
+    print()
+    c = ConfigFileMaker().stringify(u)
+    print(c)
 
