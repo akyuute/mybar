@@ -33,8 +33,7 @@ TokenValue: TypeAlias = str
 Location: TypeAlias = tuple[LineNo, ColNo]
 
 
-# FILE = 'test_config.conf'
-FILE = '/home/sam/.config/mybar/mybar.conf'
+FILE = 'mybar/test_config.conf'
 EOF = ''
 NEWLINE = '\n'
 NOT_IN_IDS = string.punctuation.replace('_', '\s')
@@ -1039,21 +1038,46 @@ class DictUnparser:
     def _unparse_dict(cls, mapping: dict, root_name: str = None) -> tuple[AST]:
         '''
         '''
+        key_ref = []
+        keys = []
+        vals = []
+        # print("Mapping:")
+        # print(mapping)
         for base, attr_or_assign in mapping.items():
             if isinstance(attr_or_assign, dict):
-                attr, assign = cls._unparse_dict(attr_or_assign)
+                attrs, assigns = cls._unparse_dict(attr_or_assign)
+                v = assigns
                 if root_name is None:
-                    name = Attribute(Name(base), attr)
+                    names = [Attribute(Name(base), attr) for attr in attrs]
                 else:
                     root = Attribute(Name(root_name), Name(base))
-                    name = Attribute(root, attr)
-                return name, assign
+                    names = [Attribute(root, attr) for attr in attrs]
+                # return name, assign
             elif root_name is not None:
+                v = [attr_or_assign]
                 root = Attribute(Name(root_name), Name(base))
-                return root, attr_or_assign
+                names = [root]
+                # return root, attr_or_assign
             else:
-                return Name(base), attr_or_assign
+                v = [attr_or_assign]
+                names = [Name(base)]
+                # return Name(base), attr_or_assign
                 # Enable updates later on
+
+            if base not in key_ref:
+                key_ref.append(base)
+                keys.extend(names)
+                vals.extend(v)
+            else:
+                idx = key_ref.index(base)
+                # print(keys[idx])
+                # print(vals[idx])
+
+            # print(keys, vals)
+            # print(*map(ast.dump, keys))
+            # return name, v
+        return keys, vals
+
 
     @classmethod
     def unparse_node(cls, thing) -> AST:
@@ -1069,15 +1093,31 @@ class DictUnparser:
                     # An attribute, possibly nested.
                 # if key in key_ref:  # Handle multiple pairs later.
                     # key.val
-                    name, assign = cls._unparse_dict(val, root_name=key)
+                    names, assigns = cls._unparse_dict(val, root_name=key)
                     # print(f"{ast.dump(name) = }  {assign = }")
-                    keys.append(name)
-                    vals.append(cls.unparse_node(assign))
+                    # keys.append(name)
+                    # key = name
+                    # vals.append(cls.unparse_node(assign))
+                    v = [cls.unparse_node(assign) for assign in assigns]
 
                 else:
                     # An assignment.
-                    keys.append(Name(key))
-                    vals.append(cls.unparse_node(val))
+                    # keys.append(Name(key))
+                    names = [Name(key)]
+                    # vals.append(cls.unparse_node(val))
+                    v = [cls.unparse_node(val)]
+
+                if key not in key_ref:
+                    key_ref.append(key)
+                    keys.extend(names)
+                    vals.extend(v)
+                else:
+                    # The equivalent of dict.update():
+                    idx = key_ref.index(key)
+                    # if not isinstance(vals[idx], Dict):
+                    # print(vals[idx])
+                    # vals[idx].keys.extend(v)
+                    # vals[idx].values.extend(v.values())
 
                 # print(list(map(ast.dump, keys,)), list(map(ast.dump, vals)))
 
@@ -1089,11 +1129,6 @@ class DictUnparser:
     ##            # keys.append(key)
     ##            # vals.append(cls.unparse_node(val, thing))
     ##
-    ##                # The equivalent of dict.update():
-    ##
-    ##                idx = key_ref.index(key)
-    ##                vals[idx].keys.extend(v)
-    ##                vals[idx].values.extend(v.values())
 
 
             return Dict(keys, vals)
@@ -1181,10 +1216,10 @@ class Interpreter(NodeVisitor):
         upd: dict,
         assign: Any
     ) -> dict:
-        dct = dct.copy()
         upd = upd.copy()
         if not isinstance(dct, dict):
             return {upd.popitem()[0]: assign}
+        dct = dct.copy()
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
@@ -1286,25 +1321,23 @@ class ConfigFileMaker(NodeVisitor):
 
 
 if __name__ == '__main__':
+    print("AST parsed from file contents:")
     p = Parser()
-    # print(ast.dump(p.get_stmts()[0]))
-    # print(ast.dump(p.get_stmts()[-1].value))
-    for t in p.get_stmts():
-        print(ast.dump(t))
-        # print([ast.dump(t) for t in p.get_stmts()])
+    print(ast.dump(p.get_stmts()[-1].value))
+    print()
+
+    print("Dict built from AST parsed from file contents:")
     d = p.as_dict()
-    print()
     print(d)
-    # print(d['net_stats'])
-    # print()
-    u = DictUnparser.unparse(d)
-    for t in u:
-        print(ast.dump(t))
-    # print([ast.dump(t) for t in u])
-    # print(ast.dump(p.get_stmts()[-1].value))
-    # print(ast.dump(u[-1].value))
-    # print(*map(ast.dump, u))
     print()
+
+    print("AST from unparsing dict built from AST parsed from file contents:")
+    u = DictUnparser.unparse(d)
+    print(ast.dump(u[-1].value))
+    print()
+
+    print("File contents built from AST from unparsing dict built from AST parsed from file contents:")
     c = ConfigFileMaker().stringify(u)
     print(c)
+    print()
 
