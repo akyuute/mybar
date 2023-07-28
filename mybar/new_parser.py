@@ -192,7 +192,7 @@ class TokenError(ConfigError):
             line_bridge = " "
             line = lexer.get_line(first_tok)
             if first_tok.kind is Literal.STRING:
-                text = first_tok.match.group()
+                text = first_tok.match_repr()
             else:
                 text = first_tok.value
             between = tokens
@@ -242,8 +242,8 @@ class TokenError(ConfigError):
                     continue
 
                 case Literal.STRING:
-                    # match.group() has the quotation marks:
-                    token_length = len(t.match.group())
+                    # match_repr() contains the quotation marks:
+                    token_length = len(t.match_repr())
 
                 case _:
                     token_length = len(t.value)
@@ -283,7 +283,7 @@ class Token:
         'at',
         'value',
         'kind',
-        'match',
+        'matchgroups',
         'cursor',
         'lineno',
         'colno',
@@ -296,14 +296,14 @@ class Token:
         at: tuple[CharNo, Location],
         value: TokenValue,
         kind: TokenKind,
-        match: re.Match,
+        matchgroups: re.Match,
         lexer: Lexer = None,
         file: PathLike = None,
     ) -> None:
         self.at = at
         self.value = value
         self.kind = kind
-        self.match = match
+        self.matchgroups = matchgroups
         self.cursor = at[0]
         self.lineno = at[1][0]
         self.colno = at[1][1]
@@ -312,7 +312,7 @@ class Token:
 
     def __repr__(self):
         cls = type(self).__name__
-        ignore = ('cursor', 'lineno', 'colno', 'lexer', 'file')
+        ignore = ('matchgroups', 'cursor', 'lineno', 'colno', 'lexer', 'file')
         pairs = (
             (k, getattr(self, k)) for k in self.__slots__
             if k not in ignore
@@ -320,7 +320,7 @@ class Token:
         stringified = tuple(
             # Never use repr() for `Enum` instances:
             (k, repr(v) if isinstance(v, str) else str(v))
-            for k, v in pairs if k != 'match'
+            for k, v in pairs
         )
         
         attrs = ', '.join(('='.join(pair) for pair in stringified))
@@ -334,6 +334,11 @@ class Token:
             else item.__name__
         )
         return f"{cls.__name__}[{item_name}]"
+
+    def match_repr(self) -> str:
+        quote = self.matchgroups[0]
+        val = self.matchgroups[1]
+        return f"{quote}{val}{quote}"
 
     def error_leader(self, with_col: bool = False) -> str:
         '''
@@ -542,7 +547,7 @@ class Lexer:
                 value=m.group(),
                 at=(self._cursor, (self._lineno, self._colno)),
                 kind=kind,
-                match=m,
+                matchgroups=m.groups(),
                 lexer=self,
                 file=self._file
             )
@@ -556,7 +561,7 @@ class Lexer:
 
             if kind is Literal.STRING:
                 # Process strings by removing quotes:
-                speech_char = tok.match.groups()[0]
+                speech_char = tok.matchgroups[0]
                 tok.value = tok.value.strip(speech_char)
 
                 # Concatenate neighboring strings:
@@ -586,7 +591,7 @@ class Lexer:
                     value=s,
                     at=(self._cursor, (self._lineno, self._colno)),
                     kind=self.eof,
-                    match=None,
+                    matchgroups=None,
                     lexer=self,
                     file=self._file
                 )
@@ -600,7 +605,7 @@ class Lexer:
                 value=bad_value,
                 at=(self._cursor, (self._lineno, self._colno)),
                 kind=Unknown.UNKNOWN,
-                match=None,
+                matchgroups=None,
                 lexer=self,
                 file=self._file
             )
@@ -692,7 +697,7 @@ class Parser:
                     f"{n._token.kind.value} cannot be at"
                     f" the start of a statement"
                 )
-                msg = f"Invalid syntax: {n._token.match.group()!r} ({note})"
+                msg = f"Invalid syntax: {n._token.match_repr()!r} ({note})"
                 raise ParseError.hl_error(n._token, msg)
 
             parsed = i.visit(n)
