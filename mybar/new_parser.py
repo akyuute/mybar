@@ -9,6 +9,7 @@ from ast import (
     Constant,
     Dict as _Dict,
     List,
+    Module,
     Name,
     NodeVisitor,
 )
@@ -640,7 +641,7 @@ class Dict(_Dict):
         keys = [
             k.id if isinstance(k, Name)
             # else ast.dump(k) if isinstance(k, Attribute)
-            else f"{k.value}.{k.attr}" if isinstance(k, Attribute)
+            else f"{ast.dump(k)}" if isinstance(k, Attribute)
             else k
             for k in self.keys
         ]
@@ -703,8 +704,6 @@ class Parser:
 
         return mapping
 
-
-
     def cur_tok(self) -> Token:
         return self._tokens[self._cursor]
 
@@ -712,7 +711,7 @@ class Parser:
         tok = self.cur_tok()
         if tok.kind is not kind:
             raise ParseError.hl_error(tok, errmsg)
-        return True
+        return tok
 
     def expect_next(self, kind: TokenKind, errmsg: str) -> NoReturn | bool:
         if not isinstance(kind, tuple):
@@ -878,36 +877,15 @@ class Parser:
         ##print(f"{ast.dump(node) = }")
         return node
 
-    def parse_attribute(self, value: Name | Attribute) -> Attribute:
-        ##print("parsing attribute")
-        # base_tok = self.cur_tok()
-        curr = self.cur_tok()
-        # curr = self.advance()
-        msg = "parse_attr: Not an identifier"
-        # while curr.kind is BinOp.ATTRIBUTE:
-        # while True:
+    def parse_attribute(self, outer: Name | Attribute) -> Attribute:
         curr = self.expect_curr(BinOp.ATTRIBUTE, "parse_attribute() called when no '.' found")
-        maybe_attr = self.expect_next(Symbol.IDENTIFIER, msg)
-            # value = Name(base_tok)
-            # value._token = base_tok
-
-        attr = Name(maybe_attr.value)
-        attr._token = maybe_attr
-
-        target = Attribute(value, attr)
-        target._token = curr
-        # base_tok = self.expect_next(Symbol.IDENTIFIER, msg)
-        # curr = self.advance()
-        # if curr.kind is Symbol.IDENTIFIER:
-            # return self.parse_attribute(
+        msg = "parse_attr: Not an identifier"
+        maybe_inner = self.expect_next(Symbol.IDENTIFIER, msg)
+        attr = maybe_inner.value
+        target = Attribute(outer, attr)
         maybe_another = self.advance()
         if maybe_another.kind is BinOp.ATTRIBUTE:
             target = self.parse_attribute(target)
-            # target = self.parse_attribute(target)
-##                target = Attribute(target, self.parse_attribute())
-##            curr = self.advance()
-
-        ##print(f"parse_attr {ast.dump(target) = }")
         return target
 
     def parse_object(self) -> AST:
@@ -937,6 +915,7 @@ class Parser:
                 case Symbol.IDENTIFIER:
                     # key = tok.value
                     pair = self.parse_mapping()
+                    # print(pair)
                     key = pair.keys[-1]
                     val = pair.values[-1]
 
@@ -947,15 +926,20 @@ class Parser:
                     else:
                         # Make nested dicts.
                         idx = keys.index(key)
+                        
                         # Equivalent to dict.update():
-                        vals[idx].keys.append(val.keys[-1])
-                        vals[idx].values.append(val.values[-1])
+                        # vals[idx].keys.extend(val.keys)
+                        # vals[idx].values.extend(val.values)
+                        vals[idx].keys = val.keys
+                        vals[idx].values = val.values
 
                     # print(keys)
                 case _:
                     note = f"expected variable name, got {kind.value}"
                     msg = f"Invalid target for assignment: {note}:"
                     raise ParseError.hl_error(tok, msg)
+
+            # print([ast.dump(k) for k in vals])
 
         # Put all the assignments together:
         # reconciled = Dict([Name(k) for k in keys], vals)
@@ -985,38 +969,28 @@ class Parser:
 
     def parse_stmt(self) -> AST:
         while self.not_eof():
-            # tok = self._lexer.get_token()
             tok = self.cur_tok()
-            # print("New stmt:", tok)
             kind = tok.kind
             assign = self.parse_root_assign()
-            # print(ast.dump(assign))
-            # print()
             return assign
-            # print(self.parse_root_assign())
-            # print(self.parse_expr())
-            match kind:
-                case BinOp.ASSIGN:
-                    return self.parse_root_assign(tok)
-                case BinOp.ATTRIBUTE:
-                    value = self.parse_attribute(tok)
-                case _:
-                    raise ParseError(repr(tok))
+##            match kind:
+##                case BinOp.ASSIGN:
+##                    return self.parse_root_assign(tok)
+##                case BinOp.ATTRIBUTE:
+##                    value = self.parse_attribute(tok)
+##                case _:
+##                    raise ParseError(repr(tok))
 
-        
     def get_stmts(self) -> list[AST]:
         self.reset()
-        # print(self._tokens)
-        # for t in self._tokens:
-            # print(repr(t.value))
-        body = []
+        assignments = []
         while self.not_eof():
-            body.append(self.parse_stmt())
-            # for n in body:
-                # print(ast.dump(n))
-                # print()
+            assignments.append(self.parse_stmt())
         self.reset()
-        return body
+        return assignments
+
+    def parse(self) -> str:
+        return Module(self.get_stmts())
 
 
 class DictUnparser:
@@ -1032,7 +1006,7 @@ class DictUnparser:
         for key, val in mapping.items():
             node = Assign([Name(key)], cls.unparse_node(val))
             assignments.append(node)
-        return assignments
+        return Module(assignments)
 
     @classmethod
     def _unparse_dict(cls, mapping: dict, root_name: str = None) -> tuple[AST]:
@@ -1178,56 +1152,57 @@ class Interpreter(NodeVisitor):
         return {self.visit((node.targets[-1])): self.visit(node.value)}
 
     def visit_Attribute(self, node: AST) -> dict:
-        base = self.visit(node.value)
-        attr = self.visit(node.attr)
-        if isinstance(base, str):
-            return {base: {attr: self._EXPR_PLACEHOLDER}}
-        return self._process_nested_attr(base, attr)
+        attrs = self._process_nested_attr(node, [])
+        new_d = self._EXPR_PLACEHOLDER
+        for attr in attrs:
+            new_d = {attr: new_d}
+        # print(new_d)
+        return new_d
 
     def _process_nested_attr(
         self,
-        dct: dict,
-        newattr: str,
-        store: bool = False
+        node: Attribute | Name | str,
+        attrs: list[str]
     ) -> dict:
         '''
         '''
-        # print(f"{newattr = }")
-        for k, v in dct.items():
-            # print(k, v)
-            if isinstance(v, dict):
-                if k == newattr:
-                    # Don't clobber:
-                    dct[k] = self._process_nested_attr(v, newattr, store)
-                else:
-                    dct[k].update(self._process_nested_attr(v, newattr, store))
-            elif v is self._EXPR_PLACEHOLDER:
-                if store:
-                    dct[k] = newattr
-                else:
-                    dct[k] = {newattr: self._EXPR_PLACEHOLDER}
-        return dct
+        # print("Running _process_nested_attr() on", ast.dump(node))
+        if not attrs:
+            attrs = [node.attr]
+            return self._process_nested_attr(node.value, attrs)
+        if isinstance(node, Attribute):
+            attrs.append(node.attr)
+            return self._process_nested_attr(node.value, attrs)
+        if isinstance(node, Name):
+            return self._process_nested_attr(node.id, attrs)
+        if isinstance(node, str):
+            attrs.append(node)
+            return attrs
 
     def visit_Constant(self, node: AST) -> str | int | float | None:
         return node.value
 
     def _nested_update(
-        self, dct: dict | Any,
+        self,
+        orig: dict | Any,
         upd: dict,
         assign: Any
     ) -> dict:
+        # print(orig, upd)
         upd = upd.copy()
-        if not isinstance(dct, dict):
-            return {upd.popitem()[0]: assign}
-        dct = dct.copy()
+        if not isinstance(orig, dict):
+            # print("Replacin'", orig, "with", assign)
+            return self._nested_update({}, upd, assign)
+        orig = orig.copy()
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
+                # print("Assignin'", assign, "to", k)
                 v = assign
             if isinstance(v, dict):
-                dct[k] = self._nested_update(dct.get(k, {}), v, assign)
+                orig[k] = self._nested_update(orig.get(k, {}), v, assign)
             else:
-                dct[k] = v
-        return dct
+                orig[k] = v
+        return orig
 
     def visit_Dict(self, node: AST) -> dict:
         new_d = {}
@@ -1235,10 +1210,12 @@ class Interpreter(NodeVisitor):
         vals = []
 
         for key, val in zip(node.keys, node.values):
+            # print(key)
             # print(ast.dump(key))
             target = self.visit(key)
             value = self.visit(val)
             if isinstance(target, dict):
+                # An Attribute
                 new_d = self._nested_update(new_d, target, value)
             else:
                 new_d.update({target: value})
@@ -1323,21 +1300,24 @@ class ConfigFileMaker(NodeVisitor):
 if __name__ == '__main__':
     print("AST parsed from file contents:")
     p = Parser()
-    print(ast.dump(p.get_stmts()[-1].value))
-    print()
+    # print(ast.dump(p.get_stmts()[-1].value))
+    print(ast.dump(p.parse()))
+    # print()
 
     print("Dict built from AST parsed from file contents:")
     d = p.as_dict()
+    # print(d['net_stats'])
     print(d)
     print()
 
     print("AST from unparsing dict built from AST parsed from file contents:")
     u = DictUnparser.unparse(d)
-    print(ast.dump(u[-1].value))
+    # print(ast.dump(u[-1].value))
+    print(ast.dump(u))
     print()
 
     print("File contents built from AST from unparsing dict built from AST parsed from file contents:")
-    c = ConfigFileMaker().stringify(u)
+    c = ConfigFileMaker().stringify(u.body)
     print(c)
     print()
 
