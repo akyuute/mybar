@@ -16,7 +16,7 @@ from ast import (
 from enum import Enum
 from os import PathLike
 from queue import LifoQueue
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping, MutableMapping, MutableSequence
 from typing import Any, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
 
 # from ._types import FileContents
@@ -1139,30 +1139,63 @@ class ConfigDictUnparser:
     ) -> tuple[list[AST]]:
         '''
         Unparse a nested dictionary.
+
         :param dct: The dict to unparse
-        :type dct: 
-        :param root_name: The target of the root dict assignment
+        :type dct: :class:`Mapping` | :class:`Any`
+
+        :param attrs: The list of dict keys that have been seen
+        :type attrs: :class:`MutableSequence`
+
+        :param root_name: The uppermost dict key
+        :type root_name: :class:`str`
         '''
+        if not isinstance(dct, Mapping):
+            return attrs, dct
+
         if root_name is not None:
             attrs, assign = cls._unparse_dict(dct, [])
             node = Name(root_name)
-            for attr in attrs:
+            for attrgrp in attrs:
                 node = Attribute(node, attr)
                 # print(ast.dump(node))
             return node, assign
 
+        key_ref = []
+        attrses = []
+        assigns = []
+
+        print(f"{dct = }")
         for key, val in dct.items():
+            print(key, val)
+            if key_ref:
+                # print(key_ref)
+                print("Have keys")
+                print(key_ref, attrses, assigns)
             if not attrs:
                 attrs = [key]
                 attrs, assign = cls._unparse_dict(val, attrs)
-            elif isinstance(val, dict):
-                attrs.append(key)
+            elif isinstance(val, Mapping):
+                # attrs.append(key)
                 attrs, assign = cls._unparse_dict(val, attrs)
             else:
-                attrs.append(key)
+                # attrs.append(key)
                 assign = val
 
-        return attrs, assign
+            if key not in key_ref:
+                key_ref.append(key)
+                attrses.append(attrs)
+                assigns.append(assign)
+            else:
+                idx = key_ref.index(key)
+                print(idx)
+                # assigns[idx].append(assign)
+
+            print((key_ref, attrses, assigns))
+            # print(key_ref, attrs, vals)
+        return attrses, assigns
+
+    # @classmethod
+    # def _process_nested(cls, 
 
 
 
@@ -1172,20 +1205,31 @@ class ConfigDictUnparser:
         '''
         '''
         if isinstance(thing, Mapping):
-            keys = []
-            vals = []
             for key, val in thing.items():
+                print(key, val)
+
                 if isinstance(val, Mapping):
+                    key_ref = []
+                    keys = []
+                    vals = []
                     # An attribute, possibly nested.
-                    node, assign = cls._unparse_dict(val, [], root_name=key)
+                    nodes, assigns = cls._unparse_dict(val, [], root_name=key)
                     v = cls.unparse_node(assign)
                 else:
                     # An assignment.
                     node = Name(key)
                     v = cls.unparse_node(val)
+                ### NOOO:
                 # Dicts can't contain duplicates, so it's safe to append:
-                keys.append(node)
-                vals.append(v)
+                if key not in key_ref:
+                    key_ref.append(key)
+                    keys.append(node)
+                    vals.append(v)
+                else:
+                    idx = key_ref.index(key)
+                    vals[idx].append(v)
+
+                # print(key_ref)
             return Dict(keys, vals)
 
         elif isinstance(thing, list):
@@ -1205,22 +1249,22 @@ class ConfigDictUnparser:
     def _nested_update(
         cls,
         dct: MutableMapping | Any,
-        upd: dict,
+        upd: Mapping,
         assign: Any
     ) -> dict:
-        if not isinstance(dct, dict):
+        if not isinstance(dct, MutableMapping):
             return {upd.popitem()[0]: assign}
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
-            if isinstance(v, dict):
+            if isinstance(v, Mapping):
                 dct[k] = cls._nested_update(dct.get(k, {}), v, assign)
             else:
                 dct[k] = v
         return dct
 
     @classmethod
-    def to_file(cls, mapping: dict) -> FileContents:
+    def to_file(cls, mapping: Mapping) -> FileContents:
         '''
         '''
         tree = cls.unparse(mapping)
@@ -1280,7 +1324,8 @@ class Interpreter(NodeVisitor):
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
             if isinstance(v, Mapping):
-                orig[k] = self._nested_update(orig.get(k, {}), v, assign)
+                updated = self._nested_update(orig.get(k, {}), v, assign)
+                orig[k] = updated
             else:
                 orig[k] = v
         return orig
@@ -1366,7 +1411,7 @@ if __name__ == '__main__':
 ##
 ##    print("Dict built from AST parsed from file contents:")
     d = p.to_dict()
-##    print(d)
+    print(d)
 ##    print()
 ##
 ##    print("AST from unparsing dict built from AST parsed from file contents:")
