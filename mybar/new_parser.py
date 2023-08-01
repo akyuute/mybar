@@ -16,7 +16,7 @@ from ast import (
 from enum import Enum
 from os import PathLike
 from queue import LifoQueue
-from collections.abc import Mapping, MutableMapping, MutableSequence
+from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
 from typing import Any, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
 
 # from ._types import FileContents
@@ -1134,8 +1134,8 @@ class ConfigDictUnparser:
     def _unparse_dict(
         cls,
         dct: Mapping | Any,
-        attrs: list[str],
-        root_name: str = None,
+        attrs: list[str] = [],
+        # root_name: str = None,
     ) -> tuple[list[AST]]:
         '''
         Unparse a nested dictionary.
@@ -1149,55 +1149,96 @@ class ConfigDictUnparser:
         :param root_name: The uppermost dict key
         :type root_name: :class:`str`
         '''
+
+        print(f"Processing {dct = }, {attrs = }")
         if not isinstance(dct, Mapping):
             return attrs, dct
 
-        if root_name is not None:
-            attrs, assign = cls._unparse_dict(dct, [])
-            node = Name(root_name)
-            for attrgrp in attrs:
-                node = Attribute(node, attr)
-                # print(ast.dump(node))
-            return node, assign
-
-        key_ref = []
-        attrses = []
-        assigns = []
-
-        print(f"{dct = }")
+        keys = []
+        vals = []
         for key, val in dct.items():
             print(key, val)
-            if key_ref:
-                # print(key_ref)
-                print("Have keys")
-                print(key_ref, attrses, assigns)
+
             if not attrs:
+                # The root attribute
                 attrs = [key]
                 attrs, assign = cls._unparse_dict(val, attrs)
+
             elif isinstance(val, Mapping):
-                # attrs.append(key)
+                # A nested attrubute
+                attrs.append(key)
                 attrs, assign = cls._unparse_dict(val, attrs)
+                vals.append(assign)
             else:
-                # attrs.append(key)
-                assign = val
+                attrs.append(key)
+                vals.append(val)
+            print((attrs, vals))
 
-            if key not in key_ref:
-                key_ref.append(key)
-                attrses.append(attrs)
-                assigns.append(assign)
-            else:
-                idx = key_ref.index(key)
-                print(idx)
-                # assigns[idx].append(assign)
+        return attrs, vals
 
-            print((key_ref, attrses, assigns))
-            # print(key_ref, attrs, vals)
-        return attrses, assigns
+    @classmethod
+    def _dict_to_list(cls, dct, seen=[]) -> tuple[list[list], list]:
+        # {'a': {'b': {'c': assign}, {'bb': assign}}} -> [[a, b, c], [a, bb]]
+        # seen = []
+        nodes = []
+        vals = []
+        print(f"{dct = }, {seen = }")
+        if not isinstance(dct, Mapping):
+            return [seen], [dct]
+        if len(dct) == 1:
+            print("Going the short way")
+            for a, v in dct.items():
+                # print(f"{a = }, {v = }, {oldseen = }")
+                print(f"{a = }")
+                seen.append(a)
+                return cls._dict_to_list(v, seen)
+                return [[a]], v
+        oldseen = seen
+        for a, v in dct.items():
+            print(f"{a = }, {v = }, {nodes = }")
+            seen.append(a)
+            # 'a', {...}'
+            if not isinstance(v, Mapping):
+##                # {'b': {'c': assign}}
+##                print("v is a mapping")
+##                attrs, values = cls._dict_to_list(v, oldseen)
+##                seen.append(attrs)
+##                nodes.extend(attrs)
+##                vals.extend(values)
+##            else:
+                print(f"{seen = }")
+                # print(f"{oldseen + seen = }")
+                nodes.append(seen)
+                vals.append(v)
+            # seen = oldseen[:-2]
+            seen = seen[:-1]
+        print(f"{nodes = }")
+        # print(f"{nodes = }, {vals = }")
+        return nodes, vals
+        return seen, vals
 
-    # @classmethod
-    # def _process_nested(cls, 
 
 
+    @classmethod
+    def _list_to_attributes(cls, attrs) -> list[Attribute]:
+        nodes = []
+        spent = []
+        if not isinstance(attrs, Sequence):
+            return attrs
+            # return [attrs]
+            # return attrs
+            # return node
+        started = False
+        for agroup in attrs:
+            node = Name(agroup.pop(0))
+            # node = Name(agroup[0])
+            for a in agroup:
+                node = Attribute(node, a)
+            nodes.append(node)
+
+            # node = Attribute(node, cls._list_to_attributes(attr))
+            # nodes.append(node)
+        return nodes
 
 
     @classmethod
@@ -1205,32 +1246,44 @@ class ConfigDictUnparser:
         '''
         '''
         if isinstance(thing, Mapping):
+            keys = []
+            vals = []
             for key, val in thing.items():
-                print(key, val)
+                print(f"{key = }, {val = }")
+                # print(key, val)
 
                 if isinstance(val, Mapping):
-                    key_ref = []
-                    keys = []
-                    vals = []
                     # An attribute, possibly nested.
-                    nodes, assigns = cls._unparse_dict(val, [], root_name=key)
-                    v = cls.unparse_node(assign)
+                    # attr, assign = cls._unparse_dict(val)
+                    attrs, assigns = cls._dict_to_list(val, [key])
+                    print(attrs, assigns)
+                    nodes = cls._list_to_attributes(attrs) 
+                    # node = Attribute(Name(key), attr)
+                    # attr.insert(0, key)
+                    # node = cls._list_to_attributes(attr)
+                    # v = cls.unparse_node(assign)
+                    keys.extend(nodes)
+                    # vals.extend(cls.unparse_node(v) for v in assigns)
+                    vals.extend(assigns)
                 else:
-                    # An assignment.
+                    # An explicit assignment.
                     node = Name(key)
                     v = cls.unparse_node(val)
                 ### NOOO:
                 # Dicts can't contain duplicates, so it's safe to append:
-                if key not in key_ref:
-                    key_ref.append(key)
+##                if key not in key_ref:
+##                    key_ref.append(key)
+                # print(v)
                     keys.append(node)
                     vals.append(v)
-                else:
-                    idx = key_ref.index(key)
-                    vals[idx].append(v)
+##                else:
+##                    print("HOW?")
+##                    idx = key_ref.index(key)
+##                    vals[idx].append(v)
 
                 # print(key_ref)
-            return Dict(keys, vals)
+                # print(f"{keys = }, {vals = }")
+            return Dict(keys, [cls.unparse_node(v) for v in vals])
 
         elif isinstance(thing, list):
             values = [Name(v) for v in thing]
