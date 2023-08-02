@@ -66,7 +66,7 @@ Bar = TypeVar('Bar')
 
 class BarConfig(dict):
     '''
-    Build and transport Bar configs between files, dicts and command line args.
+    Build and transport configs between files, dicts and command lines.
 
     :param options: Optional :class:`_types.BarConfigSpec` parameters
         that override those of `defaults`
@@ -119,8 +119,8 @@ class BarConfig(dict):
             defaults to ``'~/.mybar.json'``
         :type file: :class:`PathLike`
 
-        :param defaults: The base :class:`_types.BarConfigSpec` dict whose
-            params the new :class:`BarConfig` will override,
+        :param defaults: The base :class:`_types.BarConfigSpec` dict
+            whose params the new :class:`BarConfig` will override,
             defaults to :attr:`Bar._default_params`
         :type defaults: :class:`_types.BarConfigSpec`
 
@@ -349,7 +349,8 @@ class BarConfig(dict):
         :type file: :class:`PathLike`
 
         :returns: The converted file and its raw text
-        :rtype: tuple[:class:`_types.BarConfigSpec`, :class:`_types.JSONText`]
+        :rtype: tuple[:class:`_types.BarConfigSpec`,
+            :class:`_types.JSONText`]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         p = Parser(file=absolute)
@@ -381,7 +382,7 @@ class BarConfig(dict):
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
 
-        :param defaults: Any default parameters that `spec` should override,
+        :param defaults: Any default params that `spec` should override,
             defaults to :attr:`Bar._default_params`
         :type defaults: :class:`_types.BarSpec`
         '''
@@ -406,7 +407,7 @@ class BarConfig(dict):
         :param spec: The :class:`_types.BarConfigSpec` to convert
         :type spec: :class:`_types.BarConfigSpec`
 
-        :param defaults: Any default parameters that `spec` should override,
+        :param defaults: Any default params that `spec` should override,
             defaults to :attr:`Bar._default_params`
         :type defaults: :class:`_types.BarSpec`
         '''
@@ -455,14 +456,18 @@ class Bar:
     '''
     Create highly customizable status bars.
 
-    :param fields: An iterable of default field names or :class:`Field` instances, defaults to ``None``
+    :param fields: An iterable of default field names or :class:`Field`
+        instances, defaults to ``None``
     :type fields: :class:`Iterable[Field | str]`
 
-    :param template: A curly-brace format string with field names, defaults to ``None``
+    :param template: A curly-brace format string with field names,
+        defaults to ``None``
     :type template: :class:`formatting.FormatStr`
 
-    :param separator: The field separator when `fields` is given, defaults to ``'|'``
-    :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
+    :param separator: The field separator when `fields` is given,
+        defaults to ``'|'``
+    :type separator: :class:`_types.PTY_Separator` |
+        :class:`_types.TTY_Separator`
 
     :param endline: Print each refresh after a newline character (\\n),
         defaults to False
@@ -472,39 +477,52 @@ class Bar:
         when ``None``, defaults to ``None``
     :type count: :class:`int`
 
-    :param run_once: Whether the bar should print once and return, defaults to ``False``
+    :param run_once: Whether the bar should print once and return,
+        defaults to ``False``
     :type run_once: :class:`bool`
 
-    :param refresh: How often in seconds the bar automatically redraws itself, defaults to ``1.0``
+    :param refresh: How often in seconds the bar automatically redraws
+        itself, defaults to ``1.0``
     :type refresh: :class:`float`
 
-    :param clock_align: Whether to synchronize redraws at the start of each new second (updates to the clock are shown accurately), defaults to ``True``
+    :param clock_align: Whether to synchronize redraws at the start of
+        each new second (updates to the clock are shown accurately),
+        defaults to ``True``
     :type clock_align: :class:`bool`
 
-    :param join_empty_fields: Whether to draw separators around fields with no content, defaults to ``False``
+    :param join_empty_fields: Whether to draw separators around fields
+        with no content, defaults to ``False``
     :type join_empty_fields: :class:`bool`
 
-    :param override_cooldown: Cooldown in seconds between handling sequential field overrides, defaults to ``1/60``
+    :param override_cooldown: Cooldown in seconds between handling
+        sequential field overrides, defaults to ``1/60``.
         A longer cooldown typically means less flickering.
     :type override_cooldown: :class:`float`
 
-    :param thread_cooldown: How long a field thread loop sleeps after checking if the bar is still running,
-        defaults to ``1/8``.
-        Between executions, unlike async fields, a threaded field sleeps for several iterations of
-        `thread_cooldown` seconds that always add up to :attr:`Field.interval` seconds.
+    :param thread_cooldown: How long a field thread loop sleeps after
+        checking if the bar is still running, defaults to ``1/8``.
+        Between executions, unlike async fields, a threaded field sleeps
+        for several iterations of `thread_cooldown` seconds that always
+        add up to :attr:`Field.interval` seconds.
         Between sleeps, it checks if the bar has stopped.
-        A shorter cooldown means more chances to check if the bar has stopped and
-        a faster exit time.
+        A shorter cooldown means more chances to check if the bar has
+        stopped and a faster exit time.
     :type thread_cooldown: :class:`float`
 
-    :param separators: A tuple of 2 strings that separate fields when `fields` is given.
+    :param separators: A tuple of 2 strings that separate fields when
+        `fields` is given.
         Note: The `separator` parameter sets both of these automatically.
-        The first string is used in graphical (PTY) environments where support for Unicode is more likely.
-        The second string is used in terminal (TTY) environments where only ASCII is supported.
-        This enables the same :class:`Bar` instance to use the most optimal separator automatically.
-    :type separators: tuple[:class:`_types.PTY_Separator`, :class:`_types.TTY_Separator`], optional
+        The first string is used in graphical (PTY) environments where
+        support for Unicode is more likely.
+        The second string is used in terminal (TTY) environments where
+        only ASCII is supported.
+        This enables the same :class:`Bar` instance to use the most
+        optimal separator automatically.
+    :type separators: tuple[:class:`_types.PTY_Separator`,
+        :class:`_types.TTY_Separator`], optional
 
-    :param stream: The bar's output stream, defaults to :attr:`sys.stdout`
+    :param stream: The bar's output stream,
+        defaults to :attr:`sys.stdout`
     :type stream: :class:`IO`
 
 
@@ -513,8 +531,10 @@ class Bar:
     :raises: :exc:`errors.IncompatibleArgsError` when
         neither `template` nor `fields` are given
     :raises: :exc:`errors.IncompatibleArgsError` when
-        `template` is ``None`` but no `separator` or `separators` are given
-    :raises: :exc:`TypeError` when `fields` is not iterable, or when `template` is not a string
+        `template` is ``None``
+        but no `separator` or `separators` are given
+    :raises: :exc:`TypeError` when `fields` is not iterable, or when
+        `template` is not a string
     '''
 
     _default_field_order = [
@@ -700,12 +720,13 @@ class Bar:
         :param config: The :class:`dict` to convert
         :type config: :class:`dict`
 
-        :param overrides: Replace items in `config` with these parameters,
+        :param overrides: Replace items in `config` with these params,
             defaults to ``{}``
         :type overrides: :class:`BarSpec`
 
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
-        :type ignore_with: :class:`_types.Pattern` | tuple[:class:`_types.Pattern`] | ``None``, optional
+        :type ignore_with: :class:`_types.Pattern` |
+            tuple[:class:`_types.Pattern`] | ``None``, optional
 
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
@@ -722,7 +743,8 @@ class Bar:
             a custom field name in `template`
             is not properly defined in `field_definitions`
         :raises: :exc:`errors.InvalidFieldSpecError` when
-            a field definition is not of the form :class:`_types.FieldSpec`
+            a field definition is not of the form
+            :class:`_types.FieldSpec`
 
         .. note:: `config` can be a regular :class:`dict`
         as long as it matches the form of :class:`_types.BarSpec`.
@@ -800,7 +822,6 @@ class Bar:
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
-                            # doing_what="parsing 'field_order'",  # Only relevant to config file parsing
                             blame=f"{name!r}",
                             expected=expctd_name
                         )
@@ -826,7 +847,10 @@ class Bar:
                         field_params['icons'] = (cust_icon, cust_icon)
 
                     try:
-                        field = Field.from_default(name, overrides=field_params)
+                        field = Field.from_default(
+                            name,
+                            overrides=field_params
+                        )
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             UndefinedFieldError,
@@ -876,7 +900,7 @@ class Bar:
             defaults to :obj:`constants.CONFIG_FILE`
         :type file: :class:`PathLike`
 
-        :param overrides: Replace items in `config` with these parameters,
+        :param overrides: Replace items in `config` with these params,
             defaults to ``{}``
         :type overrides: :class:`BarSpec`
 
@@ -921,7 +945,9 @@ class Bar:
 
     @property
     def in_a_tty(self) -> bool:
-        '''True if the bar was run from a terminal, otherwise False.'''
+        '''
+        True if the bar was run from a terminal, otherwise False.
+        '''
         if self._stream is None:
             return False
         return self._stream.isatty()
@@ -934,7 +960,7 @@ class Bar:
     def separator(self) -> Separator:
         '''
         The field separator as determined by the output stream.
-        It defaults to the TTY sep (self._separators[1]) if no stream is set.
+        Defaults to the TTY sep (self._separators[1]) if no stream is set.
         '''
         if self._stream is None:
             # Default to using the terminal separator:
@@ -946,8 +972,9 @@ class Bar:
         Append a new Field to the bar.
 
         `field` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.template` is defined, it will override the new field order.
+        appended to the field list and joined to the end of the bar.
+        If :attr:`Bar.template` is defined,
+        it will override the new field order.
 
         :param field: The field to append
         :type field: :class:`FieldPrecursor`
@@ -965,8 +992,9 @@ class Bar:
         '''
         Append several new Fields to the bar.
         Field precursors in `fields` will be converted to :class:`Field`,
-        appended to the field list and joined to the end of the bar output.
-        If :attr:`Bar.template` is defined, it will override the new field order.
+        appended to the field list and joined to the end of the bar.
+        If :attr:`Bar.template` is defined,
+        it will override the new field order.
         the fields are displayed.
 
         :param field: The fields to append
@@ -1028,7 +1056,7 @@ class Bar:
         Return a dict mapping field names to Fields, along with a
         duplicate-preserving list of field names that were found.
 
-        :param fields: An iterable of :class:`Field` primitives to convert
+        :param fields: An iterable of :class:`FieldPrecursor` to convert
         :type fields: :class:`Iterable[FieldPrecursor]`
 
         :returns: A dict mapping field names to :class:`Field` instances
@@ -1284,7 +1312,7 @@ class Bar:
                     step - (
                         # Get the current latency, which can vary:
                         clock() % step
-                        # (clock() - start_time) % step To preserve offset
+                        # (clock() - start_time) % step Preserves offset
                     )
                 )
                 continue
@@ -1366,8 +1394,6 @@ class Bar:
                 # Wait until a field with overrides_refresh sends new
                 # data to be printed:
                 field, contents = await self._override_queue.get()
-                # if DEBUG:
-                    # logger.debug(f"handler: {field} {time.time() - start_time}")
 
             except RuntimeError:
                 # asyncio raises RuntimeError if the event loop closes
