@@ -226,15 +226,6 @@ class Parser(ArgumentParser):
         )
 
         fields_group.add_argument(
-            '--icons',
-            action='extend',
-            dest='icon_pairs',
-            help="A mapping of field names to icons.",
-            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
-            nargs='+',
-        )
-
-        fields_group.add_argument(
             '--separator', '-s',
             dest='separators',
             help=(
@@ -284,6 +275,21 @@ class Parser(ArgumentParser):
             ),
             metavar='TIMES',
             type=int,
+        )
+
+        self.add_argument(
+            '--endline',
+            action='store_true',
+            help="Use a newline character at the end of every bar line.",
+        )
+
+        self.add_argument(
+            '--icons',
+            action='extend',
+            dest='icon_pairs',
+            help="A mapping of field names to icons.",
+            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
+            nargs='+',
         )
 
         self.add_argument(

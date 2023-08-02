@@ -28,7 +28,7 @@ from .constants import (
 
 from . import cli
 from . import field_funcs
-from . import parse_conf
+from . import new_parser as parse_conf
 from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
@@ -300,7 +300,7 @@ class BarConfig(dict):
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         p = parse_conf.Parser(file=absolute)
-        data = p.as_dict()
+        data = p.to_dict()
         text = p._string
         return data, text
 
@@ -334,7 +334,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = parse_conf.DictConverter().as_file(unpythoned)
+        text = parse_conf.ConfigDictUnparser().to_file(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 
@@ -353,7 +353,7 @@ class BarConfig(dict):
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         p = Parser(file=absolute)
-        data = p.as_dict()
+        data = p.to_dict()
         text = p._string
         with open(absolute, 'r') as f:
             data = json.load(f)
@@ -464,6 +464,10 @@ class Bar:
     :param separator: The field separator when `fields` is given, defaults to ``'|'``
     :type separator: :class:`_types.PTY_Separator` | :class:`_types.TTY_Separator`
 
+    :param endline: Print each refresh after a newline character (\\n),
+        defaults to False
+    :type endline: :class:`bool`
+
     :param count: Only print the bar this many times, or never stop
         when ``None``, defaults to ``None``
     :type count: :class:`int`
@@ -481,6 +485,7 @@ class Bar:
     :type join_empty_fields: :class:`bool`
 
     :param override_cooldown: Cooldown in seconds between handling sequential field overrides, defaults to ``1/60``
+        A longer cooldown typically means less flickering.
     :type override_cooldown: :class:`float`
 
     :param thread_cooldown: How long a field thread loop sleeps after checking if the bar is still running,
@@ -537,6 +542,7 @@ class Bar:
         *,
         field_order: Iterable[FieldName] = None,
         separator: str = '|',
+        endline: bool = False,
         refresh: float = 1.0,
         stream: IO = sys.stdout,
         count: int = None,
@@ -603,36 +609,19 @@ class Bar:
             separators = (separator, separator)
         self._separators = separators
 
-        # Whether empty fields are joined when template is None:
-        # (True shows two separators together for every blank field.)
+        self._endline = '\n' if endline is True else '\r'
         self.join_empty_fields = join_empty_fields
-
-        # How often in seconds the bar is regularly printed:
         self.refresh_rate = refresh
 
-        if count == 0 or count == 1:
-            run_once = True
         self.count = count
         self._print_countdown = count
-
-        # Whether the bar should exit after printing once:
+        if count == 0 or count == 1:
+            run_once = True
         self.run_once = run_once
 
-        # Whether the bar is printed at the top of every clock second:
         self.clock_align = clock_align
-
-        # Make a queue to which fields with overrides_refresh send updates.
-        # Process only one item per refresh cycle to reduce flickering in a PTY.
         self._override_queue = asyncio.Queue(maxsize=1)
-
-        # How long should the queue checker sleep before processing a new item?
-        # (A longer cooldown means less flickering):
         self._override_cooldown = override_cooldown
-
-        # Staggering a thread's refresh interval across several sleeps with the
-        # length of this cooldown prevents it from blocking for the entire
-        # interval when the bar stops.
-        # (A shorter cooldown means faster exits):
         self._thread_cooldown = thread_cooldown
 
         # The dict mapping Field names to the threads running them.
@@ -919,7 +908,10 @@ class Bar:
         '''
         if self._stream is None:
             return None
-        clearline = CLEAR_LINE if self._stream.isatty() else ''
+        if self._stream.isatty() and self._endline == '\r':
+            return CLEAR_LINE + self._endline
+        else:
+            return ''
         return clearline
 
     @property
@@ -1219,7 +1211,7 @@ class Bar:
                     contents = result
             self._buffers[f.name] = contents
 
-    def _start_printer(self, end: str = '\r') -> None:
+    def _start_printer(self) -> None:
         '''
         Make a thread in which to run
             :meth:`Bar._threaded_continuous_line_printer` and start it.
@@ -1228,12 +1220,11 @@ class Bar:
         self._printer_thread = threading.Thread(
             target=self._threaded_continuous_line_printer,
             name=thread_name,
-            args=(end,)
         )
         self._threads[thread_name] = self._printer_thread
         self._printer_thread.start()
 
-    def _threaded_continuous_line_printer(self, end: str = '\r') -> None:
+    def _threaded_continuous_line_printer(self) -> None:
         '''
         The bar's primary line-printing mechanism.
         Fields with the ``timely`` attribute get run here.
@@ -1241,9 +1232,6 @@ class Bar:
         effectively ignoring their ``interval`` attributes.
         Other fields are responsible for sending data to bar buffers.
         This only writes using the current buffer contents.
-
-        :param end: The string appended to the end of each line
-        :type end: :class:`str`
         '''
         # Make an event loop for this thread:
         self._printer_loop = asyncio.new_event_loop()
@@ -1252,17 +1240,15 @@ class Bar:
         # alignment.
         self._stream.flush()
 
+        beginning = self.clearline_char
         if self.in_a_tty:
-            beginning = self.clearline_char + end
             self._stream.write(CSI + HIDE_CURSOR)
-        else:
-            beginning = self.clearline_char
 
         # Print something right away just so that the bar is not empty,
         # but not if the print count matters:
         if not self.count:
             line = self._make_one_line()
-            self._stream.write(beginning + line + end)
+            self._stream.write(beginning + line + self._endline)
             self._stream.flush()
 
         using_format_str = (self.template is not None)
@@ -1334,7 +1320,7 @@ class Bar:
                         or self.join_empty_fields
                 )
 
-            self._stream.write(beginning + line + end)
+            self._stream.write(beginning + line + self._endline)
             self._stream.flush()
 
             if self.count:
@@ -1365,20 +1351,13 @@ class Bar:
             self._stream.write('\n')
             self._stream.write(CSI + UNHIDE_CURSOR)
 
-    async def _handle_overrides(self, end: str = '\r') -> None:
+    async def _handle_overrides(self) -> None:
         '''
         Print a line when fields with overrides_refresh send new data.
-
-        :param end: The string appended to the end of each line
-        :type end: :class:`str`
         '''
         sep = self.separator
         using_format_str = (self.template is not None)
-
-        if self.in_a_tty:
-            beginning = self.clearline_char + end
-        else:
-            beginning = self.clearline_char
+        beginning = self.clearline_char
 
         start_time = time.time()
         while self._running():
@@ -1404,7 +1383,7 @@ class Bar:
                         or self.join_empty_fields
                 )
 
-            self._stream.write(beginning + line + end)
+            self._stream.write(beginning + line + self._endline)
             self._stream.flush()
             await asyncio.sleep(self._override_cooldown)
 
@@ -1422,21 +1401,15 @@ class Bar:
             )
         return line
 
-    def _print_one_line(self, end: str = '\r') -> None:
+    def _print_one_line(self) -> None:
         '''Print a line to the buffer stream only once.
         This method is not meant to be called from within a loop.
-
-        :param end: The string appended to the end of each line
-        :type end: :class:`str`
         '''
-        if self.in_a_tty:
-            beginning = self.clearline_char + end
-        else:
-            beginning = self.clearline_char
+        beginning = self.clearline_char
 
         if self._timely_fields:
             self._preload_timely_fields()
-        self._stream.write(beginning + self._make_one_line() + end)
+        self._stream.write(beginning + self._make_one_line() + self._endline)
 
         self._stream.flush()
 
