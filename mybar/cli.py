@@ -319,7 +319,7 @@ class Parser(ArgumentParser):
             const=None,
             dest='dump_config',
             help=(
-                "Instead of running the Bar, print a JSON config using"
+                "Instead of running the Bar, print a config file using"
                 " options specified in the command."
             ),
         )
