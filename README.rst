@@ -7,6 +7,7 @@ mybar
 
 About mybar
 ============
+
 **mybar** is a code library and command line tool written in Python for making
 status bars.
 
@@ -19,6 +20,7 @@ controls that allow every element to be customized.
    Up 4d:14h:19m [CPU 03%/36C] | Bat 100CHG
 
 
+
 Install mybar
 ==============
 
@@ -27,6 +29,7 @@ Install mybar
 It can be installed from the `Python Package Index`::
 
    $ python -m pip install mybar
+
 
 
 Use mybar in the command line
@@ -61,26 +64,40 @@ Command line examples
 Let's see some examples of how to use **mybar** from the command line.
 
 
-``--fields`` Specify which fields to show::
+``--fields`` Specify which fields to show:
+
+.. code:: bash
 
    $ python -m mybar --fields hostname disk_usage cpu_temp datetime
    mymachine|/:88.3G|43C|2023-08-01 23:18:22
 
-``--template`` Use a custom format template::
+
+``--template`` Use a custom format template:
+
+.. code:: bash
 
    $ python -m mybar --template '@{hostname}: ( {uptime} | {cpu_usage}, {cpu_temp} )  [{datetime}]'
    @mymachine: ( Up 1d:12h:17m | CPU 02%, 44C )  [2023-08-01 23:31:26]
 
-``--separator`` Change the field separator::
+
+``--separator`` Change the field separator:
+
+.. code:: bash
 
    $ python -m mybar -f hostname uptime cpu_usage --separator ' ][ '
    mymachine ][ Up 1d:12h:11m ][ CPU 00%
 
-``--refresh`` Set the bar's refresh rate::
+
+``--refresh`` Set the bar's refresh rate:
+
+.. code:: bash
 
    $ python -m mybar --refresh 5
 
-``--count`` Run the bar a specific number of times::
+
+``--count`` Run the bar a specific number of times:
+
+.. code:: bash
 
    $ python -m mybar -f hostname cpu_usage datetime --count 3 --endline
    mymachine|CPU 00%|2023-08-01 23:40:26
@@ -88,22 +105,32 @@ Let's see some examples of how to use **mybar** from the command line.
    mymachine|CPU 00%|2023-08-01 23:40:28
    $
 
-``--icons`` Set new icons for each field::
+
+``--icons`` Set new icons for each field:
+
+.. code:: bash
 
    $ python -m mybar -f hostname cpu_usage datetime --icons cpu_usage='@' datetime='Time: '
    mymachine|@03%|Time: 2023-08-02 01:01:56
 
-``--options`` Set arbitrary options for the bar or any field::
+
+``--options`` Set arbitrary options for the bar or any field:
+
+.. code:: bash
 
    $ python -m mybar -t '@{hostname} {cpu_usage} Time: {datetime}' --options datetime.kwargs.fmt='%H:%M:%S.%f'
    @mymachine CPU 00% Time: 01:19:55.000229
 
-``--config`` Use a specific config file::
+
+``--config`` Use a specific config file:
+
+.. code:: bash
 
    $ python -m mybar --config ~/.config/mybar/my_other_config_file.conf
 
 
 See the `manual` for details on all the command line arguments **mybar** accepts.
+
 
 
 Use mybar in a Python project
@@ -116,9 +143,11 @@ See `docs.api.rst` for in-depth Python API usage.
 Python API examples
 ********************
 
-Let's see some examples of how to use **mybar** Using the Python API.
+Let's see some examples of how to use **mybar** using the Python API.
 
-Get started with some default Fields::
+Get started with some default Fields:
+
+.. code:: python
 
    >>> some_default_fields = ['uptime', 'cpu_temp', 'battery', 'datetime']
    >>> sep = ' ][ '
@@ -128,12 +157,18 @@ Get started with some default Fields::
    >>> using_defaults.run()
    Up 1d:10h:31m ][ 43C ][ Bat 100CHG ][ 2023-08-01 21:43:40
 
-Load a Bar from a config file::
+
+Load a Bar from a config file:
+
+.. code:: python
 
    >>> mybar.Bar.from_file('~/mycustombar.json')
    Bar(fields=['hostname', 'custom_field1', 'disk_usage', ...])
 
-Use your own functions to bring your Bar to life::
+
+Use your own functions to bring your Bar to life:
+
+.. code:: python
 
    >>> def database_reader(query: str) -> str:
            return read_from_database(query)
@@ -143,7 +178,10 @@ Use your own functions to bring your Bar to life::
    Field(name='database_reader')
    >>> bar = mybar.Bar(fields=[my_field, 'hostname', 'datetime'], refresh_rate=2)
 
-Append new Fields to your Bar, as if it were a list::
+
+Append new Fields to your Bar, as if it were a list:
+
+.. code:: python
 
    >>> bar.fields
    (Field(name='database_reader'), Field(name='hostname'), Field(name='datetime'))
@@ -151,6 +189,7 @@ Append new Fields to your Bar, as if it were a list::
    Bar(fields=['database_reader', 'hostname', 'datetime', ...])
    >>> bar.fields
    (Field(name='database_reader'), Field(name='hostname'), Field(name='datetime'), Field(name='uptime'))
+
 
 
 Concepts
@@ -194,8 +233,11 @@ or `command line arguments`.
 
 .. Read more about them in `docs.api.rst`.
 
+
+
 Default Fields
 ===============
 
 These are the default fields in mybar.
+
 
