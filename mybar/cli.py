@@ -255,7 +255,7 @@ class Parser(ArgumentParser):
             ),
         )
 
-        fields_group.add_argument(
+        self.add_argument(
             '--options', '-o',
             action='extend',
             dest='field_options',
@@ -301,7 +301,7 @@ class Parser(ArgumentParser):
             const=4,
             dest='dump_config',
             help=(
-                "Instead of running the Bar, print a JSON config using"
+                "Instead of running the Bar, print a config file using"
                 " options specified in the command."
                 " Optionally pass a number of spaces by which to indent."
             ),
