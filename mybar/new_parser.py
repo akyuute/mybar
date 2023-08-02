@@ -1109,7 +1109,7 @@ class Parser:
         return Module(self.get_stmts())
 
 
-class ConfigDictUnparser:
+class ConfigDictParser:
     '''
     Convert Python dicts to ASTs.
     '''
@@ -1129,117 +1129,69 @@ class ConfigDictUnparser:
             assignments.append(node)
         return Module(assignments)
 
-
     @classmethod
-    def _unparse_dict(
+    def _process_nested_dict(
         cls,
         dct: Mapping | Any,
-        attrs: list[str] = [],
-        # root_name: str = None,
-    ) -> tuple[list[AST]]:
-        '''
-        Unparse a nested dictionary.
-
-        :param dct: The dict to unparse
-        :type dct: :class:`Mapping` | :class:`Any`
-
-        :param attrs: The list of dict keys that have been seen
-        :type attrs: :class:`MutableSequence`
-
-        :param root_name: The uppermost dict key
-        :type root_name: :class:`str`
-        '''
-
-        print(f"Processing {dct = }, {attrs = }")
-        if not isinstance(dct, Mapping):
-            return attrs, dct
-
-        keys = []
-        vals = []
-        for key, val in dct.items():
-            print(key, val)
-
-            if not attrs:
-                # The root attribute
-                attrs = [key]
-                attrs, assign = cls._unparse_dict(val, attrs)
-
-            elif isinstance(val, Mapping):
-                # A nested attrubute
-                attrs.append(key)
-                attrs, assign = cls._unparse_dict(val, attrs)
-                vals.append(assign)
-            else:
-                attrs.append(key)
-                vals.append(val)
-            print((attrs, vals))
-
-        return attrs, vals
-
-    @classmethod
-    def _dict_to_list(cls, dct, seen=[]) -> tuple[list[list], list]:
-        # {'a': {'b': {'c': assign}, {'bb': assign}}} -> [[a, b, c], [a, bb]]
-        # seen = []
+        roots: list[str] = [],
+        descended: int = 0
+    ) -> tuple[list[list[str]], list[Any]]:
         nodes = []
         vals = []
-        print(f"{dct = }, {seen = }")
         if not isinstance(dct, Mapping):
-            return [seen], [dct]
+            # An assignment.
+            return ([roots], [dct])
+
         if len(dct) == 1:
-            print("Going the short way")
+            # An attribute.
+            # descended += 1
             for a, v in dct.items():
-                # print(f"{a = }, {v = }, {oldseen = }")
-                print(f"{a = }")
-                seen.append(a)
-                return cls._dict_to_list(v, seen)
-                return [[a]], v
-        oldseen = seen
-        for a, v in dct.items():
-            print(f"{a = }, {v = }, {nodes = }")
-            seen.append(a)
-            # 'a', {...}'
-            if not isinstance(v, Mapping):
-##                # {'b': {'c': assign}}
-##                print("v is a mapping")
-##                attrs, values = cls._dict_to_list(v, oldseen)
-##                seen.append(attrs)
-##                nodes.extend(attrs)
-##                vals.extend(values)
-##            else:
-                print(f"{seen = }")
-                # print(f"{oldseen + seen = }")
-                nodes.append(seen)
+                roots.append(a)
+                return cls._process_nested_dict(v, roots, descended)
+
+        descended = 0  # Start of a tree
+        for attr, v in dct.items():
+            roots.append(attr)
+            if isinstance(v, Mapping):
+                # descended += 1
+                print(len(roots), descended)
+                if descended < len(roots):
+                    # descended = 1
+                    descended = -len(roots)
+                # Descend into lower tree
+                inner_nodes, inner_vals = cls._process_nested_dict(
+                    v,
+                    roots,
+                    descended
+                )
+                nodes.extend(inner_nodes)
+                vals.extend(inner_vals)
+            else:
+                nodes.append(roots)
                 vals.append(v)
-            # seen = oldseen[:-2]
-            seen = seen[:-1]
-        print(f"{nodes = }")
-        # print(f"{nodes = }, {vals = }")
+                # descended -= 1
+            # roots = roots[:-descended - len(roots)]
+            roots = roots[:-descended - 1]  # Reached end of tree
         return nodes, vals
-        return seen, vals
-
-
 
     @classmethod
-    def _list_to_attributes(cls, attrs) -> list[Attribute]:
+    def _process_nested_attrs(
+        cls,
+        attrs: Sequence[Sequence[str]]
+    ) -> list[Attribute]:
+        '''
+        '''
         nodes = []
         spent = []
         if not isinstance(attrs, Sequence):
             return attrs
-            # return [attrs]
-            # return attrs
-            # return node
-        started = False
-        for agroup in attrs:
-            node = Name(agroup.pop(0))
-            # node = Name(agroup[0])
-            for a in agroup:
-                node = Attribute(node, a)
+        for node_attrs in attrs:
+            node_attrs = node_attrs[:]
+            node = Name(node_attrs.pop(0))
+            for attr in node_attrs:
+                node = Attribute(node, attr)
             nodes.append(node)
-
-            # node = Attribute(node, cls._list_to_attributes(attr))
-            # nodes.append(node)
         return nodes
-
 
     @classmethod
     def unparse_node(cls, thing) -> AST:
@@ -1249,40 +1201,19 @@ class ConfigDictUnparser:
             keys = []
             vals = []
             for key, val in thing.items():
-                print(f"{key = }, {val = }")
-                # print(key, val)
 
                 if isinstance(val, Mapping):
                     # An attribute, possibly nested.
-                    # attr, assign = cls._unparse_dict(val)
-                    attrs, assigns = cls._dict_to_list(val, [key])
-                    print(attrs, assigns)
-                    nodes = cls._list_to_attributes(attrs) 
-                    # node = Attribute(Name(key), attr)
-                    # attr.insert(0, key)
-                    # node = cls._list_to_attributes(attr)
-                    # v = cls.unparse_node(assign)
+                    attrs, assigns = cls._process_nested_dict(val, [key])
+                    nodes = cls._process_nested_attrs(attrs)
                     keys.extend(nodes)
-                    # vals.extend(cls.unparse_node(v) for v in assigns)
                     vals.extend(assigns)
                 else:
                     # An explicit assignment.
                     node = Name(key)
-                    v = cls.unparse_node(val)
-                ### NOOO:
-                # Dicts can't contain duplicates, so it's safe to append:
-##                if key not in key_ref:
-##                    key_ref.append(key)
-                # print(v)
                     keys.append(node)
+                    v = cls.unparse_node(val)
                     vals.append(v)
-##                else:
-##                    print("HOW?")
-##                    idx = key_ref.index(key)
-##                    vals[idx].append(v)
-
-                # print(key_ref)
-                # print(f"{keys = }, {vals = }")
             return Dict(keys, [cls.unparse_node(v) for v in vals])
 
         elif isinstance(thing, list):
@@ -1297,24 +1228,6 @@ class ConfigDictUnparser:
 
         else:
             return thing
-
-    @classmethod
-    def _nested_update(
-        cls,
-        dct: MutableMapping | Any,
-        upd: Mapping,
-        assign: Any
-    ) -> dict:
-        if not isinstance(dct, MutableMapping):
-            return {upd.popitem()[0]: assign}
-        for k, v in upd.items():
-            if v is self._EXPR_PLACEHOLDER:
-                v = assign
-            if isinstance(v, Mapping):
-                dct[k] = cls._nested_update(dct.get(k, {}), v, assign)
-            else:
-                dct[k] = v
-        return dct
 
     @classmethod
     def to_file(cls, mapping: Mapping) -> FileContents:
@@ -1335,30 +1248,32 @@ class Interpreter(NodeVisitor):
         return {self.visit((node.targets[-1])): self.visit(node.value)}
 
     def visit_Attribute(self, node: Attribute) -> dict:
-        attrs = self._process_nested_attr(node, [])
+        attrs = self._nested_attr_to_dict(node)
         new_d = self._EXPR_PLACEHOLDER
         for attr in attrs:
             new_d = {attr: new_d}
         return new_d
 
-    def _process_nested_attr(
+    def _nested_attr_to_dict(
         self,
-        node: Attribute | Name | str,
-        attrs: list[str]
-    ) -> dict:
+        node: Attribute | Name,
+        attrs: Sequence[str] = []
+    ) -> dict | list[str]:
         '''
         '''
-        if not attrs:
-            attrs = [node.attr]
-            return self._process_nested_attr(node.value, attrs)
-        if isinstance(node, Attribute):
-            attrs.append(node.attr)
-            return self._process_nested_attr(node.value, attrs)
         if isinstance(node, Name):
-            return self._process_nested_attr(node.id, attrs)
-        if isinstance(node, str):
-            attrs.append(node)
+            attrs.append(node.id)
             return attrs
+        if not attrs:
+            # A new nested Attribute.
+            attrs = [node.attr]
+            n = node.value
+        elif isinstance(node, Attribute):
+            attrs.append(node.attr)
+            n = node.value
+        ret = self._nested_attr_to_dict(n, attrs)
+        # print(ret)
+        return ret
 
     def visit_Constant(self, node: Constant) -> str | int | float | None:
         return node.value
@@ -1410,13 +1325,20 @@ class ConfigFileMaker(NodeVisitor):
     def __init__(self) -> None:
         self.indent = 4 * ' '
 
-    def stringify(self, tree: Module, sep: str = '\n\n') -> FileContents:
+    def stringify(
+        self,
+        tree: Sequence[AST] | Module,
+        sep: str = '\n\n'
+    ) -> FileContents:
+        if isinstance(tree, Module):
+            tree = tree.body
+            # return self.visit(tree)
         strings = [self.visit(n) for n in tree]
         return sep.join(strings)
 
     def visit_Attribute(self, node: Attribute) -> str:
         base = self.visit(node.value)
-        attr = self.visit(node.attr)
+        attr = node.attr
         return f"{base}.{attr}"
 
     def visit_Assign(self, node: Assign) -> str:
@@ -1468,14 +1390,17 @@ if __name__ == '__main__':
 ##    print()
 ##
 ##    print("AST from unparsing dict built from AST parsed from file contents:")
-    u = ConfigDictUnparser.unparse(d)
+    u = ConfigDictParser.unparse(d)
     # u = p.parse()
     print(ast.dump(u.body[-1].value))
+    print(ConfigFileMaker().stringify(u))
+    print(Interpreter().visit(u.body[-1].value))
+    print((Interpreter().visit(u.body[-1].value)['a']))
     print()
 
 ##    print("File contents built from AST from unparsing dict built from AST parsed from file contents:")
 ##    c = ConfigFileMaker().stringify(u.body)
-##    c = ConfigDictUnparser.to_file(d)
+##    c = ConfigDictParser.to_file(d)
 ##    # c  = u.as_file()
 ##    print("```")
 ##    print(c)

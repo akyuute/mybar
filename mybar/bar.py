@@ -334,7 +334,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = parse_conf.ConfigDictUnparser().to_file(unpythoned)
+        text = parse_conf.ConfigDictParser().to_file(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 
