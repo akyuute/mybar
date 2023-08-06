@@ -1,3 +1,17 @@
+__all__ = (
+    'ConfigError',
+    'TokenError',
+    'ParseError',
+    'StackTraceSilencer',
+    'Token',
+    'Lexer',
+    'FileParser',
+    'DictParser',
+    'Unparser',
+    'ConfigFileMaker',
+)
+
+
 import ast
 import re
 import string
@@ -19,8 +33,8 @@ from queue import LifoQueue
 from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
 from typing import Any, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
 
-# from ._types import FileContents
-FileContents = str
+from ._types import FileContents
+# FileContents = str
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
@@ -718,29 +732,29 @@ class Lexer:
                     raise StackTraceSilencer(1)  # Sorry...
 
 
-class Parser:
+class FileParser:
     '''
     Parse config files, converting them to abstract syntax trees.
 
-    :param string: If given, parse this string, optional
-    :type string: :class:`str`
-
     :param file: If given, parse this file, optional
     :type file: :class:`PathLike`
+
+    :param string: If given, parse this string, optional
+    :type string: :class:`str`
     '''
     def __init__(
         self,
-        string: str = None,
-        *,
         file: PathLike = None,
+        *,
+        string: str = None,
     ) -> None:
         if string is None:
             if file is None:
                 msg = "Either a string or a filename is required"
                 raise ValueError(msg)
 
-        self._string = string
         self._file = file
+        self._string = string
         self._lexer = Lexer(string, file)
         self._tokens = self._lexer.lex()
         self._cursor = 0
@@ -752,44 +766,19 @@ class Parser:
         '''
         return self._lexer.lex()
 
-    def token_dict(self) -> dict[CharNo, Token]:
+    def _token_dict(self) -> dict[CharNo, Token]:
         '''
         Return a dict mapping lexer cursor value to tokens.
         '''
         return {t.cursor: t for t in self.tokens()}
 
-    def to_dict(self, tree = None) -> dict[str]:
-        '''
-        Parse a config file and return its data as a :class:`dict`.
-        '''
-        if tree is None:
-            self._lexer.reset()
-            tree = self.get_stmts()
-
-        i = Interpreter()
-        mapping = {}
-        for n in tree:
-            if not isinstance(n, Assign):
-                # Each statement must map one thing to another.
-                # This statement breaks the rules.
-                note = (
-                    f"{n._token.kind.value} cannot be at"
-                    f" the start of a statement"
-                )
-                msg = f"Invalid syntax: {n._token.match_repr()!r} ({note})"
-                raise ParseError.hl_error(n._token, msg)
-
-            parsed = i.visit(n)
-            mapping.update(parsed)
-        return mapping
-
-    def cur_tok(self) -> Token:
+    def _cur_tok(self) -> Token:
         '''
         Return the current token being parsed.
         '''
         return self._tokens[self._cursor]
 
-    def expect_curr(
+    def _expect_curr(
         self,
         kind: TokenKind | tuple[TokenKind],
         errmsg: str = None
@@ -808,14 +797,14 @@ class Parser:
         '''
         if not isinstance(kind, tuple):
             kind = (kind,)
-        tok = self.cur_tok()
+        tok = self._cur_tok()
         if tok.kind not in kind:
             if errmsg is None:
                 return False
             raise ParseError.hl_error(tok, errmsg)
         return tok
 
-    def expect_next(
+    def _expect_next(
         self,
         kind: TokenKind | tuple[TokenKind],
         errmsg: str
@@ -834,84 +823,84 @@ class Parser:
         '''
         if not isinstance(kind, tuple):
             kind = (kind,)
-        tok = self.advance()
+        tok = self._advance()
         if tok.kind not in kind:
             if errmsg is None:
                 return False
             raise ParseError.hl_error(tok, errmsg)
         return tok
 
-    def advance(self) -> Token:
+    def _advance(self) -> Token:
         '''
         Move to the next token. Return that token.
         '''
         if self._cursor < len(self._tokens) - 1:
             self._cursor += 1
-        curr = self.cur_tok()
+        curr = self._cur_tok()
         return curr
 
-    def to_next(self) -> Token:
+    def _next(self) -> Token:
         '''
         Advance to the next non-whitespace token. Return that token.
         '''
         while True:
-            if (tok := self.advance()).kind in (*Ignore, Newline.NEWLINE):
-                self.advance()
+            if (tok := self._advance()).kind in (*Ignore, Newline.NEWLINE):
+                self._advance()
             return tok
 
-    def reset(self) -> None:
+    def _reset(self) -> None:
         '''
         Bring the lexer back to the first token.
         '''
         self._cursor = 0
 
-    def not_eof(self) -> bool:
+    def _not_eof(self) -> bool:
         '''
         Return whether the current token is the end-of-file.
         '''
-        return (self.cur_tok().kind is not EndOfFile.EOF)
+        return (self._cur_tok().kind is not EndOfFile.EOF)
 
-    def to_skip(self) -> bool:
+    def _should_skip(self) -> bool:
         '''
         Return whether the current token is whitespace or a comment.
         '''
-        return (self.cur_tok().kind in (*Ignore, Newline.NEWLINE))
+        return (self._cur_tok().kind in (*Ignore, Newline.NEWLINE))
 
-    def parse_root_assign(self) -> Assign:
+    def _parse_root_assign(self) -> Assign:
         '''
         Parse an assignment in the outermost scope at the current token::
 
             foo = 'bar'
         '''
         msg = "Invalid syntax (expected an identifier):"
-        target_tok = self.expect_curr(Symbol.IDENTIFIER, msg)
+        target_tok = self._expect_curr(Symbol.IDENTIFIER, msg)
         self._current_expr = Assign
         target = Name(target_tok.value)
         target._token = target_tok
 
         # Ignore newlines between identifier and operator:
-        self.to_next()
+        self._next()
 
         possible_starts = (BinOp.ASSIGN, Syntax.L_CURLY_BRACE)
         msg = "Invalid syntax (expected '=' or '{'):"
-        operator = self.expect_curr(possible_starts, msg)
+        operator = self._expect_curr(possible_starts, msg)
         if operator.kind is Syntax.L_CURLY_BRACE:
-            value = self.parse_object()
+            value = self._parse_object()
         else:
-            value = self.parse_expr()
+            value = self._parse_expr()
         node = Assign([target], value)
         node._token = operator
 
         # Advance to the next assignment:
-        self.to_next()
+        self._next()
         return node
 
-    def parse_expr(self) -> AST:
+    def _parse_expr(self) -> AST:
         '''
         Parse an expression at the current token.
         '''
         while True:
-            tok = self.advance()
+            tok = self._advance()
             kind = tok.kind
 
             match kind:
@@ -925,13 +914,13 @@ class Parser:
                     else:
                         continue
                 case kind if kind in Literal:
-                    node = self.parse_literal(tok)
+                    node = self._parse_literal(tok)
                 case BinOp.ATTRIBUTE:
-                    node = self.parse_mapping(self.parse_attribute(tok))
+                    node = self._parse_mapping(self._parse_attribute(tok))
                 case Syntax.L_BRACKET:
-                    node = self.parse_list()
+                    node = self._parse_list()
                 case Syntax.L_CURLY_BRACE:
-                    node = self.parse_object()
+                    node = self._parse_object()
                 case Symbol.IDENTIFIER:
                     node = Name(tok.value)
                 case _:
@@ -940,23 +929,23 @@ class Parser:
             node._token = tok
             return node
 
-    def parse_list(self) -> List:
+    def _parse_list(self) -> List:
         '''
         Parse a list at the current token.
         '''
-        msg = "parse_list() called at the wrong time"
-        self.expect_curr(Syntax.L_BRACKET, msg)
+        msg = "_parse_list() called at the wrong time"
+        self._expect_curr(Syntax.L_BRACKET, msg)
         self._current_expr = List
         elems = []
         while True:
-            elem = self.parse_expr()
+            elem = self._parse_expr()
             if isinstance(elem, Token):
                 if elem.kind is Syntax.R_BRACKET:
                     break
             elems.append(elem)
         return List(elems)
         
-    def parse_mapping(self) -> Dict:
+    def _parse_mapping(self) -> Dict:
         '''
         Parse a 1-to-1 mapping at the current token inside an object::
 
@@ -967,16 +956,16 @@ class Parser:
             "Invalid syntax (expected '=' or '.'):"
         )
         self._current_expr = Dict
-        target_tok = self.expect_curr(Symbol.IDENTIFIER, msg[0])
+        target_tok = self._expect_curr(Symbol.IDENTIFIER, msg[0])
         target = Name(target_tok.value)
         target._token = target_tok
 
-        maybe_attr = self.advance()
+        maybe_attr = self._advance()
         if maybe_attr.kind is BinOp.ATTRIBUTE:
-            target = self.parse_attribute(target)
+            target = self._parse_attribute(target)
 
-        assign_tok = self.expect_curr(BinOp.ASSIGN, msg[1])
-        value = self.parse_expr()
+        assign_tok = self._expect_curr(BinOp.ASSIGN, msg[1])
+        value = self._parse_expr()
         # Disallow assigning identifiers:
         if isinstance(value, Name):
             typ = value._token.kind.value
@@ -988,27 +977,27 @@ class Parser:
         node._token = assign_tok
         return node
 
-    def parse_attribute(self, outer: Name | Attribute) -> Attribute:
+    def _parse_attribute(self, outer: Name | Attribute) -> Attribute:
         '''
         Parse an attribute at the current token inside an object::
 
             a.b.c
         '''
         msg = (
-            "parse_attribute() called at the wrong time",
+            "_parse_attribute() called at the wrong time",
             "Invalid syntax (expected an identifier):",
         )
-        operator = self.expect_curr(BinOp.ATTRIBUTE, msg[0])
-        maybe_base = self.expect_next(Symbol.IDENTIFIER, msg[1])
+        operator = self._expect_curr(BinOp.ATTRIBUTE, msg[0])
+        maybe_base = self._expect_next(Symbol.IDENTIFIER, msg[1])
         attr = maybe_base.value
         target = Attribute(outer, attr)
-        maybe_another = self.advance()
+        maybe_another = self._advance()
         target._token = maybe_base
         if maybe_another.kind is BinOp.ATTRIBUTE:
-            target = self.parse_attribute(target)
+            target = self._parse_attribute(target)
         return target
 
-    def parse_object(self) -> Dict:
+    def _parse_object(self) -> Dict:
         '''
         Parse a dict containing many mappings at the current token::
 
@@ -1020,15 +1009,15 @@ class Parser:
 
         '''
         msg = (
-            "parse_object() called at the wrong time",
+            "_parse_object() called at the wrong time",
         )
-        self.expect_curr(Syntax.L_CURLY_BRACE, msg[0])
+        self._expect_curr(Syntax.L_CURLY_BRACE, msg[0])
         self._current_expr = Dict
         keys = []
         vals = []
 
         while True:
-            tok = self.advance()
+            tok = self._advance()
             kind = tok.kind
             match kind:
                 case Syntax.R_CURLY_BRACE:
@@ -1036,7 +1025,7 @@ class Parser:
                 case kind if kind in (*Ignore, Syntax.COMMA, Newline.NEWLINE):
                     continue
                 case Symbol.IDENTIFIER:
-                    pair = self.parse_mapping()
+                    pair = self._parse_mapping()
                     key = pair.keys[-1]  # Only one key and one value
                     val = pair.values[-1]
                     if key not in keys:
@@ -1058,7 +1047,7 @@ class Parser:
         # Put all the assignments together:
         return Dict(keys, vals)
 
-    def parse_literal(self, tok) -> Constant:
+    def _parse_literal(self, tok) -> Constant:
         '''
         Parse a literal constant value at the current token::
 
@@ -1081,61 +1070,70 @@ class Parser:
                 raise ParseError("Expected a literal, but got" + repr(tok))
         return Constant(value)
 
-    def parse_stmt(self) -> Assign:
+    def _parse_stmt(self) -> Assign:
         '''
         Parse an assignment statement at the current token.
         '''
-        while self.not_eof():
-            tok = self.cur_tok()
+        while self._not_eof():
+            tok = self._cur_tok()
             kind = tok.kind
-            assign = self.parse_root_assign()
+            assign = self._parse_root_assign()
             return assign
 
-    def get_stmts(self) -> list[Assign]:
+    def _get_stmts(self) -> list[Assign]:
         '''
         Parse many assignment statements and return them in a list.
         '''
-        self.reset()
+        self._reset()
         assignments = []
-        while self.not_eof():
-            assignments.append(self.parse_stmt())
-        self.reset()
+        while self._not_eof():
+            assignments.append(self._parse_stmt())
+        self._reset()
         return assignments
 
     def parse(self) -> Module:
         '''
         Parse the lexer stream and return it as a :class:`Module`.
         '''
-        return Module(self.get_stmts())
+        return Module(self._get_stmts())
+
+    def to_dict(self, tree: AST = None) -> dict[str]:
+        '''
+        Parse a config file and return its data as a :class:`dict`.
+        '''
+        if tree is None:
+            self._lexer.reset()
+            tree = self._get_stmts()
+
+        u = Unparser()
+        mapping = {}
+        for node in tree:
+            if not isinstance(node, Assign):
+                # Each statement must map one thing to another.
+                # This statement breaks that rule.
+                note = (
+                    f"{node._token.kind.value} cannot be at"
+                    f" the start of a statement"
+                )
+                msg = f"Invalid syntax: {node._token.match_repr()!r} ({note})"
+                raise ParseError.hl_error(node._token, msg)
+
+            unparsed = u.visit(node)
+            mapping.update(unparsed)
+        return mapping
 
 
-class ConfigDictParser:
+class DictParser:
     '''
     Convert Python dicts to ASTs.
     '''
     @classmethod
-    def unparse(cls, mapping: Mapping) -> Module:
-        '''
-        Convert a dict to a Module AST.
-
-        :param mapping: The dict to convert
-        :type mapping: :class:`Mapping`
-        '''
-        if not isinstance(mapping, Mapping):
-            return mapping
-        assignments = []
-        for key, val in mapping.items():
-            node = Assign([Name(key)], cls.unparse_node(val))
-            assignments.append(node)
-        return Module(assignments)
-
-    @classmethod
     def _process_nested_dict(
         cls,
         dct: Mapping | Any,
-        roots: list[str] = [],
+        roots: Sequence[str] = [],
         descended: int = 0
-    ) -> tuple[list[list[str]], list[Any]]:
+    ) -> tuple[list[list[str]], list[object]]:
         nodes = []
         vals = []
         if not isinstance(dct, Mapping):
@@ -1144,21 +1142,17 @@ class ConfigDictParser:
 
         if len(dct) == 1:
             # An attribute.
-            # descended += 1
             for a, v in dct.items():
                 roots.append(a)
                 return cls._process_nested_dict(v, roots, descended)
 
-        descended = 0  # Start of a tree
+        descended = 0  # Start of a tree.
         for attr, v in dct.items():
             roots.append(attr)
             if isinstance(v, Mapping):
-                # descended += 1
-                print(len(roots), descended)
                 if descended < len(roots):
-                    # descended = 1
                     descended = -len(roots)
-                # Descend into lower tree
+                # Descend into lower tree.
                 inner_nodes, inner_vals = cls._process_nested_dict(
                     v,
                     roots,
@@ -1169,9 +1163,7 @@ class ConfigDictParser:
             else:
                 nodes.append(roots)
                 vals.append(v)
-                # descended -= 1
-            # roots = roots[:-descended - len(roots)]
-            roots = roots[:-descended - 1]  # Reached end of tree
+            roots = roots[:-descended - 1]  # Reached end of tree.
         return nodes, vals
 
     @classmethod
@@ -1194,7 +1186,7 @@ class ConfigDictParser:
         return nodes
 
     @classmethod
-    def unparse_node(cls, thing) -> AST:
+    def _parse_node(cls, thing) -> AST:
         '''
         '''
         if isinstance(thing, Mapping):
@@ -1212,9 +1204,9 @@ class ConfigDictParser:
                     # An explicit assignment.
                     node = Name(key)
                     keys.append(node)
-                    v = cls.unparse_node(val)
+                    v = cls._parse_node(val)
                     vals.append(v)
-            return Dict(keys, [cls.unparse_node(v) for v in vals])
+            return Dict(keys, [cls._parse_node(v) for v in vals])
 
         elif isinstance(thing, list):
             values = [Name(v) for v in thing]
@@ -1230,17 +1222,33 @@ class ConfigDictParser:
             return thing
 
     @classmethod
-    def to_file(cls, mapping: Mapping) -> FileContents:
+    def parse(cls, mapping: Mapping) -> Module:
+        '''
+        Convert a dict to a Module AST.
+
+        :param mapping: The dict to convert
+        :type mapping: :class:`Mapping`
+        '''
+        if not isinstance(mapping, Mapping):
+            return mapping
+        assignments = []
+        for key, val in mapping.items():
+            node = Assign([Name(key)], cls._parse_node(val))
+            assignments.append(node)
+        return Module(assignments)
+
+    @classmethod
+    def make_file(cls, mapping: Mapping) -> FileContents:
         '''
         '''
-        tree = cls.unparse(mapping)
+        tree = cls.parse(mapping)
         text = ConfigFileMaker().stringify(tree.body)
         return text
 
 
-class Interpreter(NodeVisitor):
+class Unparser(NodeVisitor):
     '''
-    Convert ASTs to literal Python code.
+    Convert ASTs to Python data structures.
     '''
     _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
 
@@ -1267,13 +1275,10 @@ class Interpreter(NodeVisitor):
         if not attrs:
             # A new nested Attribute.
             attrs = [node.attr]
-            n = node.value
         elif isinstance(node, Attribute):
             attrs.append(node.attr)
-            n = node.value
-        ret = self._nested_attr_to_dict(n, attrs)
-        # print(ret)
-        return ret
+        n = node.value
+        return self._nested_attr_to_dict(n, attrs)
 
     def visit_Constant(self, node: Constant) -> str | int | float | None:
         return node.value
@@ -1330,9 +1335,10 @@ class ConfigFileMaker(NodeVisitor):
         tree: Sequence[AST] | Module,
         sep: str = '\n\n'
     ) -> FileContents:
+        '''
+        '''
         if isinstance(tree, Module):
             tree = tree.body
-            # return self.visit(tree)
         strings = [self.visit(n) for n in tree]
         return sep.join(strings)
 
@@ -1380,7 +1386,7 @@ class ConfigFileMaker(NodeVisitor):
 
 if __name__ == '__main__':
 ##    print("AST parsed from file contents:")
-    p = Parser(file=FILE)
+    p = FileParser(file=FILE)
 ##    print(ast.dump(p.parse()))
 ##    print()
 ##
@@ -1390,17 +1396,17 @@ if __name__ == '__main__':
 ##    print()
 ##
 ##    print("AST from unparsing dict built from AST parsed from file contents:")
-    u = ConfigDictParser.unparse(d)
+    u = DictParser.unparse(d)
     # u = p.parse()
     print(ast.dump(u.body[-1].value))
     print(ConfigFileMaker().stringify(u))
-    print(Interpreter().visit(u.body[-1].value))
-    print((Interpreter().visit(u.body[-1].value)['a']))
+    print(Unparser().visit(u.body[-1].value))
+    print((Unparser().visit(u.body[-1].value)['a']))
     print()
 
 ##    print("File contents built from AST from unparsing dict built from AST parsed from file contents:")
 ##    c = ConfigFileMaker().stringify(u.body)
-##    c = ConfigDictParser.to_file(d)
+##    c = DictParser.make_file(d)
 ##    # c  = u.as_file()
 ##    print("```")
 ##    print(c)
