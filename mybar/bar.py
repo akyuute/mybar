@@ -144,7 +144,7 @@ class BarConfig(dict):
         except OSError as e:
             raise e.with_traceback(None)
 
-        from_file = cls._process_file(unprocessed)
+        from_file = cls._remove_extraneous_keys(unprocessed)
         options = from_file | overrides
 
         # Don't clobber a file's field definitions:
@@ -157,27 +157,12 @@ class BarConfig(dict):
         return config
 
     @classmethod
-    def _process_file(cls, params: BarConfigSpec) -> BarSpec:
+    def _remove_extraneous_keys(cls, params: BarConfigSpec) -> BarConfigSpec:
         '''
         '''
         params = params.copy()
-        config = {}
-        spec = dict.fromkeys((
-            *BarSpec.__required_keys__,
-            *BarSpec.__optional_keys__
-        ))
-
-        spec.pop('field_definitions', None)
-        spec.pop('config_file', None)
-        spec.pop('field_icons', None)
-
-        for p in spec:
-            if p in params:
-                config[p] = params.pop(p)
-
-        # The `field_definitions` should be all that's left of `params`:
-        field_defs = {**params}
-        config['field_definitions'] = field_defs
+        config = {**params}
+        config.pop('config_file', None)
         return config
 
     @classmethod
@@ -811,14 +796,25 @@ class Bar:
                     except KeyError:
                         continue
 
+            cust_icons = field_icons.get(name, None)
+            if cust_icons is not None:
+                if not isinstance(cust_icons, (list, tuple)):
+                    # When one icon is given, override both defaults:
+                    cust_icons = (cust_icons, cust_icons)
+
             match field_params:
                 case None:
                     # The field is strictly default.
                     if name in fields:
                         continue
 
+                    if cust_icons is not None:
+                        overrides = {'icons': cust_icons}
+                    else:
+                        overrides = {}
+
                     try:
-                        field = Field.from_default(name)
+                        field = Field.from_default(name, overrides=overrides)
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             DefaultFieldNotFoundError,
@@ -832,20 +828,12 @@ class Bar:
                     # 'field_definitions' and will not be found as a default.
                     name = field_params.pop('name', name)
                     del field_params['custom']
+                    field_params['icons'] = cust_icons
                     field = Field(**field_params, name=name)
 
                 case {}:
                     # The field is a default overridden by the user.
-                    # Are there custom icons from --icons in the CLI?
-                    if field_icons and name in field_icons:
-                        cust_icon = field_icons.pop(name)
-                        field_params['icons'] = (cust_icon, cust_icon)
-
-                    # When one icon is given, override the default icons:
-                    elif 'icon' in field_params:
-                        cust_icon = field_params['icon']
-                        field_params['icons'] = (cust_icon, cust_icon)
-
+                    field_params['icons'] = cust_icons
                     try:
                         field = Field.from_default(
                             name,
