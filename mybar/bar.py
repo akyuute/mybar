@@ -28,7 +28,7 @@ from .constants import (
 
 from . import cli
 from . import field_funcs
-from . import new_parser as parse_conf
+from . import parse_conf
 from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
@@ -299,7 +299,7 @@ class BarConfig(dict):
             ]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
-        p = parse_conf.Parser(file=absolute)
+        p = parse_conf.FileParser(file=absolute)
         data = p.to_dict()
         text = p._string
         return data, text
@@ -334,7 +334,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = parse_conf.ConfigDictParser().to_file(unpythoned)
+        text = parse_conf.DictParser().to_file(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 
