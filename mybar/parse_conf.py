@@ -12,7 +12,6 @@ __all__ = (
 )
 
 
-import ast
 import re
 import string
 import sys
@@ -34,7 +33,6 @@ from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
 from typing import Any, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
 
 from ._types import FileContents
-# FileContents = str
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
@@ -47,7 +45,6 @@ TokenValue: TypeAlias = str
 Location: TypeAlias = tuple[LineNo, ColNo]
 
 
-FILE = 'mybar/test_config.conf'
 EOF = ''
 NEWLINE = '\n'
 NOT_IN_IDS = string.punctuation.replace('_', '\s')
@@ -402,34 +399,23 @@ class Token:
         '''
         return (self.lineno, self.colno)
     
-##    def check_expected_after(
-##        self,
-##        prev: Token,
-##        expected: TokenKind | tuple[TokenKind],
-##        msg: str = None,
-##        error: bool = True
-##    ) -> bool | NoReturn:
-##        '''
-##        '''
-##        if isinstance(expected, tuple):
-##            invalid = (
-##                isinstance(prev, Token)
-##                and prev.kind not in expected
-##            )
-##        else:
-##            invalid = (
-##                isinstance(expected, Token)
-##                and prev.kind is not expected
-##            )
-##
-##        if invalid:
-##            if error:
-##                if msg is None:
-##                    msg = f"Unexpected token: {self.value!r}"
-##                raise TokenError.hl_error(self, msg)
-##
-##            return False
-##        return True
+
+def unescape_backslash(s: str, encoding: str = 'utf-8') -> str:
+    '''
+    Unescape characters escaped by backslashes.
+
+    :param s: The string to escape
+    :type s: :class:`str`
+
+    :param encoding: The encoding `s` comes in, defaults to ``'utf-8'``
+    :type encoding: :class:`str`
+    '''
+    return (
+        s.encode(encoding)
+        .decode('unicode-escape')
+        # .encode(encoding)
+        # .decode(encoding)
+    )
 
 
 class Lexer:
@@ -661,7 +647,10 @@ class Lexer:
             if kind is Literal.STRING:
                 # Process strings by removing quotes:
                 speech_char = tok.matchgroups[0]
-                tok.value = tok.value.strip(speech_char)
+                value = tok.value.strip(speech_char)
+                if '\\' in value:
+                    value = unescape_backslash(value)
+                tok.value = value
 
                 # Concatenate neighboring strings:
                 if self.STRING_CONCAT:
@@ -1385,6 +1374,8 @@ class ConfigFileMaker(NodeVisitor):
 
 
 if __name__ == '__main__':
+    import ast
+    FILE = 'mybar/test_config.conf'
 ##    print("AST parsed from file contents:")
     p = FileParser(file=FILE)
 ##    print(ast.dump(p.parse()))
