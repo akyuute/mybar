@@ -12,7 +12,9 @@ from os import PathLike
 # from .bar import BarConfig, BarConfigSpec, BarSpec
 from ._types import (
     Args,
+    Field,
     FieldName,
+    # FieldPrecursor,
     FormatStr,
     Icon,
     Kwargs,
@@ -23,8 +25,8 @@ from ._types import (
     TTY_Separator,
 )
 
-from collections.abc import Callable, Sequence
-from typing import ParamSpec, Required, TypedDict, TypeVar
+from collections.abc import Callable, Iterable, Sequence
+from typing import ParamSpec, Required, Sequence, TypedDict, TypeVar
 
 
 Bar = TypeVar('Bar')
@@ -52,7 +54,7 @@ class FieldSpec(TypedDict, total=False):
     # setup: Callable[P, Kwargs]
     setup: Callable[P, P.kwargs]
     # Set this to use different icons for different output streams:
-    icons: Sequence[PTY_Icon, TTY_Icon]
+    icons: Sequence[[PTY_Icon, TTY_Icon]]
 
 
 class BarSpec(TypedDict, total=False):
@@ -68,10 +70,10 @@ class BarSpec(TypedDict, total=False):
     thread_cooldown: float
 
     # The following field params are mutually exclusive with `template`.
+    fields: Iterable[Field | FieldName]
     field_order: Required[list[FieldName]]
-    field_definitions: dict[FieldName, FieldSpec]
     separator: Separator
-    separators: Sequence[PTY_Separator, TTY_Separator]
+    separators: Sequence[[PTY_Separator, TTY_Separator]]
 
     # The `template` param is mutually exclusive with all field params.
     template: FormatStr
@@ -84,6 +86,7 @@ class BarConfigSpec(BarSpec, total=False):
     '''
     config_file: PathLike
     debug: bool
+    field_definitions: dict[FieldName, FieldSpec]
     field_icons: dict[FieldName, Icon]
 
 
