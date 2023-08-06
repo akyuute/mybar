@@ -8,21 +8,18 @@ __all__ = (
 
 from os import PathLike
 
-# from .field import FieldSpec
-# from .bar import BarConfig, BarConfigSpec, BarSpec
 from ._types import (
     Args,
+    ASCII_Icon,
+    ASCII_Separator,
     Field,
     FieldName,
-    # FieldPrecursor,
     FormatStr,
     Icon,
     Kwargs,
-    PTY_Icon,
-    PTY_Separator,
     Separator,
-    TTY_Icon,
-    TTY_Separator,
+    Unicode_Icon,
+    Unicode_Separator,
 )
 
 from collections.abc import Callable, Iterable, Sequence
@@ -51,10 +48,9 @@ class FieldSpec(TypedDict, total=False):
     bar: Bar
     args: Args
     kwargs: Kwargs
-    # setup: Callable[P, Kwargs]
     setup: Callable[P, P.kwargs]
     # Set this to use different icons for different output streams:
-    icons: Sequence[[PTY_Icon, TTY_Icon]]
+    icons: Sequence[[ASCII_Icon, Unicode_Icon]]
 
 
 class BarSpec(TypedDict, total=False):
@@ -73,7 +69,7 @@ class BarSpec(TypedDict, total=False):
     fields: Iterable[Field | FieldName]
     field_order: Required[list[FieldName]]
     separator: Separator
-    separators: Sequence[[PTY_Separator, TTY_Separator]]
+    separators: Sequence[[ASCII_Separator, Unicode_Separator]]
 
     # The `template` param is mutually exclusive with all field params.
     template: FormatStr
@@ -88,6 +84,7 @@ class BarConfigSpec(BarSpec, total=False):
     debug: bool
     field_definitions: dict[FieldName, FieldSpec]
     field_icons: dict[FieldName, Icon]
+    unicode: bool
 
 
 class CmdOptionSpec(TypedDict, total=False):

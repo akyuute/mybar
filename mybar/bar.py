@@ -36,6 +36,8 @@ from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
 from .namespaces import BarConfigSpec, BarSpec, FieldSpec
 from ._types import (
     Args,
+    ASCII_Icon,
+    ASCII_Separator,
     ConsoleControlCode,
     FieldName,
     FieldOrder,
@@ -43,12 +45,10 @@ from ._types import (
     JSONText,
     Kwargs,
     Line,
-    PTY_Icon,
-    PTY_Separator,
     Pattern,
     Separator,
-    TTY_Icon,
-    TTY_Separator,
+    Unicode_Icon,
+    Unicode_Separator,
 )
 
 from collections.abc import Container, Iterable, Iterator, Sequence
@@ -451,8 +451,8 @@ class Bar:
 
     :param separator: The field separator when `fields` is given,
         defaults to ``'|'``
-    :type separator: :class:`_types.PTY_Separator` |
-        :class:`_types.TTY_Separator`
+    :type separator: :class:`_types.ASCII_Separator` |
+        :class:`_types.Unicode_Separator`
 
     :param endline: Print each refresh after a newline character (\\n),
         defaults to False
@@ -497,14 +497,16 @@ class Bar:
     :param separators: A tuple of 2 strings that separate fields when
         `fields` is given.
         Note: The `separator` parameter sets both of these automatically.
-        The first string is used in graphical (PTY) environments where
-        support for Unicode is more likely.
-        The second string is used in terminal (TTY) environments where
+        The first string is used in terminal environments where
         only ASCII is supported.
+        The second string is used in graphical environments where
+        support for Unicode is more likely.
         This enables the same :class:`Bar` instance to use the most
         optimal separator automatically.
-    :type separators: tuple[:class:`_types.PTY_Separator`,
-        :class:`_types.TTY_Separator`], optional
+    :type separators: tuple[
+            :class:`_types.ASCII_Separator`,
+            :class:`_types.Unicode_Separator`
+        ], optional
 
     :param stream: The bar's output stream,
         defaults to :attr:`sys.stdout`
@@ -558,7 +560,7 @@ class Bar:
         thread_cooldown: float = 1/8,
 
         # Set this to use different seps for different output streams:
-        separators: Sequence[PTY_Separator, TTY_Separator] = None,
+        separators: Sequence[ASCII_Separator, Unicode_Separator] = None,
 
         debug: bool = DEBUG,  # Not yet implemented!
     ) -> None:
@@ -954,9 +956,9 @@ class Bar:
         Defaults to the TTY sep (self._separators[1]) if no stream is set.
         '''
         if self._stream is None:
-            # Default to using the terminal separator:
-            return self._separators[1]
-        return self._separators[self._stream.isatty()]
+            # Default to using the ASCII separator:
+            return self._separators[0]
+        return self._separators[not self._stream.isatty()]
 
     def append(self, field: FieldPrecursor) -> Self:
         '''

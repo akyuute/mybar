@@ -3,8 +3,8 @@ __all__ = (
     'ColorEscaping',
 
     'Separator',
-    'PTY_Separator',
-    'TTY_Separator',
+    'ASCII_Separator',
+    'Unicode_Separator',
     'Line',
     'ConsoleControlCode',
     'JSONText',
@@ -14,10 +14,10 @@ __all__ = (
     'FieldName',
     'FieldOrder',
     'FieldPrecursor',
-    'Icon',
     'Pattern',
-    'PTY_Icon',
-    'TTY_Icon',
+    'Icon',
+    'ASCII_Icon',
+    'Unicode_Icon',
 
     'FormatStr',
     'FormatterLiteral: TypeAlias = str | None',
@@ -68,8 +68,8 @@ Kwargs: TypeAlias = dict
 
 # Used by Bar and BarConfigSpec:
 Separator: TypeAlias = str
-PTY_Separator: TypeAlias = str
-TTY_Separator: TypeAlias = str
+Unicode_Separator: TypeAlias = str
+ASCII_Separator: TypeAlias = str
 Line: TypeAlias = str
 ConsoleControlCode: TypeAlias = str
 JSONText: TypeAlias = str
@@ -82,8 +82,8 @@ FieldOrder: TypeAlias = tuple[FieldName]
 FormatStr: TypeAlias = str
 Icon: TypeAlias = str
 Pattern: TypeAlias = str
-PTY_Icon: TypeAlias = str
-TTY_Icon: TypeAlias = str
+Unicode_Icon: TypeAlias = str
+ASCII_Icon: TypeAlias = str
 
 FormatterLiteral: TypeAlias = str | None
 '''The `literal_text` part of one tuple in the iterable returned

@@ -19,13 +19,13 @@ from .errors import *
 from .formatting import FormatterFieldSig
 from .namespaces import FieldSpec
 from ._types import (
-    FieldName,
-    Icon,
-    PTY_Icon,
-    TTY_Icon,
-    FormatStr,
     Args,
+    ASCII_Icon,
+    FieldName,
+    FormatStr,
+    Icon,
     Kwargs,
+    Unicode_Icon,
 )
 
 from collections.abc import Callable, Sequence
@@ -107,10 +107,16 @@ class Field:
 
     :param icons: A pair of icons used in different cases.
         Note: The `icon` parameter sets both of these automatically.
-        The first string is intended for graphical (PTY) environments where support for Unicode is more likely.
-        The second string is intended for terminal (TTY) environments where only ASCII is supported.
-        This enables the same :class:`Field` instance to use the most optimal icon automatically.
-    :type icons: tuple[:class:`_types.PTY_Icon`, :class:`_types.TTY_Icon`], optional
+        The first string is intended for terminal environments where
+        only ASCII is supported.
+        The second string is intended for graphical environments where
+        support for Unicode is more likely available.
+        This enables the same :class:`Field` instance to use the most
+        optimal icon automatically.
+    :type icons: tuple[
+            :class:`_types.ASCII_Icon`
+            :class:`_types.Unicode_Icon`,
+        ], optional
 
 
     :raises: :exc:`errors.IncompatibleArgsError` when
@@ -251,7 +257,7 @@ class Field:
         setup: Callable[P, P.kwargs] = None,
 
         # Set this to use different icons for different output streams:
-        icons: Sequence[PTY_Icon, TTY_Icon] = None,
+        icons: Sequence[ASCII_Icon, Unicode_Icon] = None,
     ) -> None:
 
         if constant_output is None:
@@ -407,8 +413,9 @@ class Field:
         It defaults to the TTY icon (:attr:`self._icons[1]`) if no bar is set.
         '''
         if self._bar is None:
-            return self._icons[1]  # Default to using the terminal icon.
-        return self._icons[self._bar._stream.isatty()]
+            # Default to using the ASCII icon:
+            return self._icons[0]
+        return self._icons[not self._bar._stream.isatty()]
 
     async def _asyncify(self, *args, **kwargs) -> str:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
