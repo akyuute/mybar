@@ -744,8 +744,9 @@ class Bar:
 
         bar_params = cls._default_params | data
         field_order = bar_params.pop('field_order', None)
-        field_icons = bar_params.pop('field_icons', {})  # From the CLI
+        field_icons = bar_params.pop('field_icons', {})
         field_defs = bar_params.pop('field_definitions', {})
+        unicode = bar_params.pop('unicode', None)
 
         if (template := bar_params.get('template')) is None:
             if field_order is None:
@@ -801,6 +802,8 @@ class Bar:
                 if not isinstance(cust_icons, (list, tuple)):
                     # When one icon is given, override both defaults:
                     cust_icons = (cust_icons, cust_icons)
+                if unicode is not None:
+                    cust_icons = (cust_icons[unicode], cust_icons[unicode])
 
             match field_params:
                 case None:

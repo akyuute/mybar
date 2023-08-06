@@ -293,6 +293,20 @@ class Parser(ArgumentParser):
         )
 
         self.add_argument(
+            '--unicode', '-u',
+            action='store_true',
+            dest='unicode',
+            help="Prefer Unicode versions of Field icons, if provided.",
+        )
+
+        self.add_argument(
+            '--no-unicode', '-U',
+            action='store_false',
+            dest='unicode',
+            help="Prefer ASCII versions of Field icons, if provided.",
+        )
+
+        self.add_argument(
             '--config', '-c',
             dest='config_file',
             help=(
