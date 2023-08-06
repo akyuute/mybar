@@ -4,6 +4,7 @@ import string
 import sys
 from ast import (
     AST,
+    Assign,
     Constant,
     Dict as _Dict,
     List,
@@ -65,9 +66,13 @@ class Ignore(Enum):
     COMMENT = 'COMMENT'
     SPACE = 'SPACE'
 
-class Misc(Enum):
+class Newline(Enum):
     NEWLINE = repr(NEWLINE)
+
+class EndOfFile(Enum):
     EOF = repr(EOF)
+
+class Unknown(Enum):
     UNKNOWN = 'UNKNOWN'
 
 class Symbol(Enum):
@@ -93,6 +98,11 @@ class Syntax(Enum):
     L_CURLY_BRACE = '{'
     R_CURLY_BRACE = '}'
 
+# AssignEvalNone = Enum(
+    # 'AssignEvalNone',
+    # ((k.name, k.value) for k in (*Newline, *Eof, *Unknown, )#Syntax.COMMA)
+# ))
+AssignEvalNone = tuple((*Newline, *EndOfFile, *Unknown, ))
 
 TokenKind = Enum(
     'TokenKind',
@@ -102,7 +112,7 @@ TokenKind = Enum(
         *Syntax,
         *BinOp,
         *Ignore,
-        *Misc,
+        *AssignEvalNone,
     ))
 )
 
@@ -202,7 +212,7 @@ class TokenError(ConfigError):
 
             between = tuple(t for t in all_toks if start <= t.cursor <= end)
 
-            if any(t.kind is Misc.NEWLINE for t in between):
+            if any(t.kind is Newline.NEWLINE for t in between):
                 # Consolidate multiple lines:
                 with_dups = tuple(lexer.get_line(t) for t in between if t.kind not in Ignore)
                 lines = dict.fromkeys(with_dups)
@@ -223,7 +233,7 @@ class TokenError(ConfigError):
                 case t.kind if t.kind in Ignore:
                     continue
 
-                case Misc.NEWLINE:
+                case Newline.NEWLINE:
                     highlight += line_bridge
                     continue
 
@@ -311,6 +321,14 @@ class Token:
         s = f"{cls}({attrs})"
         return s
 
+    def __class_getitem__(cls, item: TokenKind) -> str:
+        item_name = (
+            item.__class__.__name__
+            if not hasattr(item, '__name__')
+            else item.__name__
+        )
+        return f"{cls.__name__}[{item_name}]"
+
     def error_leader(self, with_col: bool = False) -> str:
         '''
         '''
@@ -370,7 +388,7 @@ class Lexer:
         ## Skip comments
         (re.compile(r'^\#.*(?=\n*)'), Ignore.COMMENT),
         ## Finds empty assignments:
-        (re.compile(r'^' + NEWLINE + r'+'), Misc.NEWLINE),
+        (re.compile(r'^' + NEWLINE + r'+'), Newline.NEWLINE),
         ## Skip all other whitespace:
         (re.compile(r'^[^' + NEWLINE + r'\S]+'), Ignore.SPACE),
 
@@ -419,7 +437,7 @@ class Lexer:
         self._cursor = 0  # 0-indexed
         self._lineno = 1  # 1-indexed
         self._colno = 1  # 1-indexed
-        self.eof = Misc.EOF
+        self.eof = EndOfFile.EOF
 
     def lineno(self) -> int:
         return self._string[:self._cursor].count('\n') + 1
@@ -522,7 +540,7 @@ class Lexer:
             # Update location:
             self._cursor += len(tok.value)
             self._colno += len(tok.value)
-            if kind is Misc.NEWLINE:
+            if kind is Newline.NEWLINE:
                 self._lineno += len(tok.value)
                 self._colno = 1
 
@@ -535,7 +553,7 @@ class Lexer:
                 if self.STRING_CONCAT:
                     while True:
                         maybe_str = self.get_token()
-                        if maybe_str.kind in (*Ignore, Misc.NEWLINE):
+                        if maybe_str.kind in (*Ignore, Newline.NEWLINE):
                             continue
                         break
 
@@ -571,7 +589,7 @@ class Lexer:
             bad_token = Token(
                 value=bad_value,
                 at=(self._cursor, (self._lineno, self._colno)),
-                kind=Misc.UNKNOWN,
+                kind=Unknown.UNKNOWN,
                 match=None,
                 lexer=self,
                 file=self._file
@@ -634,11 +652,129 @@ class Interpreter(NodeVisitor):
         return new_d
 
     def visit_List(self, node: AST) -> list:
+        print(ast.dump(node))
         return [self.visit(e) for e in node.elts]
 
     def visit_Name(self, node: AST) -> str:
         return node.id
 
+
+class ConfigFileMaker(NodeVisitor):
+    '''
+    Convert ASTs to string representations with config file syntax.
+    '''
+    def __init__(self) -> None:
+        self.indent = 4 * ' '
+
+    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
+        strings = [self.visit(n) for n in tree]
+        return sep.join(strings)
+
+    def visit_Constant(self, node):
+        val = node.value
+        if isinstance(val, str):
+            return repr(val)
+        if val is None:
+            return ""
+        return str(val)
+
+    def visit_Dict(self, node):
+        if node._root:
+            target = self.visit(*node.keys)  # There will only be one.
+            joined = self.visit(*node.values)  # There will only be one.
+            string = f"{target} {{\n{self.indent}{joined}\n}}"
+            return string
+
+        assignments = []
+        for k, v in zip(node.keys, node.values):
+            key = self.visit(k)
+            if isinstance(v, Dict):
+                attrs = (self.visit(attr) for attr in v.keys)
+                vals = (self.visit(value) for value in v.values)
+                for attr, val in zip(attrs, vals):
+                    assignments.append(f"{key}.{attr} = {val}")
+
+            else:
+                val = self.visit(v)
+                assignments.append(f"{key} = {val}")
+
+        joined = ('\n' + self.indent).join(assignments)
+        return joined
+
+    def visit_List(self, node):
+        elems = tuple(self.visit(e) for e in node.elts)
+        if len(elems) > 3:
+            joined = ('\n' + self.indent).join(elems)
+            string = f"[\n{self.indent}{joined}\n]"
+        else:
+            joined = ', '.join(elems)
+            string = f"[{joined}]"
+        return string
+
+    def visit_Name(self, node):
+        string = node.id
+        return string
+
+
+class DictConverter:
+    '''
+    Convert Python dictionaries to ASTs.
+    '''
+    @classmethod
+    def unparse(cls, mapping: dict) -> list[AST]:
+        if not isinstance(mapping, dict):
+            return mapping
+
+        assignments = []
+
+        for key, val in mapping.items():
+            node = Dict([Name(key)], [cls.unparse_node(val)])
+            if any(isinstance(v, Dict) for v in node.values):
+                node._root = True
+            assignments.append(node)
+        return assignments
+
+    @classmethod
+    def unparse_node(cls, thing) -> AST:
+        '''
+        '''
+        if isinstance(thing, dict):
+            keys = []
+            vals = []
+
+            for key, val in thing.items():
+                
+                if key not in keys:
+                    keys.append(key)
+                    vals.append(cls.unparse_node(val))
+                else:
+                    # The equivalent of dict.update():
+                    idx = keys.index(key)
+                    vals[idx].keys.append(*v.keys)
+                    vals[idx].values.append(*v.values)
+
+            node = Dict([Name(k) for k in keys], vals)
+            return node
+
+        elif isinstance(thing, list):
+            values = [Name(v) for v in thing]
+            return List(values)
+
+        elif isinstance(thing, (int, float, str)):
+            return Constant(thing)
+
+        elif thing in (None, True, False):
+            return Constant(thing)
+
+        return node
+
+    @classmethod
+    def as_file(cls, mapping: dict) -> FileContents:
+        '''
+        '''
+        tree = cls.unparse(mapping)
+        text = ConfigFileMaker().stringify(tree)
+        return text
 
 class Parser:
     '''
@@ -657,7 +793,9 @@ class Parser:
         self._string = string
         self._file = file
         self._lexer = Lexer(string, file)
-        self._previous_token = None
+        self._tokens = self._lexer.lex()
+        self._cursor = 0
+        # self._previous_token = None
 
     def tokens(self) -> list[Token]:
         return self._lexer.lex()
@@ -818,7 +956,8 @@ class Parser:
                 node = self.parse_stmt(prev=prev)
                 return node
 
-            case Misc.NEWLINE:
+            # case AssignEvalNone.NEWLINE:
+            case Newline.NEWLINE:
                 if prev.kind is BinOp.ASSIGN:
                     # Notify of empty assignment, if applicable.
                     node = curr
@@ -901,11 +1040,12 @@ class Parser:
                 target = Name(prev.value)
 
                 val = self.parse_stmt(prev=curr)
-                if val is Misc.EOF:
+                # if val is AssignEvalNone.EOF:
+                if val is EndOfFile.EOF:
                     value = Constant(None)
                 elif isinstance(val, Token):
                     # Handle empty assignments:
-                    if val.kind in (*Misc, Syntax.COMMA):
+                    if val.kind in AssignEvalNone:
                         value = Constant(None)
 
                     # Unreachable?
@@ -1042,120 +1182,141 @@ class Parser:
         return node
 
 
-class ConfigFileMaker(NodeVisitor):
-    '''
-    Convert ASTs to string representations with config file syntax.
-    '''
-    def __init__(self) -> None:
-        self.indent = 4 * ' '
-
-    def stringify(self, tree: list[AST], sep: str = '\n\n') -> FileContents:
-        strings = [self.visit(n) for n in tree]
-        return sep.join(strings)
-
-    def visit_Constant(self, node):
-        val = node.value
-        if isinstance(val, str):
-            return repr(val)
-        if val is None:
-            return ""
-        return str(val)
-
-    def visit_Dict(self, node):
-        if node._root:
-            target = self.visit(*node.keys)  # There will only be one.
-            joined = self.visit(*node.values)  # There will only be one.
-            string = f"{target} {{\n{self.indent}{joined}\n}}"
-            return string
-
-        assignments = []
-        for k, v in zip(node.keys, node.values):
-            key = self.visit(k)
-            if isinstance(v, Dict):
-                attrs = (self.visit(attr) for attr in v.keys)
-                vals = (self.visit(value) for value in v.values)
-                for attr, val in zip(attrs, vals):
-                    assignments.append(f"{key}.{attr} = {val}")
-
-            else:
-                val = self.visit(v)
-                assignments.append(f"{key} = {val}")
-
-        joined = ('\n' + self.indent).join(assignments)
-        return joined
-
-    def visit_List(self, node):
-        elems = tuple(self.visit(e) for e in node.elts)
-        if len(elems) > 3:
-            joined = ('\n' + self.indent).join(elems)
-            string = f"[\n{self.indent}{joined}\n]"
-        else:
-            joined = ', '.join(elems)
-            string = f"[{joined}]"
-        return string
-
-    def visit_Name(self, node):
-        string = node.id
-        return string
 
 
-class DictConverter:
-    '''
-    Convert Python dictionaries to ASTs.
-    '''
-    @classmethod
-    def unparse(cls, mapping: dict) -> list[AST]:
-        if not isinstance(mapping, dict):
-            return mapping
+    def currtok(self) -> Token:
+        return self._tokens[self._cursor]
 
-        assignments = []
+    def advance(self) -> Token:
+        self._cursor += 1
+        return self._curr()
 
-        for key, val in mapping.items():
-            node = Dict([Name(key)], [cls.unparse_node(val)])
-            if any(isinstance(v, Dict) for v in node.values):
-                node._root = True
-            assignments.append(node)
-        return assignments
+    def not_eof(self) -> bool:
+        return (self.currtok().kind is not EndOfFile.EOF)
+    
+    def parse_stmt(self) -> AST:
+        while self.not_eof():
+            # tok = self._lexer.get_token()
+            tok = self.currtok()
+            kind = tok.kind
+            # print(self.parse_expr())
+            match kind:
+                case BinOp.ASSIGN:
+                    return self.parse_root_assign(tok)
+                case BinOp.ATTRIBUTE:
+                    value = self.parse_attribute(tok)
+                case _:
+                    raise ParseError(repr(tok))
 
-    @classmethod
-    def unparse_node(cls, thing) -> AST:
+        
+        return Dict([target], [value])
+
+    def parse_expr(self) -> AST:
+        tok = self._lexer.get_token()
+        kind = tok.kind
+        while self.not_eof():
+            match kind:
+                case kind if kind in Literal:
+                    return self.parse_literal(tok)
+                case BinOp.ATTRIBUTE:
+                    return self.parse_mapping(self.parse_attribute(tok))
+                # case kind if kind in AssignEvalNone:
+                case kind if kind in (*Newline, Syntax.COMMA):
+                    # if self._previous_token.kind is BinOp.ASSIGN:
+                        # return Constant(None)
+                    # return self.parse_space
+                case kind if kind in Ignore:
+                    continue
+                case _:
+                    print(tok)
+
+    def parse_root_assign(self, )# t: Token[Symbol.IDENTIFIER]) -> AST:
         '''
+        A 1-to-1 mapping in the outermost scope::
+        foo = 'bar'
         '''
-        if isinstance(thing, dict):
-            keys = []
-            vals = []
-
-            for key, val in thing.items():
-                
-                if key not in keys:
-                    keys.append(key)
-                    vals.append(cls.unparse_node(val))
-                else:
-                    # The equivalent of dict.update():
-                    idx = keys.index(key)
-                    vals[idx].keys.append(*v.keys)
-                    vals[idx].values.append(*v.values)
-
-            node = Dict([Name(k) for k in keys], vals)
-            return node
-
-        elif isinstance(thing, list):
-            values = [Name(v) for v in thing]
-            return List(values)
-
-        elif isinstance(thing, (int, float, str)):
-            return Constant(thing)
-
-        elif thing in (None, True, False):
-            return Constant(thing)
-
+        self.expect_curr(Symbol.IDENTIFIER, "Not an identifier")
+        target = Name(t.value)
+        target._token = target
+        self.expect_next(BinOp.ASSIGN, "Not '='")
+        value = self.parse_expr()
+        node = Assign([target], value)
+        node._token = curr
         return node
 
-    @classmethod
-    def as_file(cls, mapping: dict) -> FileContents:
+    def parse_mapping(self, )# t: Token[Symbol.IDENTIFIER]) -> AST:
         '''
+        A 1-to-1 mapping inside an object::
+        {key = 5}
         '''
-        tree = cls.unparse(mapping)
-        text = ConfigFileMaker().stringify(tree)
-        return text
+        self.expect(t, Symbol.IDENTIFIER)
+        target = Name(t.value)
+        target._token = target
+        self.expect_next(BinOp.ASSIGN)
+        value = self.parse_expr()
+        node = Dict([target], [value])
+        node._token = curr
+        return node
+
+
+    def parse_object(self) -> AST:
+        '''
+        A dict containing many mappings::
+        {
+            foo = 'bar'
+            baz = 42
+            ...
+        }
+        '''
+        self.expect_next(Syntax.L_CURLY_BRACE)
+        keys = []
+        vals = []
+
+        while True:
+            tok = self.advance()
+            kind = tok.kind
+            match kind:
+                case Syntax.R_CURLY_BRACE:
+                    break
+                case kind if kind in Ignore:
+                    continue
+                case Symbol.IDENTIFIER:
+                    key = tok
+                    val = self.parse_mapping(key)
+
+                    if key not in keys:
+                        keys.append(key)
+                        vals.append(val)
+
+                    else:
+                        # Make nested dicts.
+                        idx = keys.index(key)
+                        # Equivalent to dict.update():
+                        vals[idx].keys.append(val.keys[-1])
+                        vals[idx].values.append(val.values[-1])
+
+                case _:
+                    raise ParseError("What? " + repr(tok))
+
+        # Put all the assignments together:
+        reconciled = Dict([Name(k) for k in keys], vals)
+        return reconciled
+
+    def parse_literal(self, tok) -> AST:
+        match tok.type:
+            # Return literals as Constants:
+            case Literal.STRING:
+                value = tok.value
+            case Literal.INTEGER:
+                value = int(tok.value)
+            case Literal.FLOAT:
+                value = float(tok.value)
+            case Literal.TRUE:
+                value = True
+            case Literal.FALSE:
+                value = False
+            case _:
+                raise ParseError("Not a literal: " + repr(tok))
+        return Constant(value)
+
 
