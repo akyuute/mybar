@@ -1,8 +1,4 @@
 __all__ = (
-    'ConfigError',
-    'TokenError',
-    'ParseError',
-    'StackTraceSilencer',
     'Token',
     'Lexer',
     'FileParser',
@@ -1371,36 +1367,4 @@ class ConfigFileMaker(NodeVisitor):
     def visit_Name(self, node: Name) -> str:
         string = node.id
         return string
-
-
-if __name__ == '__main__':
-    import ast
-    FILE = 'mybar/test_config.conf'
-##    print("AST parsed from file contents:")
-    p = FileParser(file=FILE)
-##    print(ast.dump(p.parse()))
-##    print()
-##
-##    print("Dict built from AST parsed from file contents:")
-    d = p.to_dict()
-    print(d)
-##    print()
-##
-##    print("AST from unparsing dict built from AST parsed from file contents:")
-    u = DictParser.unparse(d)
-    # u = p.parse()
-    print(ast.dump(u.body[-1].value))
-    print(ConfigFileMaker().stringify(u))
-    print(Unparser().visit(u.body[-1].value))
-    print((Unparser().visit(u.body[-1].value)['a']))
-    print()
-
-##    print("File contents built from AST from unparsing dict built from AST parsed from file contents:")
-##    c = ConfigFileMaker().stringify(u.body)
-##    c = DictParser.make_file(d)
-##    # c  = u.as_file()
-##    print("```")
-##    print(c)
-##    print("```")
-##    print()
 
