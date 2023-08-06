@@ -1,7 +1,6 @@
 __all__ = (
 
     'ColorEscaping',
-    'FieldPrecursor',
 
     'Separator',
     'PTY_Separator',
@@ -11,8 +10,10 @@ __all__ = (
     'JSONText',
 
     'Contents',
+    'Field',
     'FieldName',
     'FieldOrder',
+    'FieldPrecursor',
     'Icon',
     'Pattern',
     'PTY_Icon',
@@ -56,6 +57,8 @@ from typing import (
 )
 
 
+Field = TypeVar('Field')
+FieldPrecursor = TypeVar('FieldPrecursor')
 Bar = TypeVar('Bar')
 P = ParamSpec('P')
 
