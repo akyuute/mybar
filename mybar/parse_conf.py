@@ -763,6 +763,24 @@ class FileParser:
         '''
         return self._tokens[self._cursor]
 
+    def _advance(self) -> Token:
+        '''
+        Move to the next token. Return that token.
+        '''
+        if self._cursor < len(self._tokens) - 1:
+            self._cursor += 1
+        curr = self._cur_tok()
+        return curr
+
+    def _next(self) -> Token:
+        '''
+        Advance to the next non-whitespace token. Return that token.
+        '''
+        while True:
+            if (tok := self._advance()).kind in (*Ignore, Newline.NEWLINE):
+                self._advance()
+            return tok
+
     def _expect_curr(
         self,
         kind: TokenKind | tuple[TokenKind],
@@ -808,30 +826,12 @@ class FileParser:
         '''
         if not isinstance(kind, tuple):
             kind = (kind,)
-        tok = self._advance()
+        tok = self._next()
         if tok.kind not in kind:
             if errmsg is None:
                 return False
             raise ParseError.hl_error(tok, errmsg)
         return tok
-
-    def _advance(self) -> Token:
-        '''
-        Move to the next token. Return that token.
-        '''
-        if self._cursor < len(self._tokens) - 1:
-            self._cursor += 1
-        curr = self._cur_tok()
-        return curr
-
-    def _next(self) -> Token:
-        '''
-        Advance to the next non-whitespace token. Return that token.
-        '''
-        while True:
-            if (tok := self._advance()).kind in (*Ignore, Newline.NEWLINE):
-                self._advance()
-            return tok
 
     def _reset(self) -> None:
         '''
@@ -945,7 +945,7 @@ class FileParser:
         target = Name(target_tok.value)
         target._token = target_tok
 
-        maybe_attr = self._advance()
+        maybe_attr = self._next()
         if maybe_attr.kind is BinOp.ATTRIBUTE:
             target = self._parse_attribute(target)
 
@@ -976,7 +976,7 @@ class FileParser:
         maybe_base = self._expect_next(Symbol.IDENTIFIER, msg[1])
         attr = maybe_base.value
         target = Attribute(outer, attr)
-        maybe_another = self._advance()
+        maybe_another = self._next()
         target._token = maybe_base
         if maybe_another.kind is BinOp.ATTRIBUTE:
             target = self._parse_attribute(target)
@@ -1002,7 +1002,7 @@ class FileParser:
         vals = []
 
         while True:
-            tok = self._advance()
+            tok = self._next()
             kind = tok.kind
             match kind:
                 case Syntax.R_CURLY_BRACE:
@@ -1237,6 +1237,9 @@ class Unparser(NodeVisitor):
     '''
     _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
 
+    def unparse(self, node: AST) -> dict:
+        return self.visit(node)
+
     def visit_Assign(self, node: Assign) -> dict:
         return {self.visit((node.targets[-1])): self.visit(node.value)}
 
@@ -1304,6 +1307,9 @@ class Unparser(NodeVisitor):
     def visit_List(self, node: List) -> list:
         return [self.visit(e) for e in node.elts]
 
+    def visit_Module(self, node: Module) -> list[dict[str]]:
+        return [self.visit(n) for n in node.body]
+
     def visit_Name(self, node: Name) -> str:
         return node.id
 
@@ -1367,4 +1373,14 @@ class ConfigFileMaker(NodeVisitor):
     def visit_Name(self, node: Name) -> str:
         string = node.id
         return string
+
+
+parsed = FileParser('/home/sam/.config/mybar/mybar.conf').parse()
+print(parsed)
+print(Unparser().unparse(parsed))
+def parse(file: PathLike = None, string: str = None) -> Module:
+    return FileParser(file, string).parse()
+
+def unparse(node: AST) -> str:
+    pass
 
