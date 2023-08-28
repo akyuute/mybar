@@ -157,10 +157,24 @@ class BarConfig(dict):
         return config
 
     @classmethod
+    def _separate_field_defs(
+        cls,
+        params: BarConfigSpec
+    ) -> tuple[BarSpec, dict[FieldName, dict]]:
+        '''
+        '''
+        not_a_field_def = BarSpec.__optional_keys__ & BarSpec.__required_keys__
+        config = {**params}
+        defs = config.pop('field_definitions', {})
+        for key in params:
+            if key not in not_a_field_def:
+                defs[key] = config.pop(key)
+        return config, defs
+
+    @classmethod
     def _remove_extraneous_keys(cls, params: BarConfigSpec) -> BarConfigSpec:
         '''
         '''
-        params = params.copy()
         config = {**params}
         config.pop('config_file', None)
         return config
@@ -747,8 +761,8 @@ class Bar:
         bar_params = cls._default_params | data
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})
-        field_defs = bar_params.pop('field_definitions', {})
         unicode = bar_params.pop('unicode', None)
+        bar_params, field_defs = BarConfig._separate_field_defs(bar_params)
 
         if (template := bar_params.get('template')) is None:
             if field_order is None:
