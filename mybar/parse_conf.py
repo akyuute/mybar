@@ -777,9 +777,8 @@ class FileParser:
         Advance to the next non-whitespace token. Return that token.
         '''
         while True:
-            if (tok := self._advance()).kind in (*Ignore, Newline.NEWLINE):
-                self._advance()
-            return tok
+            if not (tok := self._advance()).kind in (*Ignore, Newline.NEWLINE):
+                return tok
 
     def _expect_curr(
         self,
@@ -1375,9 +1374,6 @@ class ConfigFileMaker(NodeVisitor):
         return string
 
 
-parsed = FileParser('/home/sam/.config/mybar/mybar.conf').parse()
-print(parsed)
-print(Unparser().unparse(parsed))
 def parse(file: PathLike = None, string: str = None) -> Module:
     return FileParser(file, string).parse()
 
