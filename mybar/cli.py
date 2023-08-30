@@ -85,7 +85,7 @@ class Parser(ArgumentParser):
 
         # For options that control what the command does:
         keys = (
-            CmdOptionSpec.__optional_keys__ ^ CmdOptionSpec.__required_keys__
+            CmdOptionSpec.__optional_keys__ | CmdOptionSpec.__required_keys__
         )
         cmd_options = {k: params.pop(k) for k in keys if k in params}
         return params, cmd_options

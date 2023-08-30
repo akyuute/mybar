@@ -160,10 +160,10 @@ class BarConfig(dict):
     def _separate_field_defs(
         cls,
         params: BarConfigSpec
-    ) -> tuple[BarSpec, dict[FieldName, dict]]:
+    ) -> tuple[BarSpec, dict[FieldName, FieldSpec]]:
         '''
         '''
-        not_a_field_def = BarSpec.__optional_keys__ & BarSpec.__required_keys__
+        not_a_field_def = BarSpec.__optional_keys__ | BarSpec.__required_keys__
         config = {**params}
         defs = config.pop('field_definitions', {})
         for key in params:
