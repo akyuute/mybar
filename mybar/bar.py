@@ -33,7 +33,7 @@ from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
 from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
-from .namespaces import BarConfigSpec, BarSpec, FieldSpec
+from .namespaces import BarConfigSpec, BarSpec, CmdOptionSpec, FieldSpec
 from ._types import (
     Args,
     ASCII_Icon,
@@ -144,6 +144,7 @@ class BarConfig(dict):
         except OSError as e:
             raise e.with_traceback(None)
 
+        from_file = cls._unify_field_defs(from_file)
         options = from_file | overrides
 
         # Don't clobber a file's field definitions:
@@ -157,31 +158,34 @@ class BarConfig(dict):
         return config
 
     @classmethod
-    def _separate_field_defs(
-        cls,
-        params: BarConfigSpec
-    ) -> tuple[BarConfigSpec, dict[FieldName, FieldSpec]]:
+    def _unify_field_defs(cls, params: BarConfigSpec) -> BarConfigSpec:
         '''
         Gather loose Field definitions and join them with any others
         found in a `field_definitions` item of `params`, if it exists.
-        Return a unified `field_definitions` and the config free of them.
+        Return a config with a unified `field_definitions`.
 
         :param params: The config to process
         :type params: :class:`BarConfigSpec`
 
-        :returns: The processed config and its `field_definitions`
-        :rtype: tuple[
-            :class:`BarConfigSpec`,
-            dict[ :class:`FieldName`, :class:`FieldSpec`]
-        ]
+        :returns: The processed config
+        :rtype: :class:`BarConfigSpec`
         '''
-        all_except_defs = BarSpec.__optional_keys__ | BarSpec.__required_keys__
+        all_except_defs = (
+            BarConfigSpec.__optional_keys__
+            | BarConfigSpec.__required_keys__
+        )
         config = params.copy()
         defs = config.pop('field_definitions', {})
         for maybe_def in params:
             if maybe_def not in all_except_defs:
                 defs[maybe_def] = config.pop(maybe_def)
-        return config, defs
+
+        # Remove command line options:
+        for option in CmdOptionSpec.__optional_keys__:
+            defs.pop(option, None)
+
+        config['field_definitions'] = defs
+        return config
 
     @classmethod
     def from_stdin(
@@ -225,7 +229,6 @@ class BarConfig(dict):
                 # Our new user is in a hurry, so
                 # just give them what they need:
                 return cls(bar_options)
-
 
         try:
             config = cls.from_file(absolute, overrides=bar_options)
@@ -765,7 +768,7 @@ class Bar:
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})
         unicode = bar_params.pop('unicode', None)
-        bar_params, field_defs = BarConfig._separate_field_defs(bar_params)
+        field_defs = bar_params.pop('field_definitions', {})
 
         if (template := bar_params.get('template')) is None:
             if field_order is None:
