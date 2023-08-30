@@ -101,7 +101,7 @@ class BarConfig(dict):
         cls = type(self).__name__
         file = self.file
         maybe_file = f"{file=}, " if file else ""
-        params = {**self}
+        params = self.copy()
         return f"<{cls} {maybe_file}{params}>"
 
     @classmethod
@@ -140,17 +140,17 @@ class BarConfig(dict):
         absolute = os.path.abspath(os.path.expanduser(file))
         file_spec = {}
         try:
-            unprocessed, text = cls._read_file(absolute)
+            from_file, text = cls._read_file(absolute)
         except OSError as e:
             raise e.with_traceback(None)
 
-        from_file = cls._remove_extraneous_keys(unprocessed)
         options = from_file | overrides
 
         # Don't clobber a file's field definitions:
         for key in ('field_definitions',):
             if key in options:
                 options[key] = from_file[key] | overrides.get(key, {})
+
         config = cls(options, defaults)
         config.file = absolute
         config.file_contents = text
@@ -160,24 +160,28 @@ class BarConfig(dict):
     def _separate_field_defs(
         cls,
         params: BarConfigSpec
-    ) -> tuple[BarSpec, dict[FieldName, FieldSpec]]:
+    ) -> tuple[BarConfigSpec, dict[FieldName, FieldSpec]]:
         '''
-        '''
-        not_a_field_def = BarSpec.__optional_keys__ | BarSpec.__required_keys__
-        config = {**params}
-        defs = config.pop('field_definitions', {})
-        for key in params:
-            if key not in not_a_field_def:
-                defs[key] = config.pop(key)
-        return config, defs
+        Gather loose Field definitions and join them with any others
+        found in a `field_definitions` item of `params`, if it exists.
+        Return a unified `field_definitions` and the config free of them.
 
-    @classmethod
-    def _remove_extraneous_keys(cls, params: BarConfigSpec) -> BarConfigSpec:
+        :param params: The config to process
+        :type params: :class:`BarConfigSpec`
+
+        :returns: The processed config and its `field_definitions`
+        :rtype: tuple[
+            :class:`BarConfigSpec`,
+            dict[ :class:`FieldName`, :class:`FieldSpec`]
+        ]
         '''
-        '''
-        config = {**params}
-        config.pop('config_file', None)
-        return config
+        all_except_defs = BarSpec.__optional_keys__ | BarSpec.__required_keys__
+        config = params.copy()
+        defs = config.pop('field_definitions', {})
+        for maybe_def in params:
+            if maybe_def not in all_except_defs:
+                defs[maybe_def] = config.pop(maybe_def)
+        return config, defs
 
     @classmethod
     def from_stdin(
@@ -208,27 +212,26 @@ class BarConfig(dict):
                 config = cls(bar_options)
                 parser.quit(cls._as_json(config, indent=indent))
 
+        file = command_options.pop('config_file', CONFIG_FILE)
+        absolute = os.path.abspath(os.path.expanduser(file))
         # Handle missing config files:
-        if 'config_file' not in bar_options:
-            file = CONFIG_FILE
-            if not os.path.exists(file):
-                wants_to_write = cls.write_with_approval(overrides=bar_options)
-                if not wants_to_write:
-                    # Forget all this config file business.
-                    # Our new user is in a hurry, so
-                    # just give them what they need:
-                    return cls(bar_options)
+        if not os.path.exists(absolute):
+            wants_write = cls.write_with_approval(
+                absolute,
+                overrides=bar_options
+            )
+            if not wants_write:
+                # Forget all this config file business.
+                # Our new user is in a hurry, so
+                # just give them what they need:
+                return cls(bar_options)
 
-        else:
-            file = bar_options.pop('config_file')
 
         try:
-            # If 'config_file' is not in `overrides`,
-            # it defaults to CONFIG_FILE.
-            config = cls.from_file(file, overrides=bar_options)
+            config = cls.from_file(absolute, overrides=bar_options)
 
         except FileNotFoundError as e:
-            write_ok = cls.write_with_approval(file, overrides=bar_options)
+            write_ok = cls.write_with_approval(absolute, overrides=bar_options)
             if not write_ok:
                 parser.quit("Exiting...")
             config = cls.from_file(file, overrides=bar_options)
@@ -333,7 +336,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = parse_conf.DictParser().to_file(unpythoned)
+        text = parse_conf.DictParser().make_file(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 

@@ -80,7 +80,6 @@ class BarConfigSpec(BarSpec, total=False):
     Specifies the structure of :class:`mybar.bar.BarConfig` constructor
     parameters.
     '''
-    config_file: PathLike
     debug: bool
     field_definitions: dict[FieldName, FieldSpec]
     field_icons: dict[FieldName, Icon]
@@ -89,7 +88,8 @@ class BarConfigSpec(BarSpec, total=False):
 
 class CmdOptionSpec(TypedDict, total=False):
     '''
-    Specifies the structure of command options.
+    Specifies command options.
     '''
+    config_file: PathLike
     dump_config: bool | int = 4
 
