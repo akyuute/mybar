@@ -232,21 +232,14 @@ class TokenError(ConfigError):
 
         # Work out the highlight line:
         for t in between:
-            match t.kind:
-                case Ignore.COMMENT | Ignore.SPACE:
-                    if t is between[-1]:
-                        highlight += '^'
-                    continue
-                    highlight += " " * len(t.value)
-                    continue
+            kind = t.kind
+            match kind:
 
-                case t.kind if t.kind in Ignore:
-                    continue
-
-                case Newline.NEWLINE:
+                case kind if kind in (*Ignore, EndOfFile.EOF):
                     if t is between[-1]:
-                        highlight += '^'
-                    continue
+                        # highlight += '^'
+                        token_length = 1
+                    # continue
 
                 case Literal.STRING:
                     # match_repr() contains the quotation marks:
@@ -879,13 +872,17 @@ class FileParser:
 
         if operator.kind is BinOp.ATTRIBUTE:
             target = self._parse_attribute(target)
-            # self._next()
             operator = self._expect_curr(possible_ops, msg)
 
         if operator.kind is Syntax.L_CURLY_BRACE:
             value = self._parse_object()
         else:
             value = self._parse_expr()
+
+        if isinstance(value, Name):
+            msg = f"Invalid syntax: Cannot use variable names as expressions"
+            raise ParseError.hl_error(value._token, msg)
+
         node = Assign([target], value)
         node._token = operator
 
@@ -905,7 +902,7 @@ class FileParser:
 
             match kind:
                 case EndOfFile.EOF:
-                    return kind
+                    return tok
                 case kind if kind in Ignore:
                     continue
                 case Newline.NEWLINE | Syntax.COMMA:
@@ -944,6 +941,9 @@ class FileParser:
         while True:
             elem = self._parse_expr()
             if isinstance(elem, Token):
+                if elem.kind is EndOfFile.EOF:
+                    msg = "Invalid syntax: Unmatched '[':"
+                    raise ParseError.hl_error(elem, msg)
                 if elem.kind is Syntax.R_BRACKET:
                     break
             elems.append(elem)
@@ -1035,6 +1035,9 @@ class FileParser:
             tok = self._next()
             kind = tok.kind
             match kind:
+                case EndOfFile.EOF:
+                    msg = "Invalid syntax: Unmatched '{':"
+                    raise ParseError.hl_error(tok, msg)
                 case Syntax.R_CURLY_BRACE:
                     break
                 case kind if kind in (*Ignore, Syntax.COMMA, Newline.NEWLINE):
