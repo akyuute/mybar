@@ -870,12 +870,18 @@ class FileParser:
         target = Name(target_tok.value)
         target._token = target_tok
 
+        possible_ops = (BinOp.ATTRIBUTE, BinOp.ASSIGN, Syntax.L_CURLY_BRACE)
+        msg = "Invalid syntax (expected '=' or '{'):"
+
         # Ignore newlines between identifier and operator:
         self._next()
+        operator = self._expect_curr(possible_ops, msg)
 
-        possible_starts = (BinOp.ASSIGN, Syntax.L_CURLY_BRACE)
-        msg = "Invalid syntax (expected '=' or '{'):"
-        operator = self._expect_curr(possible_starts, msg)
+        if operator.kind is BinOp.ATTRIBUTE:
+            target = self._parse_attribute(target)
+            # self._next()
+            operator = self._expect_curr(possible_ops, msg)
+
         if operator.kind is Syntax.L_CURLY_BRACE:
             value = self._parse_object()
         else:
@@ -948,6 +954,10 @@ class FileParser:
         Parse an attribute at the current token inside an object::
 
             a.b.c  # -> Attribute(Attribute(Name('a'), 'b'), 'c')
+
+        :param outer: The base of the attribute to come, either a single
+            variable name or a whole attribute expression.
+        :type outer: :class:`Name` | :class:`Attribute`
         '''
         msg = (
             "_parse_attribute() called at the wrong time",
@@ -1258,10 +1268,17 @@ class Unparser(NodeVisitor):
     _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
 
     def unparse(self, node: AST) -> dict:
+        '''
+        '''
         return self.visit(node)
 
     def visit_Assign(self, node: Assign) -> dict:
-        return {self.visit((node.targets[-1])): self.visit(node.value)}
+        target = self.visit(node.targets[-1])
+        value = self.visit(node.value)
+        if not isinstance(target, str):
+            # `target` is an attribute turned into a nested dict
+            return self._undo_nest(target, value)
+        return {target: value}
 
     def visit_Attribute(self, node: Attribute) -> dict:
         attrs = self._nested_attr_to_dict(node)
@@ -1297,6 +1314,8 @@ class Unparser(NodeVisitor):
         upd: Mapping,
         assign: Any
     ) -> dict:
+        '''
+        '''
         upd = upd.copy()
         if not isinstance(orig, Mapping):
             return self._nested_update({}, upd, assign)
@@ -1310,6 +1329,11 @@ class Unparser(NodeVisitor):
             else:
                 orig[k] = v
         return orig
+
+    def _undo_nest(self, target: MutableMapping, assign: Any) -> dict[str]:
+        '''
+        '''
+        return self._nested_update({}, target, assign=assign)
 
     def visit_Dict(self, node: Dict) -> dict[str]:
         new_d = {}
