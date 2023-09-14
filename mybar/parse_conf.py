@@ -283,13 +283,13 @@ class Token:
     Represents a single lexical word in a config file.
 
     :param at: The token's location
-    :type at: tuple[:class:`CharNo`, :class:`Location`
+    :type at: tuple[:class:`CharNo`, :class:`Location`]
 
     :param value: The literal text making up the token
     :type value: :class:`str`
 
     :param kind: The token's distict kind
-    :type kind: :class:`TOkenKind`
+    :type kind: :class:`TokenKind`
 
     :param matchgroups: The value gotten by re.Match.groups() when
         making this token
@@ -437,8 +437,7 @@ class Lexer:
         ## Finds empty assignments:
         (re.compile(r'^' + NEWLINE + r'+'), Newline.NEWLINE),
         ## Skip all other whitespace:
-        # (re.compile(r'^[^' + NEWLINE + r'\S]+'), Ignore.SPACE),
-        (re.compile(r'^[^' + NEWLINE + r'\S]+'), None),
+        (re.compile(r'^[^' + NEWLINE + r'\S]+'), Ignore.SPACE),
 
         # Operators
         (re.compile(r'^='), BinOp.ASSIGN),
@@ -607,15 +606,8 @@ class Lexer:
             m = re.match(test, s)
 
             if m is None:
-                # This rule not matched; try the next one.
+                # This rule was not matched; try the next one.
                 continue
-
-            if kind is None:
-                # Ignore whitespace and comments:
-                l = len(m.group())
-                self._cursor += l
-                self._colno += l
-                return self.get_token()
 
             tok = Token(
                 value=m.group(),
@@ -625,6 +617,12 @@ class Lexer:
                 lexer=self,
                 file=self._file
             )
+
+            if kind in (Ignore.SPACE, Ignore.COMMENT):
+                l = len(tok.value)
+                self._cursor += l
+                self._colno += l
+                return tok
 
             # Update location:
             self._cursor += len(tok.value)
@@ -857,6 +855,8 @@ class FileParser:
         :returns: An ``Assign`` object built from a key-value pair
         :rtype: :class:`Assign`
         '''
+        while self._should_skip():
+            self._next()
         msg = "Invalid syntax (expected an identifier):"
         target_tok = self._expect_curr(Symbol.IDENTIFIER, msg)
         self._current_expr = Assign
@@ -1069,7 +1069,7 @@ class FileParser:
         '''
         Parse a literal constant value at the current token::
 
-            42
+            42  # -> Constant(42)
         '''
         self._current_expr = Constant
         match tok.kind:
@@ -1085,12 +1085,17 @@ class FileParser:
             case Literal.FALSE:
                 value = False
             case _:
-                raise ParseError("Expected a literal, but got" + repr(tok))
+                raise ParseError("Expected a literal, but got " + repr(tok))
         return Constant(value)
 
     def _parse_stmt(self) -> Assign:
         '''
-        Parse an assignment statement at the current token.
+        Parse an assignment statement at the current token::
+
+            foo = ['a', 'b']  # -> Assign(
+                [Name('foo')],
+                List([Constant('a'), Constant('b')])
+            )
         '''
         while self._not_eof():
             tok = self._cur_tok()
