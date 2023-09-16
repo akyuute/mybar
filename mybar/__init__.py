@@ -79,6 +79,7 @@ del PathLike, NoReturn
 
 def write_initial_config() -> None:
     '''
+    Write a new default config file after getting user approval.
     '''
     BarConfig.write_with_approval(CONFIG_FILE)
 
