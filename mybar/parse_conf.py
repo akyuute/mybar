@@ -894,7 +894,7 @@ class FileParser:
         '''
         Parse an expression at the current token.
 
-        :rtype:`AST`
+        :rtype: :class:`AST`
         '''
         while True:
             tok = self._advance()
@@ -932,7 +932,7 @@ class FileParser:
 
             ['a', 'b']  # -> List([Constant('a'), Constant('b')])
 
-        :rtype:`List`
+        :rtype: :class:`List`
         '''
         msg = "_parse_list() called at the wrong time"
         self._expect_curr(Syntax.L_BRACKET, msg)
@@ -958,6 +958,7 @@ class FileParser:
         :param outer: The base of the attribute to come, either a single
             variable name or a whole attribute expression.
         :type outer: :class:`Name` | :class:`Attribute`
+        :rtype: :class:`Attribute`
         '''
         msg = (
             "_parse_attribute() called at the wrong time",
@@ -979,7 +980,7 @@ class FileParser:
 
             {key = 'val'}  # -> Dict([Name('key')], [Constant('val')])
 
-        :rtype:`Dict`
+        :rtype: :class:`Dict`
         '''
         msg = (
             "Invalid syntax (expected an identifier):",
@@ -1022,6 +1023,7 @@ class FileParser:
                 [Constant('bar'), Constant(42)]
             )
 
+        :rtype: :class:`Dict`
         '''
         msg = (
             "_parse_object() called at the wrong time",
@@ -1070,6 +1072,8 @@ class FileParser:
         Parse a literal constant value at the current token::
 
             42  # -> Constant(42)
+
+        :rtype: :class:`Constant`
         '''
         self._current_expr = Constant
         match tok.kind:
@@ -1096,6 +1100,8 @@ class FileParser:
                 [Name('foo')],
                 List([Constant('a'), Constant('b')])
             )
+
+        :rtype: :class:`Assign`
         '''
         while self._not_eof():
             tok = self._cur_tok()
