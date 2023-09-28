@@ -39,6 +39,35 @@ NEWLINE = '\n'
 UNKNOWN = 'UNKNOWN'
 NOT_IN_IDS = string.punctuation.replace('_', '\s')
 
+class Grammar:
+    '''
+    Module : Assignment
+           | Assignment Delimiter Module
+
+    Assignment : IDENTIFIER MaybeEQ Expr
+
+    Expr : LITERAL
+         | List
+         | Dict
+         | Delimiter
+         | None
+
+    List : L_BRACKET RepeatedExpr R_BRACKET
+
+    Dict : L_CURLY_BRACE RepeatedKVP R_CURLY_BRACE
+
+    RepeatedExpr : Expr Delimiter RepeatedExpr
+                 | None
+
+    RepeatedKVP : KVPair Delimiter RepeatedKVP
+                | None
+
+    KVPair : IDENTIFIER MaybeEQ Expr
+
+    MaybeEQ : EQUALS | None
+
+    Delimiter : NEWLINE | COMMA | None
+    '''
 
 
 class DictImpliedAssign(Assign):
@@ -673,7 +702,7 @@ class Lexer:
                     raise StackTraceSilencer(1)  # Sorry...
 
 
-class LRParser:
+class LLParser:
     '''
     Parse config files, converting them to abstract syntax trees.
 
@@ -1162,60 +1191,227 @@ class LRParser:
         return mapping
 
 
-# class Symbols:
-    '''
-    N -> N
-    A -> N PERIOD N
-    S -> N | A
-    L -> L_BRACKET (E (COMMA|NEWLINE)?)* R_BRACKET
-    D -> L_CURLY_BRACE (E EQUALS? E (COMMA|NEWLINE)?)* R_CURLY_BRACE
-    C -> L | D
-    E -> E | S | C
-    Q -> S EQUALS? E
-    M -> Q*
-    '''
+    End = EndOfFile.EOF
+
+    class Expr:
+        '''
+        Expr : LITERAL
+             | List
+             | Dict
+             | Delimiter
+             | None
+        '''
+
+    class RepeatedExpr:
+        '''
+        RepeatedExpr : Expr Delimiter RepeatedExpr
+                     | None
+        '''
+
+    class RepeatedKVP:
+        '''
+        RepeatedKVP : KVPair Delimiter RepeatedKVP
+                    | None
+        '''
+
+    class KVPair:
+        '''
+        KVPair : IDENTIFIER MaybeEQ Expr
+        '''
+
+    class MaybeEQ:
+        '''
+        MaybeEQ : EQUALS | None
+        '''
+
+    class Delimiter:
+        '''
+        Delimiter : NEWLINE | COMMA | None
+        '''
+
+    terminals = (
+        EndOfFile.EOF,
+        Newline.NEWLINE,
+
+        T_Literal.FLOAT,
+        T_Literal.INTEGER,
+        T_Literal.STRING,
+        T_Literal.TRUE,
+        T_Literal.FALSE,
+
+        T_Ignore.COMMENT,
+        T_Ignore.SPACE,
+
+        T_Symbol.IDENTIFIER,
+
+        T_BinOp.ASSIGN,
+        T_BinOp.ATTRIBUTE,
+        T_BinOp.ADD,
+        T_BinOp.SUBTRACT,
+
+        T_Syntax.COMMA,
+        T_Syntax.L_PAREN,
+        T_Syntax.R_PAREN,
+        T_Syntax.L_BRACKET,
+        T_Syntax.R_BRACKET,
+        T_Syntax.L_CURLY_BRACE,
+        T_Syntax.R_CURLY_BRACE,
+    )
+
+
+    def __init__(self, lexer: Lexer) -> None:
+        self._lexer = lexer
+        self._tokens = self._lexer.lex()
+        self._cursor = 0
+        self._lookahead = None
+
+        terms = tuple(
+            set(self.terminals)
+            - {
+                T_BinOp.ADD,
+                T_BinOp.SUBTRACT,
+                T_Syntax.L_PAREN,
+                T_Syntax.R_PAREN
+            }
+        )
+
+        MaybeEQ = self.MaybeEQ
+        Delimiter = self.Delimiter
+        Expr = self.Expr
+        RepeatedExpr = self.RepeatedExpr
+        KVPair = self.KVPair
+        RepeatedKVP = self.RepeatedKVP
+
+        nonterms = (Assign, MaybeEQ, Delimiter, Expr, RepeatedExpr, KVPair,
+                    RepeatedKVP, List, Dict)
+
+        self._parsing_table = {
+            Assign: {
+                EndOfFile.EOF: self._parse_T_BinOp,
+                T_Symbol.IDENTIFIER: self._parse_T_BinOp,
+            },
+
+            MaybeEQ: dict.fromkeys(terms),
+
+            Delimiter: {
+                T_Symbol.IDENTIFIER: None,
+                Newline.NEWLINE: Newline.NEWLINE,
+                T_Syntax.COMMA: T_Syntax.COMMA,
+                T_Syntax.L_BRACKET: None,
+                T_Syntax.L_CURLY_BRACE: None,
+                EndOfFile.EOF: None,
+            },
+
+            Expr: dict.fromkeys(terms),
+
+            # RepeatedExpr: dict.fromkeys(
+                # terms, [(Expr, Delimiter, RepeatedExpr), (None,)]
+            # ),
+            RepeatedExpr: dict.fromkeys(
+                (
+                    Newline.NEWLINE,
+                    *T_Literal,
+                    T_Syntax.COMMA,
+                    T_Syntax.L_BRACKET,
+                    T_Syntax.L_CURLY_BRACE,
+                ), [(Expr, Delimiter, RepeatedExpr), None]
+            ),
+
+            KVPair: dict.fromkeys(terms),
+
+            RepeatedKVP: {
+                T_Syntax.R_CURLY_BRACE: None,
+                T_Symbol.IDENTIFIER: [(KVPair, Delimiter, RepeatedKVP), None]
+            },
+
+            List: {T_Syntax.L_BRACKET:
+                [(T_Syntax.L_BRACKET, RepeatedExpr, T_Syntax.R_BRACKET)]
+            },
+
+            Dict: {T_Syntax.L_CURLY_BRACE:
+                [(T_Syntax.L_CURLY_BRACE, RepeatedKVP, T_Syntax.R_CURLY_BRACE)]
+            },
+
+            Module: {T_Symbol.IDENTIFIER: [(Assign, Delimiter, Module)]},
+        }
+
+        table = self._parsing_table
+
+        for kind in T_Literal:
+            table[Expr][kind] = self._parse_T_Literal
+            del table[KVPair][kind]
+        table[Expr][T_Syntax.L_BRACKET] = [(List,)]
+        table[Expr][T_Syntax.L_CURLY_BRACE] = [(Dict,)]
+        table[RepeatedExpr][T_Syntax.R_BRACKET] = None
+        table[MaybeEQ][T_BinOp.ASSIGN] = self._parse_T_BinOp
+        table[KVPair][T_Symbol.IDENTIFIER] = (
+            [(T_Symbol.IDENTIFIER, MaybeEQ, Expr)]
+        )
+        del table[MaybeEQ][T_Symbol.IDENTIFIER]
+        del table[Expr][T_BinOp.ASSIGN]
+        del table[Expr][T_Symbol.IDENTIFIER]
+        del table[KVPair][T_BinOp.ASSIGN]
+
 
     def _parse(self) -> AST:
-        tokens = self._tokens
-        lookahead_stack = self._token_stack = LifoQueue()
-        lookahead = self._lookahead = None
+        stack = [EndOfFile.EOF, Module]
+        self._parse_stack = stack
+        lookahead = None
+        self._lookahead = lookahead
         get_token = self._lexer.get_token
-        state_stack = self._state_stack = LifoQueue()
-        current_state = self._current_state = None
+        table = self._parsing_table
 
         while True:
-            if lookahead is None:
-                if lookahead_stack.empty():
-                    lookahead = get_token()
+            lookahead = get_token()
+            print(stack, lookahead)
+            action = table[stack[-1]][lookahead.kind]
+            print(action)
+            if action is None:
+                continue
+            for step in action:
+                    
+                if step is None:
+                    continue
+                # try:
+                    # match stack element against reduction step?
+                if callable(step):
+                    if lookahead.kind is stack[-1]:
+                        parsed = step()
+                        print(parsed)
+                        stack.pop()
+                        stack.append(parsed)
+                    else:
+                        print(stack, lookahead)
+                        raise ValueError()
                 else:
-                    lookahead = lookahead_stack.get()
+                    stack.append(step)
+
 
             if lookahead.kind is EndOfFile.EOF:
-                if not state_stack.empty():
-                    raise ParseError
-                return current_state
+                return
 
-            action_name = '_parse_' + type(lookahead.kind).__name__ 
-            action = getattr(self, action_name)
-            if action is None:
-                # Shift
-                lookahead_stack.put(lookahead)
-                state_stack.put(current_state)
-            else:
-                current_state = action()
+            
+        '''
+        a = 13
+        [], T_Symbol.IDENTIFIER, '= 13'  # parse_T_Symbol()
+        [Name(a)], T_BinOp.ASSIGN, '13'  # Shift, adding ASSIGN to token_stack?
+        
+        '''
+
 
             
 
     def _parse_T_Literal(self) -> Constant:
         '''
-        Parse a literal constant value at the current token::
+        Parse a literal constant value::
 
             42  # -> Constant(42)
 
         :rtype: :class:`Constant`
         '''
+        # Literals are terminal; no further reduction is needed.
         E = self._lookahead
-        match E.kind:
+        match terminal.kind:
             # Return literals as Constants:
             case T_Literal.STRING:
                 value = E.value
@@ -1232,7 +1428,7 @@ class LRParser:
         node = Constant(value)
         return node
 
-    def _parse_Name(self) -> Name:
+    def _parse_T_Symbol(self) -> Name:
         return Name(self._lookahead)
 
     def _parse_Attribute(self) -> Attribute:
@@ -1252,6 +1448,10 @@ class LRParser:
         '''
         pass
 
+    def _parse_T_BinOp(self) -> Name:
+        self._lookahead_stack.append(self._lexer.get_token())
+        tok = self._lookahead
+
 
 class FileParser:
     pass
@@ -1259,7 +1459,7 @@ class FileParser:
 
 
 if __name__ == '__main__':
-    string = '13'
-    result = LRParser(Lexer(string))._parse()
+    string = 'a = 13'
+    result = LLParser(Lexer(string))._parse()
     print(result)
 
