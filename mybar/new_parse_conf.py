@@ -350,7 +350,7 @@ class Token:
     def __repr__(self):
         cls = type(self).__name__
         # ignore = ('matchgroups', 'cursor', 'lineno', 'colno', 'lexer', 'file')
-        ignore = ('matchgroups', 'cursor', 'lineno', 'colno')
+        ignore = ('matchgroups', 'cursor', 'lineno', 'colno', 'lexer')
         pairs = (
             (k, getattr(self, k)) for k in self.__slots__
             if k not in ignore
@@ -551,7 +551,7 @@ class Lexer:
         self._cursor = 0
         self._lineno = 1
         self._colno = 1
-        self._tokens.clear()
+        self._tokens = []
         return self
 
     def get_prev(self, back: int = 1, since: Token = None) -> tuple[Token]:
@@ -636,8 +636,7 @@ class Lexer:
                 l = len(tok.value)
                 self._cursor += l
                 self._colno += l
-                # return tok
-                yield from self._get_token()
+                return (yield from self._get_token())
 
             # Update location:
             self._cursor += len(tok.value)
@@ -756,9 +755,9 @@ class RecursiveDescentParser:
         self._lexer = lexer
         # self._token_stack = LifoQueue()
         # self._production_stack = LifoQueue()
-        self._lookahead = None
         self._tokens = self._lexer.lex()
         self._cursor = 0
+        self._lookahead = self._tokens[self._cursor]
 ##      REMOVE:
         self._current_expr = None
 
@@ -830,12 +829,17 @@ class RecursiveDescentParser:
             self._cursor += 1
         return self._tokens[self._cursor]
 
-    def _skip_whitespace(self) -> Token:
+    def _skip_all_whitespace(self) -> Token:
         '''
+        Return the current or next non-whitespace token.
+        This also skips newlines.
+        :rtype: :class:`Token`
         '''
-        while self._tokens[self._cursor].kind in (*T_Ignore, TokKind.NEWLINE):
-            # print("SKIPPING!")
-            self._advance()
+        tok = self._tokens[self._cursor]
+        while True:
+            if tok.kind not in (*T_Ignore, TokKind.NEWLINE):
+                return tok
+            tok = self._advance()
 
     def _next(self) -> Token:
         '''
@@ -1238,18 +1242,19 @@ class RecursiveDescentParser:
 
     def _parse_assign(self) -> Assign:
         # Advance to the next assignment:
-        # self._lookahead = self._next()
-        self._lookahead = self._skip_whitespace()
-        # self._lookahead = self._tokens[self._cursor]
-        print(self._lookahead)
+        self._lookahead = self._skip_all_whitespace()
+        if self._lookahead.kind is TokKind.EOF:
+            return TokKind.EOF
+        print(f"{self._lookahead = }")
 
         msg = "Invalid syntax (expected an identifier):"
         target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
         self._current_expr = Assign
         target = Name(target_tok.value)
         target._token = assigner = target_tok
+        print(f"{target = }")
 
-        # Ignore newlines between identifier and operator:
+        # Ignore whitespace between identifier and operator:
         self._lookahead = self._next()
         if self._lookahead.kind is TokKind.ASSIGN:
             self._lookahead = assigner = self._next()
@@ -1257,7 +1262,14 @@ class RecursiveDescentParser:
             target = self._parse_attribute(target)
             self._lookahead = self._next()
 
-        value = (yield from self._parse_expr())
+        # value = (yield from self._parse_expr())
+        try:
+            value = next(self._parse_expr())
+        except StopIteration as e:
+            value = e.args[0]
+        if value is TokKind.NEWLINE:
+            value = None
+        print(value)
 
         if isinstance(value, Name):
             msg = f"Invalid syntax: Cannot use variable names as expressions"
@@ -1265,8 +1277,10 @@ class RecursiveDescentParser:
 
         node = Assign([target], value)
         node._token = assigner
+        print(f"{ast.dump(node) = }")
 
-        return node
+        self._next()
+        return (yield node)
 
     def _parse_expr(self) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
         '''
@@ -1278,7 +1292,9 @@ class RecursiveDescentParser:
         kind = tok.kind
         match kind:
             case TokKind.EOF:
-                return tok
+                return kind
+            case TokKind.NEWLINE:
+                return kind
 
             case kind if kind in T_Literal:
                 match tok.kind:
@@ -1295,7 +1311,7 @@ class RecursiveDescentParser:
                     case TokKind.NONE:
                         value = None
                     case _:
-                        msg = "Expected a literal, but got " + repr(t)
+                        msg = "Expected a literal, but got " + repr(kind)
                         raise ParseError(msg)
                 node = Constant(value)
 
@@ -1388,13 +1404,6 @@ class RecursiveDescentParser:
             tok = self._next()
             kind = tok.kind
             match kind:
-                case TokKind.EOF:
-                    msg = "Invalid syntax: Unmatched '{':"
-                    raise ParseError.hl_error(start, msg)
-                case Syntax.R_CURLY_BRACE:
-                    break
-                case kind if kind in (TokKind.COMMA, TokKind.NEWLINE):
-                    continue
                 case TokKind.IDENTIFIER:
                     # Parse a new key-value pair:
                     # pair = self._parse_key_val_pair()
@@ -1403,18 +1412,25 @@ class RecursiveDescentParser:
                         "Invalid syntax (expected an identifier):",
                         "Invalid syntax:"
                     )
-                    key_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
+                    # key_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
+                    key_tok = self._tokens[self._cursor]
                     key = Name(key_tok.value)
                     key._token = key_tok
 
                     maybe_attr = self._next()
                     if maybe_attr.kind is TokKind.ATTRIBUTE:
                         key = self._parse_attribute(key)
+                        self._lookahead = maybe_equals = self._next()
+                    else:
+                        self._lookahead = maybe_equals = maybe_attr
 
-                    self._lookahead = maybe_equals = self._next()
                     if maybe_equals.kind is TokKind.ASSIGN:
+                        print("Has =")
                         self._lookahead = self._next()
                     val = (yield from self._parse_expr())
+                    if val is TokKind.NEWLINE:
+                        val = None
+                    print(f"{val = }")
 
                     # Disallow assigning identifiers:
                     if isinstance(val, (Name, Attribute)):
@@ -1433,6 +1449,17 @@ class RecursiveDescentParser:
                         # Equivalent to dict.update():
                         vals[idx].keys = val.keys
                         vals[idx].values = val.values
+
+                case kind if kind in (TokKind.COMMA, TokKind.NEWLINE):
+                    continue
+
+                case TokKind.R_CURLY_BRACE:
+                    break
+
+                case TokKind.EOF:
+                    msg = "Invalid syntax: Unmatched '{':"
+                    raise ParseError.hl_error(start, msg)
+
                 case _:
                     typ = kind.value
                     val = repr(tok.value)
@@ -1443,6 +1470,7 @@ class RecursiveDescentParser:
         # Put all the assignments together:
         node = Dict(keys, vals)
         node._token = start
+        print("Dict node: ", ast.dump(node))
         return node
 
 
@@ -1514,12 +1542,18 @@ class RecursiveDescentParser:
         '''
         assignments = []
         while True:
-            assign = (yield from self._parse_assign())
+            # assign = (yield from self._parse_assign())
+            try:
+                assign = next(self._parse_assign())
+            except StopIteration as e:
+                assign = e.args[0]
             if assign is TokKind.EOF:
+                break
+            if assign is None:
                 break
             assignments.append(assign)
         self._reset()
-        return Module(assignments)
+        yield Module(assignments)
 
     def parse(self) -> Module:
         '''
@@ -1539,9 +1573,12 @@ class FileParser:
 
 if __name__ == '__main__':
     string = '''
-    c "a"
-
+c {
+    a = 10
+    b = 15
+}
     '''
+    print("string = '''" + string + "'''")
     result = RecursiveDescentParser(Lexer(string)).parse()
-    print(result)
+    print(ast.dump(result))
 
