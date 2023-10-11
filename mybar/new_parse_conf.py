@@ -166,7 +166,6 @@ class TokenError(ConfigError):
         cls,
         tokens: Token | tuple[Token],
         msg: str,
-        pos: Location,
         with_col: bool = True,
         leader: str = None,
         indent: int = 2
@@ -188,7 +187,7 @@ class TokenError(ConfigError):
         :type with_col: :class:`bool`
         
         :param leader: The error leader to use,
-            defaults to that of the lexer of the first token
+            defaults to that of the first token
         :type leader: :class:`str`
 
         :param indent: Indent by this many spaces * 2,
@@ -203,16 +202,12 @@ class TokenError(ConfigError):
 
         first_tok = tokens[0]
         lexer = first_tok.lexer
+        if leader is None:
+            leader = first_tok.error_leader()
 
         if indent is None:
             indent = 0
         dent = ' ' * indent
-
-        if leader is None:
-            if lexer is not None:
-                leader = dent + lexer.error_leader(with_col)
-            else:
-                leader = ""
 
         max_len = 100
         break_line = "\n" + dent if len(leader + msg) > max_len else ""
@@ -288,7 +283,7 @@ class TokenError(ConfigError):
         return cls(errmsg)
 
 
-class ParseError(ConfigError):
+class ParseError(TokenError):
     '''
     Exception raised during string parsing operations.
     '''
@@ -318,11 +313,11 @@ class Token:
     :param matchgroups: The value gotten by re.Match.groups() when
         making this token
     :type matchgroups: tuple[:class:`str`]
+
+    :param lexer: The lexer used to find this token, optional
+    :type lexer: :class:`Lexer`
     '''
 
-##    :param lexer: The lexer used to find this token, optional
-##    :type lexer: :class:`Lexer`
-##
 ##    :param file: The file from which this token came, optional
 ##    :type file: :class:`PathLike`
 ##    '''
@@ -383,6 +378,21 @@ class Token:
             else item.__name__
         )
         return f"{cls.__name__}[{item_name}]"
+
+    def error_leader(self, with_col: bool = False) -> str:
+        '''
+        Return the beginning of an error message that features the
+        filename, line number and possibly current column number.
+
+        :param with_col: Also print the current column number,
+            defaults to ``False``
+        :type with_col: :class:`bool`
+        '''
+        # file = self._file if self._file is not None else ''
+        column = ', column ' + str(self.colno) if with_col else ''
+        # msg = f"File {file!r}, line {self.lineno}{column}: "
+        msg = f"Line {self.lineno}{column}: "
+        return msg
 
     def match_repr(self) -> str | None:
         '''
@@ -989,7 +999,6 @@ class RecursiveDescentParser:
         target = Name(target_tok.value)
 
         maybe_attr = self._next()
-        # print(maybe_attr)
         if maybe_attr.kind is TokKind.ATTRIBUTE:
             target = next(self._parse_attribute(target))
             self._lookahead = maybe_equals = self._skip_all_whitespace()
@@ -997,11 +1006,9 @@ class RecursiveDescentParser:
             self._lookahead = maybe_equals = maybe_attr
         target._token = assigner = target_tok
 
-        # print(maybe_equals)
         if maybe_equals.kind is TokKind.ASSIGN:
             self._lookahead = self._next()
 
-        # print(self._lookahead)
         try:
             value = next(self._parse_expr())
         except StopIteration as e:
@@ -1064,7 +1071,7 @@ class RecursiveDescentParser:
         kind = tok.kind
         match kind:
             case kind if kind in T_Special:
-                return kind
+                yield kind
 
             case kind if kind in T_Literal:
                 match tok.kind:
@@ -1092,7 +1099,7 @@ class RecursiveDescentParser:
 
             case _:
                 typ = tok.kind.value.lower()
-                msg = (f"Expected the start of an expression,"
+                msg = (f"Expected an expression,"
                        f" but got {typ} {tok.value!r} instead.")
                 raise ParseError(msg)
 
@@ -1184,7 +1191,7 @@ class RecursiveDescentParser:
                         self._lookahead = self._next()
                     val = next(self._parse_expr())
                     if val is TokKind.NEWLINE:
-                        val = None
+                        val = Constant(None)
 
                     # Disallow assigning identifiers:
                     if isinstance(val, (Name, Attribute)):
@@ -1289,10 +1296,39 @@ class FileParser:
     pass
 
 
-class DictParser:
+class DictDisassembler:
     '''
     Convert Python dicts to ASTs.
     '''
+    @classmethod
+    def disassemble(cls, mapping: Mapping) -> Module:
+        '''
+        Convert a dict to a Module AST.
+
+        :param mapping: The dict to convert
+        :type mapping: :class:`Mapping`
+        '''
+        if not isinstance(mapping, Mapping):
+            return mapping
+        assignments = []
+        for key, val in mapping.items():
+            node = Assign([Name(key)], cls._parse_node(val))
+            assignments.append(node)
+        return Module(assignments)
+
+    @classmethod
+    def make_file(cls, mapping: Mapping) -> FileContents:
+        '''
+        Disassemble a Python dictionary and return the contents of the
+        config file that could be parsed back into its AST.
+
+        :param mapping: The dict to convert
+        :type mapping: :class:`Mapping`
+        '''
+        tree = cls.disassemble(mapping)
+        text = ConfigFileMaker().stringify(tree.body)
+        return text
+
     @classmethod
     def _process_nested_dict(
         cls,
@@ -1387,30 +1423,6 @@ class DictParser:
         else:
             return thing
 
-    @classmethod
-    def parse(cls, mapping: Mapping) -> Module:
-        '''
-        Convert a dict to a Module AST.
-
-        :param mapping: The dict to convert
-        :type mapping: :class:`Mapping`
-        '''
-        if not isinstance(mapping, Mapping):
-            return mapping
-        assignments = []
-        for key, val in mapping.items():
-            node = Assign([Name(key)], cls._parse_node(val))
-            assignments.append(node)
-        return Module(assignments)
-
-    @classmethod
-    def make_file(cls, mapping: Mapping) -> FileContents:
-        '''
-        '''
-        tree = cls.parse(mapping)
-        text = ConfigFileMaker().stringify(tree.body)
-        return text
-
 
 class Unparser(NodeVisitor):
     '''
@@ -1504,7 +1516,6 @@ class Unparser(NodeVisitor):
 
     def visit_Module(self, node: Module) -> list[dict[str]]:
         return {k: v for n in node.body for k, v in self.visit(n).items()}
-        # return {self.visit(n.targets[0]): self.visit(n) for n in node.body}
 
     def visit_Name(self, node: Name) -> str:
         return node.id
@@ -1582,7 +1593,8 @@ if __name__ == '__main__':
     string = '''
 z {
     a [
-    10 
+        {foo 3, bar
+        }
     15]
     b.c.d = {
         bb {
@@ -1592,10 +1604,10 @@ z {
     }
 }
 
-y.b
     '''
     print("string = '''" + string + "'''")
     result = RecursiveDescentParser(Lexer(string)).parse()
+    print(result)
     print(ast.dump(result))
     print(Unparser().unparse(result))
 
