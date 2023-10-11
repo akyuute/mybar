@@ -25,6 +25,7 @@ PythonData = 'PythonData'
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
+Parser = TypeVar('Parser')
 
 
 CharNo: TypeAlias = int
@@ -120,20 +121,28 @@ class TokKind(Enum):
     UNKNOWN = 'UNKNOWN'
 
 # T_AssignEvalNone = tuple((*Newline, *TokKind))
-T_AssignEvalNone = (TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA)
+T_AssignEvalNone = {TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA}
 '''These tokens eval to None after a "="'''
 
-T_Ignore = (TokKind.SPACE, TokKind.COMMENT)
+T_Ignore = {TokKind.SPACE, TokKind.COMMENT}
 '''These tokens are ignored by the parser'''
 
-T_Literal = (
+T_Literal = {
     TokKind.STRING,
     TokKind.INTEGER,
     TokKind.FLOAT,
     TokKind.TRUE,
     TokKind.FALSE,
     TokKind.NONE
-)
+}
+
+T_Special = {
+    TokKind.EOF,
+    TokKind.NEWLINE,
+    TokKind.COMMA,
+    TokKind.R_BRACKET,
+    TokKind.R_CURLY_BRACE,
+}
 
 
 class ConfigError(SyntaxError):
@@ -157,6 +166,7 @@ class TokenError(ConfigError):
         cls,
         tokens: Token | tuple[Token],
         msg: str,
+        pos: Location,
         with_col: bool = True,
         leader: str = None,
         indent: int = 2
@@ -278,9 +288,9 @@ class TokenError(ConfigError):
         return cls(errmsg)
 
 
-class ParseError(TokenError):
+class ParseError(ConfigError):
     '''
-    Exception raised during file parsing operations.
+    Exception raised during string parsing operations.
     '''
     pass
 
@@ -405,6 +415,24 @@ class Token:
         '''
         return (self.lineno, self.colno)
     
+
+def unescape_backslash(s: str, encoding: str = 'utf-8') -> str:
+    '''
+    Unescape characters escaped by backslashes.
+
+    :param s: The string to escape
+    :type s: :class:`str`
+
+    :param encoding: The encoding `s` comes in, defaults to ``'utf-8'``
+    :type encoding: :class:`str`
+    '''
+    return (
+        s.encode(encoding)
+        .decode('unicode-escape')
+        # .encode(encoding)
+        # .decode(encoding)
+    )
+
 
 class Lexer:
     '''
@@ -949,327 +977,41 @@ class RecursiveDescentParser:
             mapping.update(unparsed)
         return mapping
 
-
-    
-
-##    def _parse_root_assign(self) -> Assign:
-##        '''
-##        Parse an assignment in the outermost scope at the current token::
-##
-##            foo = 'bar'  # -> Assign([Name('foo')], Constant('bar'))
-##
-##        :returns: An ``Assign`` object built from a key-value pair
-##        :rtype: :class:`Assign`
-##        '''
-##        while self._should_skip():
-##            self._next()
-##        msg = "Invalid syntax (expected an identifier):"
-##        target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
-##        self._current_expr = Assign
-##        target = Name(target_tok.value)
-##        target._token = target_tok
-##
-##        possible_ops = (TokKind.ATTRIBUTE, TokKind.ASSIGN, TokKind.L_CURLY_BRACE)
-##        msg = "Invalid syntax (expected '=' or '{'):"
-##
-##        # Ignore newlines between identifier and operator:
-##        self._next()
-##        operator = self._expect_curr(possible_ops, msg)
-##
-##        if operator.kind is TokKind.ATTRIBUTE:
-##            target = self._parse_attribute(target)
-##            operator = self._expect_curr(possible_ops, msg)
-##
-##        if operator.kind is TokKind.L_CURLY_BRACE:
-##            value = self._parse_object()
-##        else:
-##            value = self._parse_expr()
-##
-##        if isinstance(value, Name):
-##            msg = f"Invalid syntax: Cannot use variable names as expressions"
-##            raise ParseError.hl_error(value._token, msg)
-##
-##        node = Assign([target], value)
-##        node._token = operator
-##
-##        # Advance to the next assignment:
-##        self._next()
-##        return node
-##
-##    def _parse_expr(self) -> AST:
-##        '''
-##        Parse an expression at the current token.
-##
-##        :rtype: :class:`AST`
-##        '''
-##        while True:
-##            tok = self._advance()
-##            kind = tok.kind
-##
-##            match kind:
-##                case TokKind.EOF:
-##                    return tok
-##                case kind if kind in T_Ignore:
-##                    continue
-##                case TokKind.NEWLINE | TokKind.COMMA:
-##                    if self._current_expr in (Assign, Dict):
-##                        node = Constant(None)
-##                    else:
-##                        continue
-##                case kind if kind in T_Literal:
-##                    node = self._parse_literal(tok)
-##                case TokKind.ATTRIBUTE:
-##                    node = self._parse_mapping(self._parse_attribute(tok))
-##                case TokKind.L_BRACKET:
-##                    node = self._parse_list()
-##                case TokKind.L_CURLY_BRACE:
-##                    node = self._parse_object()
-##                case TokKind.TokKind:
-##                    node = Name(tok.value)
-##                case _:
-##                    return tok
-##
-##            node._token = tok
-##            return node
-##
-##    def _parse_list(self) -> List:
-##        '''
-##        Parse a list at the current token::
-##
-##            ['a', 'b']  # -> List([Constant('a'), Constant('b')])
-##
-##        :rtype: :class:`List`
-##        '''
-##        msg = "_parse_list() called at the wrong time"
-##        self._expect_curr(TokKind.L_BRACKET, msg)
-##        self._current_expr = List
-##        elems = []
-##        while True:
-##            elem = self._parse_expr()
-##            if isinstance(elem, Token):
-##                if elem.kind is TokKind.EOF:
-##                    msg = "Invalid syntax: Unmatched '[':"
-##                    raise ParseError.hl_error(elem, msg)
-##                if elem.kind is TokKind.R_BRACKET:
-##                    break
-##            elems.append(elem)
-##        return List(elems)
-##        
-##    def _parse_attribute(self, outer: Name | Attribute) -> Attribute:
-##        '''
-##        Parse an attribute at the current token inside an object::
-##
-##            a.b.c  # -> Attribute(Attribute(Name('a'), 'b'), 'c')
-##
-##        :param outer: The base of the attribute to come, either a single
-##            variable name or a whole attribute expression.
-##        :type outer: :class:`Name` | :class:`Attribute`
-##        :rtype: :class:`Attribute`
-##        '''
-##        msg = (
-##            "_parse_attribute() called at the wrong time",
-##            "Invalid syntax (expected an identifier):",
-##        )
-##        operator = self._expect_curr(TokKind.ATTRIBUTE, msg[0])
-##        maybe_base = self._expect_next(TokKind.IDENTIFIER, msg[1])
-##        attr = maybe_base.value
-##        target = Attribute(outer, attr)
-##        maybe_another = self._next()
-##        target._token = maybe_base
-##        if maybe_another.kind is TokKind.ATTRIBUTE:
-##            target = self._parse_attribute(target)
-##        return target
-##
-##    def _parse_mapping(self) -> Dict:
-##        '''
-##        Parse a 1-to-1 mapping at the current token inside an object::
-##
-##            {key = 'val'}  # -> Dict([Name('key')], [Constant('val')])
-##
-##        :rtype: :class:`Dict`
-##        '''
-##        msg = (
-##            "Invalid syntax (expected an identifier):",
-##            "Invalid syntax (expected '=' or '.'):"
-##        )
-##        self._current_expr = Dict
-##        target_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
-##        target = Name(target_tok.value)
-##        target._token = target_tok
-##
-##        maybe_attr = self._next()
-##        if maybe_attr.kind is TokKind.ATTRIBUTE:
-##            target = self._parse_attribute(target)
-##
-##        assign_tok = self._expect_curr(TokKind.ASSIGN, msg[1])
-##        value = self._parse_expr()
-##        # Disallow assigning identifiers:
-##        if isinstance(value, Name):
-##            typ = value._token.kind.value
-##            val = repr(value._token.value)
-##            note = f"expected expression, got {typ} {val}"
-##            msg = f"Invalid assignment: {note}:"
-##            raise ParseError.hl_error(value._token, msg)
-##        node = Dict([target], [value])
-##        node._token = assign_tok
-##        return node
-##
-##    def _parse_object(self) -> Dict:
-##        '''
-##        Parse a dict containing many mappings at the current token::
-##
-##            {
-##                foo = 'bar'
-##                baz = 42
-##                ...
-##            }
-##
-##            # -> Dict(
-##                [Name('foo'), Name('baz')],
-##                [Constant('bar'), Constant(42)]
-##            )
-##
-##        :rtype: :class:`Dict`
-##        '''
-##        msg = (
-##            "_parse_object() called at the wrong time",
-##        )
-##        self._expect_curr(TokKind.L_CURLY_BRACE, msg[0])
-##        self._current_expr = Dict
-##        keys = []
-##        vals = []
-##
-##        while True:
-##            tok = self._next()
-##            kind = tok.kind
-##            match kind:
-##                case TokKind.EOF:
-##                    msg = "Invalid syntax: Unmatched '{':"
-##                    raise ParseError.hl_error(tok, msg)
-##                case Syntax.R_CURLY_BRACE:
-##                    break
-##                case kind if (
-##                    kind in (*T_Ignore, TokKind.COMMA, TokKind.NEWLINE)
-##                ):
-##                    continue
-##                case TokKind.IDENTIFIER:
-##                    pair = self._parse_mapping()
-##                    key = pair.keys[-1]  # Only one key and one value
-##                    val = pair.values[-1]
-##                    if key not in keys:
-##                        keys.append(key)
-##                        vals.append(val)
-##                    else:
-##                        # Make nested dicts.
-##                        idx = keys.index(key)
-##                        # Equivalent to dict.update():
-##                        vals[idx].keys = val.keys
-##                        vals[idx].values = val.values
-##                case _:
-##                    typ = kind.value
-##                    val = repr(tok.value)
-##                    note = f"expected variable name, got {typ} {val}"
-##                    msg = f"Invalid target for assignment: {note}:"
-##                    raise ParseError.hl_error(tok, msg)
-##
-##        # Put all the assignments together:
-##        return Dict(keys, vals)
-##
-##
-##
-##    def _parse_literal(self, tok) -> Constant:
-##        '''
-##        Parse a literal constant value at the current token::
-##
-##            42  # -> Constant(42)
-##
-##        :rtype: :class:`Constant`
-##        '''
-##        self._current_expr = Constant
-##        match tok.kind:
-##            # Return literals as Constants:
-##            case TokKind.STRING:
-##                value = tok.value
-##            case TokKind.INTEGER:
-##                value = int(tok.value)
-##            case TokKind.FLOAT:
-##                value = float(tok.value)
-##            case TokKind.TRUE:
-##                value = True
-##            case TokKind.FALSE:
-##                value = False
-##            case _:
-##                raise ParseError("Expected a literal, but got " + repr(tok))
-##        node = Constant(value)
-##        print("from literal:", ast.dump(node))
-##        return node
-##        return Constant(value)
-##
-##    def _parse_stmt(self) -> Assign:
-##        '''
-##        Parse an assignment statement at the current token::
-##
-##            foo = ['a', 'b']  # -> Assign(
-##                [Name('foo')],
-##                List([Constant('a'), Constant('b')])
-##            )
-##
-##        :rtype: :class:`Assign`
-##        '''
-##        while self._not_eof():
-##            tok = self._cur_tok()
-##            kind = tok.kind
-##            assign = self._parse_root_assign()
-##            print("from stmt:", ast.dump(assign))
-##            return assign
-##
-##    def _get_stmts(self) -> list[Assign]:
-##        '''
-##        Parse many assignment statements and return them in a list.
-##        '''
-##        self._reset()
-##        assignments = []
-##        while self._not_eof():
-##            assignments.append(self._parse_stmt())
-##        self._reset()
-##        return assignments
-##
-##    def parse(self) -> Module:
-##        '''
-##        Parse the lexer stream and return it as a :class:`Module`.
-##        '''
-##        return Module(self._get_stmts())
-
     def _parse_assign(self) -> Assign:
         # Advance to the next assignment:
         self._lookahead = self._skip_all_whitespace()
-        if self._lookahead.kind is TokKind.EOF:
+        if self._lookahead.kind in {TokKind.EOF, TokKind.NEWLINE}:
             return TokKind.EOF
-        print(f"{self._lookahead = }")
 
         msg = "Invalid syntax (expected an identifier):"
         target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
         self._current_expr = Assign
         target = Name(target_tok.value)
-        target._token = assigner = target_tok
-        print(f"{target = }")
 
-        # Ignore whitespace between identifier and operator:
-        self._lookahead = self._next()
-        if self._lookahead.kind is TokKind.ASSIGN:
-            self._lookahead = assigner = self._next()
-        elif self._lookahead.kind is TokKind.ATTRIBUTE:
-            target = self._parse_attribute(target)
+        maybe_attr = self._next()
+        # print(maybe_attr)
+        if maybe_attr.kind is TokKind.ATTRIBUTE:
+            target = next(self._parse_attribute(target))
+            self._lookahead = maybe_equals = self._skip_all_whitespace()
+        else:
+            self._lookahead = maybe_equals = maybe_attr
+        target._token = assigner = target_tok
+
+        # print(maybe_equals)
+        if maybe_equals.kind is TokKind.ASSIGN:
             self._lookahead = self._next()
 
-        # value = (yield from self._parse_expr())
+        # print(self._lookahead)
         try:
             value = next(self._parse_expr())
         except StopIteration as e:
             value = e.args[0]
-        if value is TokKind.NEWLINE:
-            value = None
-        print(value)
+        if value in {TokKind.NEWLINE, TokKind.EOF}:
+            if maybe_equals.kind is TokKind.ASSIGN:
+                value = Constant(None)
+            else:
+                msg = "Invalid syntax (missing assignment):"
+                raise ParseError.hl_error((target_tok, self._lookahead), msg)
 
         if isinstance(value, Name):
             msg = f"Invalid syntax: Cannot use variable names as expressions"
@@ -1277,10 +1019,40 @@ class RecursiveDescentParser:
 
         node = Assign([target], value)
         node._token = assigner
-        print(f"{ast.dump(node) = }")
 
         self._next()
         return (yield node)
+
+    def _parse_attribute(self, outer: Name | Attribute) -> Attribute:
+        '''
+        Parse an attribute at the current token inside an object::
+
+            a.b.c  # -> Attribute(Attribute(Name('a'), 'b'), 'c')
+
+        :param outer: The base of the attribute to come, either a single
+            variable name or a whole attribute expression.
+        :type outer: :class:`Name` | :class:`Attribute`
+        :rtype: :class:`Attribute`
+        '''
+        self._lookahead = self._skip_all_whitespace()
+        msg = (
+            "_parse_attribute() called at the wrong time",
+            "Invalid syntax (expected an identifier):",
+        )
+        self._expect_curr(TokKind.ATTRIBUTE, msg[0])
+        self._lookahead = self._next()
+        while True:
+            # This may be the base of another attr, or it may be the
+            # terminal attr:
+            maybe_base = self._expect_curr(TokKind.IDENTIFIER, msg[1])
+            attr = maybe_base.value
+            outer = Attribute(outer, attr)
+            outer._token = maybe_base
+            # Any more dots?
+            if self._next().kind is not TokKind.ATTRIBUTE:
+                break
+            self._lookahead = self._next()
+        yield outer
 
     def _parse_expr(self) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
         '''
@@ -1291,9 +1063,7 @@ class RecursiveDescentParser:
         tok = self._lookahead
         kind = tok.kind
         match kind:
-            case TokKind.EOF:
-                return kind
-            case TokKind.NEWLINE:
+            case kind if kind in T_Special:
                 return kind
 
             case kind if kind in T_Literal:
@@ -1319,8 +1089,14 @@ class RecursiveDescentParser:
                 node = (yield from self._parse_list())
             case TokKind.L_CURLY_BRACE:
                 node = (yield from self._parse_object())
+
             case _:
-                return tok
+                typ = tok.kind.value.lower()
+                msg = (f"Expected the start of an expression,"
+                       f" but got {typ} {tok.value!r} instead.")
+                raise ParseError(msg)
+
+                # yield tok
 
         node._token = tok
         yield node
@@ -1336,45 +1112,25 @@ class RecursiveDescentParser:
         msg = "_parse_list() called at the wrong time"
         self._current_expr = List
         elems = []
+        self._lookahead = self._next()
         while True:
-            elem = (yield from self._parse_expr())
-            if isinstance(elem, Token):
-                if elem.kind is TokKind.EOF:
-                    msg = "Invalid syntax: Unmatched '[':"
-                    raise ParseError.hl_error(elem, msg)
-                if elem.kind is TokKind.R_BRACKET:
-                    break
+            try:
+                elem = next(self._parse_expr())
+            except StopIteration as e:
+                elem = e.args[0]
+            if elem is TokKind.EOF:
+                msg = "Invalid syntax: Unmatched '[':"
+                raise ParseError.hl_error(elem, msg)
+            if elem is TokKind.R_BRACKET:
+                self._lookahead = self._next()
+                break
+            if elem in {TokKind.COMMA, TokKind.NEWLINE}:
+                self._lookahead = self._next()
+                continue
             elems.append(elem)
+            self._lookahead = self._next()
         yield List(elems)
         
-    def _parse_attribute(self, outer: Name | Attribute) -> Attribute:
-        '''
-        Parse an attribute at the current token inside an object::
-
-            a.b.c  # -> Attribute(Attribute(Name('a'), 'b'), 'c')
-
-        :param outer: The base of the attribute to come, either a single
-            variable name or a whole attribute expression.
-        :type outer: :class:`Name` | :class:`Attribute`
-        :rtype: :class:`Attribute`
-        '''
-        msg = (
-            "_parse_attribute() called at the wrong time",
-            "Invalid syntax (expected an identifier):",
-        )
-        self._expect_curr(TokKind.ATTRIBUTE, msg[0])
-        while True:
-            maybe_base = self._expect_curr(TokKind.IDENTIFIER, msg[1])
-            attr = maybe_base.value
-            outer = Attribute(outer, attr)
-            outer._token = maybe_base
-            # maybe_another = self._next()
-            # if maybe_another.kind is TokKind.ATTRIBUTE:
-                # target = (yield from self._parse_attribute(target))
-            if self._next().kind is not TokKind.Attribute:
-                break
-        return outer
-
     def _parse_object(self) -> Dict:
         '''
         Parse a dict containing many mappings at the current token::
@@ -1419,22 +1175,20 @@ class RecursiveDescentParser:
 
                     maybe_attr = self._next()
                     if maybe_attr.kind is TokKind.ATTRIBUTE:
-                        key = self._parse_attribute(key)
+                        key = next(self._parse_attribute(key))
                         self._lookahead = maybe_equals = self._next()
                     else:
                         self._lookahead = maybe_equals = maybe_attr
 
                     if maybe_equals.kind is TokKind.ASSIGN:
-                        print("Has =")
                         self._lookahead = self._next()
-                    val = (yield from self._parse_expr())
+                    val = next(self._parse_expr())
                     if val is TokKind.NEWLINE:
                         val = None
-                    print(f"{val = }")
 
                     # Disallow assigning identifiers:
                     if isinstance(val, (Name, Attribute)):
-                        typ = value._token.kind.value
+                        typ = value._token.kind.value.lower()
                         val = repr(val._token.value)
                         note = f"expected expression, got {typ} {val}"
                         msg = f"Invalid assignment: {note}:"
@@ -1461,7 +1215,7 @@ class RecursiveDescentParser:
                     raise ParseError.hl_error(start, msg)
 
                 case _:
-                    typ = kind.value
+                    typ = kind.value.lower()
                     val = repr(tok.value)
                     note = f"expected variable name, got {typ} {val}"
                     msg = f"Invalid target for assignment: {note}:"
@@ -1470,9 +1224,7 @@ class RecursiveDescentParser:
         # Put all the assignments together:
         node = Dict(keys, vals)
         node._token = start
-        print("Dict node: ", ast.dump(node))
-        return node
-
+        yield node
 
     def _parse_key_val_pair(self) -> Dict:
         '''
@@ -1508,41 +1260,9 @@ class RecursiveDescentParser:
         node._token = assign_tok
         yield node
 
-
-
-    def _parse_literal(self) -> Constant:
-        '''
-        Parse a literal constant value::
-
-            42  # -> Constant(42)
-
-        :rtype: :class:`Constant`
-        '''
-        t = self._lookahead
-        match t.kind:
-            case TokKind.STRING:
-                value = t.value
-            case TokKind.INTEGER:
-                value = int(t.value)
-            case TokKind.FLOAT:
-                value = float(t.value)
-            case TokKind.TRUE:
-                value = True
-            case TokKind.FALSE:
-                value = False
-            case TokKind.NONE:
-                value = None
-            case _:
-                raise ParseError("Expected a literal, but got " + repr(t))
-        node = Constant(value)
-        return node
-
     def _parse(self) -> Module:
-        '''
-        '''
         assignments = []
         while True:
-            # assign = (yield from self._parse_assign())
             try:
                 assign = next(self._parse_assign())
             except StopIteration as e:
@@ -1565,20 +1285,317 @@ class RecursiveDescentParser:
             return e.args[0]
 
 
-
 class FileParser:
     pass
 
 
+class DictParser:
+    '''
+    Convert Python dicts to ASTs.
+    '''
+    @classmethod
+    def _process_nested_dict(
+        cls,
+        dct: Mapping | Any,
+        roots: Sequence[str] = [],
+        descended: int = 0
+    ) -> tuple[list[list[str]], list[object]]:
+        nodes = []
+        vals = []
+        if not isinstance(dct, Mapping):
+            # An assignment.
+            return ([roots], [dct])
+
+        if len(dct) == 1:
+            # An attribute.
+            for a, v in dct.items():
+                roots.append(a)
+                return cls._process_nested_dict(v, roots, descended)
+
+        descended = 0  # Start of a tree.
+        for attr, v in dct.items():
+            roots.append(attr)
+            if isinstance(v, Mapping):
+                if descended < len(roots):
+                    descended = -len(roots)
+                # Descend into lower tree.
+                inner_nodes, inner_vals = cls._process_nested_dict(
+                    v,
+                    roots,
+                    descended
+                )
+                nodes.extend(inner_nodes)
+                vals.extend(inner_vals)
+            else:
+                nodes.append(roots)
+                vals.append(v)
+            roots = roots[:-descended - 1]  # Reached end of tree.
+        return nodes, vals
+
+    @classmethod
+    def _process_nested_attrs(
+        cls,
+        attrs: Sequence[Sequence[str]]
+    ) -> list[Attribute]:
+        '''
+        '''
+        nodes = []
+        spent = []
+        if not isinstance(attrs, Sequence):
+            return attrs
+        for node_attrs in attrs:
+            node_attrs = node_attrs[:]
+            node = Name(node_attrs.pop(0))
+            for attr in node_attrs:
+                node = Attribute(node, attr)
+            nodes.append(node)
+        return nodes
+
+    @classmethod
+    def _parse_node(cls, thing) -> AST:
+        '''
+        '''
+        if isinstance(thing, Mapping):
+            keys = []
+            vals = []
+            for key, val in thing.items():
+
+                if isinstance(val, Mapping):
+                    # An attribute, possibly nested.
+                    attrs, assigns = cls._process_nested_dict(val, [key])
+                    nodes = cls._process_nested_attrs(attrs)
+                    keys.extend(nodes)
+                    vals.extend(assigns)
+                else:
+                    # An explicit assignment.
+                    node = Name(key)
+                    keys.append(node)
+                    v = cls._parse_node(val)
+                    vals.append(v)
+            return Dict(keys, [cls._parse_node(v) for v in vals])
+
+        elif isinstance(thing, list):
+            values = [Name(v) for v in thing]
+            return List(values)
+
+        elif isinstance(thing, (int, float, str)):
+            return Constant(thing)
+
+        elif thing in (None, True, False):
+            return Constant(thing)
+
+        else:
+            return thing
+
+    @classmethod
+    def parse(cls, mapping: Mapping) -> Module:
+        '''
+        Convert a dict to a Module AST.
+
+        :param mapping: The dict to convert
+        :type mapping: :class:`Mapping`
+        '''
+        if not isinstance(mapping, Mapping):
+            return mapping
+        assignments = []
+        for key, val in mapping.items():
+            node = Assign([Name(key)], cls._parse_node(val))
+            assignments.append(node)
+        return Module(assignments)
+
+    @classmethod
+    def make_file(cls, mapping: Mapping) -> FileContents:
+        '''
+        '''
+        tree = cls.parse(mapping)
+        text = ConfigFileMaker().stringify(tree.body)
+        return text
+
+
+class Unparser(NodeVisitor):
+    '''
+    Convert ASTs to Python data structures.
+    '''
+    _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
+
+    def unparse(self, node: AST) -> dict:
+        '''
+        '''
+        return self.visit(node)
+
+    def visit_Assign(self, node: Assign) -> dict:
+        target = self.visit(node.targets[-1])
+        value = self.visit(node.value)
+        if not isinstance(target, str):
+            # `target` is an attribute turned into a nested dict
+            return self._undo_nest(target, value)
+        return {target: value}
+
+    def visit_Attribute(self, node: Attribute) -> dict:
+        attrs = self._nested_attr_to_dict(node)
+        new_d = self._EXPR_PLACEHOLDER
+        for attr in attrs:
+            new_d = {attr: new_d}
+        return new_d
+
+    def _nested_attr_to_dict(
+        self,
+        node: Attribute | Name,
+        attrs: Sequence[str] = []
+    ) -> dict | list[str]:
+        '''
+        '''
+        if isinstance(node, Name):
+            attrs.append(node.id)
+            return attrs
+        if not attrs:
+            # A new nested Attribute.
+            attrs = [node.attr]
+        elif isinstance(node, Attribute):
+            attrs.append(node.attr)
+        n = node.value
+        return self._nested_attr_to_dict(n, attrs)
+
+    def visit_Constant(self, node: Constant) -> str | int | float | None:
+        return node.value
+
+    def _nested_update(
+        self,
+        orig: Mapping | Any,
+        upd: Mapping,
+        assign: Any
+    ) -> dict:
+        '''
+        '''
+        upd = upd.copy()
+        if not isinstance(orig, Mapping):
+            return self._nested_update({}, upd, assign)
+        orig = orig.copy()
+        for k, v in upd.items():
+            if v is self._EXPR_PLACEHOLDER:
+                v = assign
+            if isinstance(v, Mapping):
+                updated = self._nested_update(orig.get(k, {}), v, assign)
+                orig[k] = updated
+            else:
+                orig[k] = v
+        return orig
+
+    def _undo_nest(self, target: MutableMapping, assign: Any) -> dict[str]:
+        '''
+        '''
+        return self._nested_update({}, target, assign=assign)
+
+    def visit_Dict(self, node: Dict) -> dict[str]:
+        new_d = {}
+        for key, val in zip(node.keys, node.values):
+            target = self.visit(key)
+            value = self.visit(val)
+            if isinstance(target, Mapping):
+                # An Attribute
+                new_d = self._nested_update(new_d, target, value)
+            else:
+                # An assignment
+                new_d.update({target: value})
+        return new_d
+
+    def visit_List(self, node: List) -> list:
+        return [self.visit(e) for e in node.elts]
+
+    def visit_Module(self, node: Module) -> list[dict[str]]:
+        return {k: v for n in node.body for k, v in self.visit(n).items()}
+        # return {self.visit(n.targets[0]): self.visit(n) for n in node.body}
+
+    def visit_Name(self, node: Name) -> str:
+        return node.id
+
+
+class ConfigFileMaker(NodeVisitor):
+    '''
+    Convert ASTs to string representations with config file syntax.
+    '''
+    def __init__(self) -> None:
+        self.indent = 4 * ' '
+
+    def stringify(
+        self,
+        tree: Sequence[AST] | Module,
+        sep: str = '\n\n'
+    ) -> FileContents:
+        '''
+        '''
+        if isinstance(tree, Module):
+            tree = tree.body
+        strings = [self.visit(n) for n in tree]
+        return sep.join(strings)
+
+    def visit_Attribute(self, node: Attribute) -> str:
+        base = self.visit(node.value)
+        attr = node.attr
+        return f"{base}.{attr}"
+
+    def visit_Assign(self, node: Assign) -> str:
+        target = self.visit(node.targets[-1])
+        value = self.visit(node.value)
+        return f"{target} = {value}"
+
+    def visit_Constant(self, node: Constant) -> str:
+        val = node.value
+        if isinstance(val, str):
+            return repr(val)
+        if val is None:
+            return ""
+        return str(val)
+
+    def visit_Dict(self, node: Dict) -> str:
+        keys = (self.visit(k) for k in node.keys)
+        values = (self.visit(v) for v in node.values)
+        assignments = (' = '.join(pair) for pair in zip(keys, values))
+        joined = f"\n{self.indent}".join(assignments)
+        string = f"{{\n{self.indent}{joined}\n}}"
+        return string
+
+    def visit_List(self, node: List) -> str:
+        one_line_limit = 3
+        elems = tuple(self.visit(e) for e in node.elts)
+        if len(elems) > one_line_limit:
+            joined = ('\n' + self.indent).join(elems)
+            string = f"[\n{self.indent}{joined}\n]"
+        else:
+            joined = ', '.join(elems)
+            string = f"[{joined}]"
+        return string
+
+    def visit_Name(self, node: Name) -> str:
+        string = node.id
+        return string
+
+
+def parse(file: PathLike = None, string: str = None) -> Module:
+    return FileParser(file, string).parse()
+
+def unparse(node: AST) -> str:
+    pass
+
 
 if __name__ == '__main__':
     string = '''
-c {
-    a = 10
-    b = 15
+z {
+    a [
+    10 
+    15]
+    b.c.d = {
+        bb {
+            aaa 1
+            bbb 2
+        }
+    }
 }
+
+y.b
     '''
     print("string = '''" + string + "'''")
     result = RecursiveDescentParser(Lexer(string)).parse()
     print(ast.dump(result))
+    print(Unparser().unparse(result))
 
