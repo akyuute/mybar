@@ -25,7 +25,6 @@ PythonData = 'PythonData'
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
-Parser = TypeVar('Parser')
 
 
 CharNo: TypeAlias = int
@@ -330,7 +329,7 @@ class Token:
         'lineno',
         'colno',
         'lexer',
-        # 'file',
+        'file',
     )
 
     def __init__(
@@ -340,7 +339,7 @@ class Token:
         kind: TokKind,
         matchgroups: tuple[str],
         lexer: Lexer = None,
-        # file: PathLike = None,
+        file: PathLike = None,
     ) -> None:
         self.at = at
         self.value = value
@@ -350,12 +349,11 @@ class Token:
         self.lineno = at[1][0]
         self.colno = at[1][1]
         self.lexer = lexer
-        # self.file = file
+        self.file = file
 
     def __repr__(self):
         cls = type(self).__name__
-        # ignore = ('matchgroups', 'cursor', 'lineno', 'colno', 'lexer', 'file')
-        ignore = ('matchgroups', 'cursor', 'lineno', 'colno', 'lexer')
+        ignore = ('matchgroups', 'cursor', 'lineno', 'colno', 'lexer', 'file')
         pairs = (
             (k, getattr(self, k)) for k in self.__slots__
             if k not in ignore
@@ -388,10 +386,9 @@ class Token:
             defaults to ``False``
         :type with_col: :class:`bool`
         '''
-        # file = self._file if self._file is not None else ''
+        file = f"File {self.file}, " if self.file is not None else ''
         column = ', column ' + str(self.colno) if with_col else ''
-        # msg = f"File {file!r}, line {self.lineno}{column}: "
-        msg = f"Line {self.lineno}{column}: "
+        msg = f"{file}Line {self.lineno}{column}: "
         return msg
 
     def match_repr(self) -> str | None:
@@ -404,20 +401,6 @@ class Token:
         quote = self.matchgroups[0]
         val = self.matchgroups[1]
         return f"{quote}{val}{quote}"
-
-##    def error_leader(self, with_col: bool = False) -> str:
-##        '''
-##        Return the beginning of an error message that features the
-##        filename, line number and possibly current column number.
-##
-##        :param with_col: Also print the token's column number,
-##            defaults to ``False``
-##        :type with_col: :class:`bool`
-##        '''
-##        file = f"File {self.file}, " if self.file is not None else ""
-##        column = ', column ' + str(self.colno) if with_col else ""
-##        msg = f"{file}line {self.lineno}{column}: "
-##        return msg
 
     def coords(self) -> Location:
         '''
@@ -450,12 +433,11 @@ class Lexer:
 
     :param string: If not using a file, use this string for lexing.
     :type string: :class:`str`
-    '''
 
-##    :param file: The file to use for lexing.
-##        When unset or ``None``, use `string` by default.
-##    :type file: :class: `PathLike`
-##    '''
+    :param file: The file to use for lexing.
+        When unset or ``None``, use `string` by default.
+    :type file: :class: `PathLike`
+    '''
     STRING_CONCAT = True  # Concatenate neighboring strings
     SPEECH_CHARS = tuple('"\'`') + ('"""', "'''")
 
@@ -502,19 +484,10 @@ class Lexer:
     def __init__(
         self,
         string: str = None,
-        # file: PathLike = None,
+        file: str = None
     ) -> None: 
-##        if string is None:
-##            if file is None:
-##                msg = "`string` parameter is required when `file` is not given"
-##                raise ValueError(msg)
-##
-##            with open(file, 'r') as f:
-##                string = f.read()
-
         self._string = string
         self._lines = self._string.split('\n')
-        # self._file = file
         self._tokens = []
         self._string_stack = LifoQueue()
 
@@ -522,6 +495,7 @@ class Lexer:
         self._lineno = 1  # 1-indexed
         self._colno = 1  # 1-indexed
         self.eof = TokKind.EOF
+        self._file = file
 
     def lineno(self) -> int:
         '''
@@ -667,7 +641,7 @@ class Lexer:
                 kind=kind,
                 matchgroups=m.groups(),
                 lexer=self,
-                # file=self._file
+                file=self._file
             )
 
             if kind in T_Ignore:
@@ -720,7 +694,7 @@ class Lexer:
                     kind=self.eof,
                     matchgroups=None,
                     lexer=self,
-                    # file=self._file
+                    file=self._file
                 )
 
                 self._tokens.append(tok)
@@ -734,7 +708,7 @@ class Lexer:
                 kind=UNKNOWN,
                 matchgroups=None,
                 lexer=self,
-                # file=self._file
+                file=self._file
             )
             try:
                 if bad_value in self.SPEECH_CHARS:
@@ -796,8 +770,6 @@ class RecursiveDescentParser:
         self._tokens = self._lexer.lex()
         self._cursor = 0
         self._lookahead = self._tokens[self._cursor]
-##      REMOVE:
-        self._current_expr = None
 
     End = TokKind.EOF
 
@@ -917,75 +889,12 @@ class RecursiveDescentParser:
             raise ParseError.hl_error(tok, errmsg)
         return tok
 
-##    def _expect_next(
-##        self,
-##        kind: TokKind | tuple[TokKind],
-##        errmsg: str
-##    ) -> NoReturn | bool:
-##        '''
-##        Test if the next token is of a certain kind given by `kind`.
-##        If the test fails, raise :exc:`ParseError` using
-##        `errmsg` or return ``False`` if `errmsg` is ``None``.
-##        If the test passes, return the current token.
-##
-##        :param kind: The kind(s) to expect from the current token
-##        :type kind: :class:`TokKind`
-##
-##        :param errmsg: The error message to display, optional
-##        :type errmsg: :class:`str`
-##        '''
-##        if not isinstance(kind, tuple):
-##            kind = (kind,)
-##        tok = self._next()
-##        if tok.kind not in kind:
-##            if errmsg is None:
-##                return False
-##            raise ParseError.hl_error(tok, errmsg)
-##        return tok
-
     def _reset(self) -> None:
         '''
         Return the lexer to the first token of the token stream.
         '''
         self._cursor = 0
         self._lexer.reset()
-
-    def _not_eof(self) -> bool:
-        '''
-        Return whether the current token is NOT the end-of-file.
-        '''
-        return (self._cur_tok().kind is not TokKind.EOF)
-
-    def _should_skip(self) -> bool:
-        '''
-        Return whether the current token is whitespace or a comment.
-        '''
-        return (self._cur_tok().kind in (*T_Ignore, TokKind.NEWLINE))
-
-    def to_dict(self, tree: AST = None) -> dict[str]:
-        '''
-        Parse a config file and return its data as a :class:`dict`.
-        '''
-        if tree is None:
-            self._lexer.reset()
-            tree = self._get_stmts()
-
-        u = Unparser()
-        mapping = {}
-        for node in tree:
-            if not isinstance(node, Assign):
-                # Each statement must map one thing to another.
-                # This statement breaks that rule.
-                note = (
-                    f"{node._token.kind.value} cannot be at"
-                    f" the start of a statement"
-                )
-                msg = f"Invalid syntax: {node._token.match_repr()!r} ({note})"
-                raise ParseError.hl_error(node._token, msg)
-
-            unparsed = u.visit(node)
-            mapping.update(unparsed)
-        return mapping
 
     def _parse_assign(self) -> Assign:
         # Advance to the next assignment:
@@ -995,7 +904,6 @@ class RecursiveDescentParser:
 
         msg = "Invalid syntax (expected an identifier):"
         target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
-        self._current_expr = Assign
         target = Name(target_tok.value)
 
         maybe_attr = self._next()
@@ -1097,13 +1005,13 @@ class RecursiveDescentParser:
             case TokKind.L_CURLY_BRACE:
                 node = (yield from self._parse_object())
 
+            case TokKind.IDENTIFIER:
+                node = Name(tok.value)
             case _:
                 typ = tok.kind.value.lower()
                 msg = (f"Expected an expression,"
                        f" but got {typ} {tok.value!r} instead.")
                 raise ParseError(msg)
-
-                # yield tok
 
         node._token = tok
         yield node
@@ -1117,7 +1025,6 @@ class RecursiveDescentParser:
         :rtype: :class:`List`
         '''
         msg = "_parse_list() called at the wrong time"
-        self._current_expr = List
         elems = []
         self._lookahead = self._next()
         while True:
@@ -1159,7 +1066,6 @@ class RecursiveDescentParser:
             "_parse_object() called at the wrong time",
         )
         start = self._expect_curr(TokKind.L_CURLY_BRACE, msg[0])
-        self._current_expr = Dict
         keys = []
         vals = []
 
@@ -1189,8 +1095,8 @@ class RecursiveDescentParser:
 
                     if maybe_equals.kind is TokKind.ASSIGN:
                         self._lookahead = self._next()
-                    val = next(self._parse_expr())
-                    if val is TokKind.NEWLINE:
+                    oldval = val = next(self._parse_expr())
+                    if val in (TokKind.NEWLINE, TokKind.R_CURLY_BRACE):
                         val = Constant(None)
 
                     # Disallow assigning identifiers:
@@ -1199,7 +1105,7 @@ class RecursiveDescentParser:
                         val = repr(val._token.value)
                         note = f"expected expression, got {typ} {val}"
                         msg = f"Invalid assignment: {note}:"
-                        raise ParseError.hl_error(value._token, msg)
+                        raise ParseError.hl_error(val._token, msg)
 
                     if key not in keys:
                         keys.append(key)
@@ -1210,6 +1116,10 @@ class RecursiveDescentParser:
                         # Equivalent to dict.update():
                         vals[idx].keys = val.keys
                         vals[idx].values = val.values
+
+                    if oldval is TokKind.R_CURLY_BRACE:
+                        # In case a blank map is at the end of a dict:
+                        break
 
                 case kind if kind in (TokKind.COMMA, TokKind.NEWLINE):
                     continue
@@ -1245,7 +1155,6 @@ class RecursiveDescentParser:
             "Invalid syntax (expected an identifier):",
             "Invalid syntax (expected '=' or '.'):"
         )
-        self._current_expr = Dict
         target_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
         target = Name(target_tok.value)
         target._token = target_tok
@@ -1277,6 +1186,7 @@ class RecursiveDescentParser:
             if assign is TokKind.EOF:
                 break
             if assign is None:
+                # This happens when there are no assignments at all.
                 break
             assignments.append(assign)
         self._reset()
@@ -1286,14 +1196,42 @@ class RecursiveDescentParser:
         '''
         Parse the lexer stream and return it as a :class:`Module`.
         '''
+        self._reset()
         try:
             return next(self._parse())
         except StopIteration as e:
             return e.args[0]
 
+    def to_dict(self) -> dict[str]:
+        '''
+        Parse a config file and return its data as a :class:`dict`.
+        '''
+        self._reset()
+        tree = self.parse()
+        return Unparser().unparse(tree)
 
-class FileParser:
-    pass
+
+class FileParser(RecursiveDescentParser):
+    def __init__(
+        self,
+        file: PathLike = None,
+        *,
+        lexer: Lexer = None,
+    ) -> None:
+        if lexer is None:
+            if file is None:
+                msg = "Either a filename or a string is required"
+                raise ValueError(msg)
+            with open(file, 'r') as f:
+                string = f.read()
+            lexer = Lexer(string, file)
+
+        self._file = file
+        self._string = string
+        self._lexer = lexer
+        self._tokens = self._lexer.lex()
+        self._cursor = 0
+        self._lookahead = self._tokens[self._cursor]
 
 
 class DictDisassembler:
@@ -1326,7 +1264,8 @@ class DictDisassembler:
         :type mapping: :class:`Mapping`
         '''
         tree = cls.disassemble(mapping)
-        text = ConfigFileMaker().stringify(tree.body)
+        print(ast.dump(tree))
+        text = ConfigFileMaker().stringify(tree)
         return text
 
     @classmethod
@@ -1411,7 +1350,8 @@ class DictDisassembler:
             return Dict(keys, [cls._parse_node(v) for v in vals])
 
         elif isinstance(thing, list):
-            values = [Name(v) for v in thing]
+            # values = [Name(v) for v in thing]
+            values = [cls._parse_node(v) for v in thing]
             return List(values)
 
         elif isinstance(thing, (int, float, str)):
@@ -1432,6 +1372,8 @@ class Unparser(NodeVisitor):
 
     def unparse(self, node: AST) -> dict:
         '''
+        Unparse an AST, converting it to an equivalent Python data
+        structure.
         '''
         return self.visit(node)
 
@@ -1526,7 +1468,11 @@ class ConfigFileMaker(NodeVisitor):
     Convert ASTs to string representations with config file syntax.
     '''
     def __init__(self) -> None:
-        self.indent = 4 * ' '
+        self._indent = 4 * ' '
+        self._indent_level = 0
+
+    def indent(self) -> str:
+        return self._indent_level * self._indent
 
     def stringify(
         self,
@@ -1534,6 +1480,7 @@ class ConfigFileMaker(NodeVisitor):
         sep: str = '\n\n'
     ) -> FileContents:
         '''
+        Convert an AST to the contents of a config file.
         '''
         if isinstance(tree, Module):
             tree = tree.body
@@ -1548,7 +1495,7 @@ class ConfigFileMaker(NodeVisitor):
     def visit_Assign(self, node: Assign) -> str:
         target = self.visit(node.targets[-1])
         value = self.visit(node.value)
-        return f"{target} = {value}"
+        return f"{target} {value}"
 
     def visit_Constant(self, node: Constant) -> str:
         val = node.value
@@ -1561,19 +1508,24 @@ class ConfigFileMaker(NodeVisitor):
     def visit_Dict(self, node: Dict) -> str:
         keys = (self.visit(k) for k in node.keys)
         values = (self.visit(v) for v in node.values)
-        assignments = (' = '.join(pair) for pair in zip(keys, values))
-        joined = f"\n{self.indent}".join(assignments)
-        string = f"{{\n{self.indent}{joined}\n}}"
+        assignments = (' '.join(pair) for pair in zip(keys, values))
+        self._indent_level += 1
+        joined = f"\n{self.indent()}".join(assignments)
+        string = f"{{\n{self.indent()}{joined}"
+        self._indent_level -= 1
+        string += f"\n{self.indent()}}}"
         return string
 
     def visit_List(self, node: List) -> str:
         one_line_limit = 3
         elems = tuple(self.visit(e) for e in node.elts)
         if len(elems) > one_line_limit:
-            joined = ('\n' + self.indent).join(elems)
-            string = f"[\n{self.indent}{joined}\n]"
+            self._indent_level += 1
+            joined = ('\n' + self.indent()).join(elems)
+            string = f"[\n{self.indent()}{joined}\n]"
+            self._indent_level -= 1
         else:
-            joined = ', '.join(elems)
+            joined = ', '.join(str(e) for e in elems)
             string = f"[{joined}]"
         return string
 
@@ -1582,19 +1534,18 @@ class ConfigFileMaker(NodeVisitor):
         return string
 
 
-def parse(file: PathLike = None, string: str = None) -> Module:
-    return FileParser(file, string).parse()
+def parse(file: PathLike = None) -> Module:
+    return FileParser(file).parse()
 
 def unparse(node: AST) -> str:
-    pass
+    return Unparser().unparse(node)
 
 
 if __name__ == '__main__':
     string = '''
 z {
     a [
-        {foo 3, bar
-        }
+        {foo 3, bar } 15
     15]
     b.c.d = {
         bb {
@@ -1607,7 +1558,15 @@ z {
     '''
     print("string = '''" + string + "'''")
     result = RecursiveDescentParser(Lexer(string)).parse()
-    print(result)
+##    import os.path
+##    CONFIG_FILE: str = os.path.abspath(os.path.expanduser(
+##        # '~/.config/mybar/conf.json'
+##        '~/.config/mybar/mybar.conf'
+##    ))
+##    result = FileParser(CONFIG_FILE).to_dict()
+##    result = parse(CONFIG_FILE)
+    # print(result)
     print(ast.dump(result))
     print(Unparser().unparse(result))
+    print(DictDisassembler.make_file(Unparser().unparse(result)))
 
