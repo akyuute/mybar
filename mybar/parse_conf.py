@@ -59,6 +59,8 @@ KEYWORDS = ()
 
 class Grammar:
     '''
+.. code::
+
     Module : Assignment
            | Assignment Delimiter Module
 

@@ -69,6 +69,12 @@ String Formatting
     :exclude-members: __init__, conversions_to_secs
 
 
+Config File Parsing
+--------------------
+.. automodule:: mybar.parse_conf
+    :members:
+    :exclude-members: __init__
+
 Utilities
 ----------
 .. automodule:: mybar.utils
