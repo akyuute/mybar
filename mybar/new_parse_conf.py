@@ -19,7 +19,16 @@ from os import PathLike
 from queue import LifoQueue
 from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
 from types import GeneratorType
-from typing import Any, Literal, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
+from typing import (
+    Any,
+    Iterable,
+    Literal,
+    NamedTuple,
+    NoReturn,
+    Self,
+    TypeAlias,
+    TypeVar
+)
 
 # from ._types import FileContents, PythonData
 FileContents = 'FileContents'
@@ -621,7 +630,7 @@ class Lexer:
         try:
             return next(self._get_token())
         except StopIteration as e:
-            return e.args[0]
+            return e.value
 
     def _get_token(self) -> Token:
         '''
@@ -868,7 +877,7 @@ class RecursiveDescentParser:
         if tok.kind not in kind:
             if errmsg is None:
                 return False
-            raise ParseError.hl_error(tok, errmsg)
+            raise ParseError.hl_error(tok, errmsg, self)
         return tok
 
     def _reset(self) -> None:
@@ -908,11 +917,13 @@ class RecursiveDescentParser:
                 value = Constant(None)
             else:
                 msg = "Invalid syntax (missing assignment):"
-                raise ParseError.hl_error((target_tok, self._lookahead), msg)
+                raise ParseError.hl_error(
+                    (target_tok, self._lookahead), msg, self
+                )
 
         if isinstance(value, Name):
             msg = f"Invalid syntax: Cannot use variable names as expressions"
-            raise ParseError.hl_error(value._token, msg)
+            raise ParseError.hl_error(value._token, msg, self)
 
         node = Assign([target], value)
         node._token = assigner
@@ -979,7 +990,7 @@ class RecursiveDescentParser:
                         value = None
                     case _:
                         msg = f"Expected a literal, but got {tok.value!r}"
-                        raise ParseError(msg)
+                        raise ParseError.hl_error(tok, msg, self)
                 node = Constant(value)
 
             case TokKind.L_BRACKET:
@@ -992,9 +1003,8 @@ class RecursiveDescentParser:
             case _:
                 # typ = tok.kind.value.lower()
                 msg = (f"Expected an expression,"
-                       # f" but got {typ} {tok.value!r} instead.")
                        f" but got {tok.value!r} instead.")
-                raise ParseError(msg)
+                raise ParseError.hl_error(tok, msg, self)
 
         node._token = tok
         yield node
@@ -1014,10 +1024,15 @@ class RecursiveDescentParser:
             try:
                 elem = next(self._parse_expr())
             except StopIteration as e:
-                elem = e.args[0]
+                elem = e.value
             if elem is TokKind.EOF:
                 msg = "Invalid syntax: Unmatched '[':"
-                raise ParseError.hl_error(elem, msg)
+                raise ParseError.hl_error(self._lookahead, msg, self)
+            if isinstance(elem, Name):
+                note = (f"Expected an expression,"
+                        f" but got {self._lookahead.value!r} instead.")
+                msg = f"Invalid syntax: {note}"
+                raise ParseError.hl_error(self._lookahead, msg, self)
             if elem is TokKind.R_BRACKET:
                 self._lookahead = self._next()
                 break
@@ -1088,7 +1103,7 @@ class RecursiveDescentParser:
                         val = repr(val._token.value)
                         note = f"expected expression, got {typ} {val}"
                         msg = f"Invalid assignment: {note}:"
-                        raise ParseError.hl_error(val._token, msg)
+                        raise ParseError.hl_error(val._token, msg, self)
 
                     if key not in keys:
                         keys.append(key)
@@ -1112,7 +1127,7 @@ class RecursiveDescentParser:
 
                 case TokKind.EOF:
                     msg = "Invalid syntax: Unmatched '{':"
-                    raise ParseError.hl_error(start, msg)
+                    raise ParseError.hl_error(start, msg, self)
 
                 case _:
                     typ = kind.value.lower()
@@ -1120,7 +1135,7 @@ class RecursiveDescentParser:
                     note = f"expected variable name, got {typ} {val}"
                     note2 = "\n(Did you mean '}'?)" if kind in T_Syntax else ""
                     msg = f"Invalid target for assignment: {note}{note2}:"
-                    raise ParseError.hl_error(tok, msg)
+                    raise ParseError.hl_error(tok, msg, self)
 
         # Put all the assignments together:
         node = Dict(keys, vals)
@@ -1155,7 +1170,7 @@ class RecursiveDescentParser:
             val = repr(value._token.value)
             note = f"expected expression, got {typ} {val}"
             msg = f"Invalid assignment: {note}:"
-            raise ParseError.hl_error(value._token, msg)
+            raise ParseError.hl_error(value._token, msg, self)
         node = Dict([target], [value])
         node._token = assign_tok
         yield node
@@ -1166,7 +1181,7 @@ class RecursiveDescentParser:
             try:
                 assign = next(self._parse_assign())
             except StopIteration as e:
-                assign = e.args[0]
+                assign = e.value
             if assign is TokKind.EOF:
                 break
             if assign is None:
@@ -1184,7 +1199,7 @@ class RecursiveDescentParser:
         try:
             return next(self._parse())
         except StopIteration as e:
-            return e.args[0]
+            return e.value
 
     def to_dict(self) -> dict[str]:
         '''
@@ -1196,6 +1211,15 @@ class RecursiveDescentParser:
 
 
 class FileParser(RecursiveDescentParser):
+    '''
+    A class for parsing text files.
+
+    :param file: The filename used to source an input string
+    :type file: :class:`PathLike`
+
+    :param lexer: The lexer to use for parsing.
+    :type lexer: :class:`Lexer`
+    '''
     def __init__(
         self,
         file: PathLike = None,
@@ -1204,7 +1228,7 @@ class FileParser(RecursiveDescentParser):
     ) -> None:
         if lexer is None:
             if file is None:
-                msg = "Either a filename or a string is required"
+                msg = "Either a `file` or a `lexer` argument is required"
                 raise ValueError(msg)
             with open(file, 'r') as f:
                 string = f.read()
@@ -1223,45 +1247,87 @@ class DictDisassembler:
     Convert Python dicts to ASTs.
     '''
     @classmethod
-    def disassemble(cls, mapping: Mapping) -> Module:
+    def disassemble(cls, data: Mapping | list[dict[str]]) -> Module:
         '''
         Convert a dict to a Module AST.
 
-        :param mapping: The dict to convert
-        :type mapping: :class:`Mapping`
+        :param data: The dict to convert
+        :type data: :class:`Mapping`
         '''
-        if not isinstance(mapping, Mapping):
-            return mapping
-        assignments = []
-        for key, val in mapping.items():
-            node = Assign([Name(key)], cls._parse_node(val))
-            assignments.append(node)
-        return Module(assignments)
+        return Module([cls._parse_node(d) for d in data])
 
     @classmethod
-    def make_file(cls, mapping: Mapping) -> FileContents:
+    def make_file(cls, data: Mapping) -> FileContents:
         '''
         Disassemble a Python dictionary and return the contents of the
         config file that could be parsed back into its AST.
 
-        :param mapping: The dict to convert
-        :type mapping: :class:`Mapping`
+        :param data: The dict to convert
+        :type data: :class:`Mapping`
         '''
-        tree = cls.disassemble(mapping)
-        # print(ast.dump(tree))
+        tree = cls.disassemble(data)
         text = ConfigFileMaker().stringify(tree)
         return text
 
     @classmethod
-    def _process_nested_dict(
+    def _run_process_nested_dict(
         cls,
-        dct: Mapping | Any,
+        dct: dict | Any,
         roots: Sequence[str] = [],
         descended: int = 0
     ) -> tuple[list[list[str]], list[object]]:
+        '''
+        Unravel nested dicts into keys and assignment values.
+        This method runs :meth:`_process_nested_dict()`
+        For use with :meth:`_process_nested_attrs()`
+        Use generators and a stack to bypass the Python recursion limit.
+
+        :param dct: The nested dict to process, or an inner value of it
+        :type dct: :class:`dict` | :class:`Any`
+
+        :param roots: The keys which surround the current `dct`
+        :type roots: :class:`Sequence`[:class:`str`], defaults to ``[]``
+
+        :param descended: How far `dct` is from the outermost key
+        :type descended: :class:`int`, defaults to ``0``
+        '''
+        stack = [cls._process_nested_dict(dct, roots, descended)]
+        result = None
+        while stack:
+            try:
+                args = stack[-1].send(result)
+                stack.append(cls._process_nested_dict(*args))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    @classmethod
+    def _process_nested_dict(
+        cls,
+        dct: dict | Any,
+        roots: Sequence[str] = [],
+        descended: int = 0
+    ) -> tuple[list[list[str]], list[object]]:
+        '''
+        Unravel nested dicts into keys and assignment values.
+        For use with :meth:`_process_nested_attrs()`
+
+        :param dct: The nested dict to process, or an inner value of it
+        :type dct: :class:`dict` | :class:`Any`
+
+        :param roots: The keys which surround the current `dct`
+        :type roots: :class:`Sequence`[:class:`str`], defaults to ``[]``
+
+        :param descended: How far `dct` is from the outermost key
+        :type descended: :class:`int`, defaults to ``0``
+
+        :returns: Attribute names and assignment values
+        '''
         nodes = []
         vals = []
-        if not isinstance(dct, Mapping):
+        if not isinstance(dct, dict):
             # An assignment.
             return ([roots], [dct])
 
@@ -1269,20 +1335,20 @@ class DictDisassembler:
             # An attribute.
             for a, v in dct.items():
                 roots.append(a)
-                return cls._process_nested_dict(v, roots, descended)
+                result = (yield (v, roots, descended))
+                return result
 
         descended = 0  # Start of a tree.
         for attr, v in dct.items():
             roots.append(attr)
-            if isinstance(v, Mapping):
+            if isinstance(v, dict):
                 if descended < len(roots):
                     descended = -len(roots)
                 # Descend into lower tree.
-                inner_nodes, inner_vals = cls._process_nested_dict(
-                    v,
-                    roots,
-                    descended
-                )
+                inner = (yield (v, roots, descended))
+                if isinstance(inner, GeneratorType):
+                    inner = yield from inner
+                inner_nodes, inner_vals = inner
                 nodes.extend(inner_nodes)
                 vals.extend(inner_vals)
             else:
@@ -1297,9 +1363,12 @@ class DictDisassembler:
         attrs: Sequence[Sequence[str]]
     ) -> list[Attribute]:
         '''
+        Convert a list of attribute names to an :class:`Attribute` node.
+
+        :param attrs: The list of attribute keynames to convert
+        :type attrs: :class:`Sequence`[:class:`Sequence`[:class:`str`]]
         '''
         nodes = []
-        spent = []
         if not isinstance(attrs, Sequence):
             return attrs
         for node_attrs in attrs:
@@ -1311,41 +1380,52 @@ class DictDisassembler:
         return nodes
 
     @classmethod
-    def _parse_node(cls, thing) -> AST:
+    def _parse_node(cls, node: Any) -> AST:
         '''
+        Parse a Python object and return its corresponding AST node.
+
+        :param node: The node to parse
+        :type node: :class:`Any`
         '''
-        if isinstance(thing, Mapping):
+        if isinstance(node, Mapping):
             keys = []
             vals = []
-            for key, val in thing.items():
-
+            for key, val in node.items():
                 if isinstance(val, Mapping):
-                    # An attribute, possibly nested.
-                    attrs, assigns = cls._process_nested_dict(val, [key])
+                    if len(node) == 1:
+                        attribute = True
+                    else:
+                        attribute = False
+
+                    # An attribute, possibly nested, or an assignment.
+                    attrs, assigns = cls._run_process_nested_dict(val, [key])
                     nodes = cls._process_nested_attrs(attrs)
                     keys.extend(nodes)
                     vals.extend(assigns)
+
                 else:
                     # An explicit assignment.
-                    node = Name(key)
-                    keys.append(node)
+                    attribute = False
+                    keys.append(Name(key))
                     v = cls._parse_node(val)
                     vals.append(v)
+
+            if attribute:
+                return Assign(keys, cls._parse_node(*vals))
             return Dict(keys, [cls._parse_node(v) for v in vals])
 
-        elif isinstance(thing, list):
-            # values = [Name(v) for v in thing]
-            values = [cls._parse_node(v) for v in thing]
+        elif isinstance(node, list):
+            values = [cls._parse_node(v) for v in node]
             return List(values)
 
-        elif isinstance(thing, (int, float, str)):
-            return Constant(thing)
+        elif isinstance(node, (int, float, str)):
+            return Constant(node)
 
-        elif thing in (None, True, False):
-            return Constant(thing)
+        elif node in (None, True, False):
+            return Constant(node)
 
         else:
-            return thing
+            return node
 
 
 class Unparser(NodeVisitor):
@@ -1363,7 +1443,7 @@ class Unparser(NodeVisitor):
 
     def visit(self, node: AST):
         '''
-        Use stacks to overcome the Python recursion limit.
+        Use a stack to overcome the Python recursion limit.
         Credit to Dave Beazley (2014).
         '''
         stack = [self.genvisit(node)]
@@ -1390,13 +1470,11 @@ class Unparser(NodeVisitor):
         return result
 
     def visit_Assign(self, node: Assign) -> dict:
-        # target = self.visit(node.targets[-1])
         target = yield node.targets[-1]
-        # value = self.visit(node.value)
         value = yield node.value
         if not isinstance(target, str):
             # `target` is an attribute turned into a nested dict
-            return self._undo_nest(target, value)
+            return self._run_nested_update({}, target, assign)
         return {target: value}
 
     def visit_Attribute(self, node: Attribute) -> dict:
@@ -1410,8 +1488,15 @@ class Unparser(NodeVisitor):
         self,
         node: Attribute | Name,
         attrs: Sequence[str] = []
-    ) -> dict | list[str]:
+    ) -> list[str]:
         '''
+        Convert nested :class:`Attribute`s to a list of attr names.
+
+        :param node: The Attribute to convert
+        :type node: :class:`Attribute` | :class:`Name`
+
+        :param attrs: A list of preexisting attribute names
+        :type attrs: :class:`Sequence`[:class:`str`]
         '''
         while not isinstance(node, Name):
             if not attrs:
@@ -1428,7 +1513,7 @@ class Unparser(NodeVisitor):
     def visit_Constant(self, node: Constant) -> str | int | float | None:
         return node.value
 
-    def _nested_update(
+    def _run_nested_update(
         self,
         orig: Mapping | Any,
         upd: Mapping,
@@ -1436,22 +1521,31 @@ class Unparser(NodeVisitor):
     ) -> dict:
         '''
         Merge two dicts and properly give them their innermost values.
-        Use generators to bypass the Python recursion limit.
+        Use generators and a stack to bypass the Python recursion limit.
         Credit to Dave Beazley (2014).
+
+        :param orig: The original dict
+        :type orig: :class:`dict` | :class:`Any`
+
+        :param upd: A dict that updates `orig`
+        :type upd: :class:`dict`
+
+        :param assign: A value that will be stored in the innermost dict
+        :type assign: :class:`Any`
         '''
-        stack = [self._gen_nested_update(orig, upd, assign)]
+        stack = [self._nested_update(orig, upd, assign)]
         result = None
         while stack:
             try:
                 args = stack[-1].send(result)
-                stack.append(self._gen_nested_update(*args))
+                stack.append(self._nested_update(*args))
                 result = None
             except StopIteration as e:
                 stack.pop()
                 result = e.value
         return result
 
-    def _gen_nested_update(
+    def _nested_update(
         self,
         orig: dict | Any,
         upd: dict,
@@ -1459,177 +1553,24 @@ class Unparser(NodeVisitor):
     ) -> dict:
         '''
         Merge two dicts and properly give them their innermost values.
-        Use generators to bypass the Python recursion limit.
+        Use generators and a stack to bypass the Python recursion limit.
         Credit to Dave Beazley (2014).
+
+        :param orig: The original dict
+        :type orig: :class:`dict` | :class:`Any`
+
+        :param upd: A dict that updates `orig`
+        :type upd: :class:`dict`
+
+        :param assign: A value that will be stored in the innermost dict
+        :type assign: :class:`Any`
         '''
-
-##    def _nested_update(
-##        self,
-##        orig: Mapping | Any,
-##        upd: Mapping,
-##        assign: Any
-##    ) -> dict:
-##        '''
-##        '''
-##        upd = upd.copy()
-##        if not isinstance(orig, Mapping):
-##            self._nested_update({}, upd, assign)
-##        orig = orig.copy()
-##        for k, v in upd.items():
-##            if v is self._EXPR_PLACEHOLDER:
-##                v = assign
-##            if isinstance(v, Mapping):
-##                updated = self._nested_update(orig.get(k, {}), v, assign)
-##                orig[k] = updated
-##            else:
-##                orig[k] = v
-##        return orig
-
-##        new = {}
-##        
-##        print(list(*zip_longest(orig.items(), upd.items())))
-##        zipped = zip(orig.items(), upd.items())
-##        innermost = False
-##        while not innermost:
-##            # zipped = zip(orig.items(), upd.items())
-##            for (okey, oval), (ukey, uval) in zipped:
-##                print(okey, ukey)
-##                print(oval, uval)
-##                if oval is self._EXPR_PLACEHOLDER or uval is self._EXPR_PLACEHOLDER:
-##                    new[ukey] = assign
-##                    innermost = True
-##                    break
-##                elif isinstance(uval, Mapping):
-##                    new[ukey] = new
-##                    # continue
-##
-##                if okey == ukey:
-##                    zipped = zip(oval.items(), uval.items())
-##                else:
-##                    new[okey] = new[uval]
-##
-##
-##            # print(new)
-##            return upd
-
-##        new_stack = []
-##        orig_stack = [orig]
-##        upd_stack = [None, upd]  # None keeps orig active
-##
-##        while upd_stack:
-##            descends = {}
-##            upd = upd_stack.pop()
-##            if upd is not None:
-##                for k, v in tuple(upd.items()):
-##                    if v is self._EXPR_PLACEHOLDER:
-##                        v = assign
-##                    elif isinstance(v, Mapping):
-##                        upd_stack.append(v)
-##                    descends[k] = v
-##
-##                    for K, V in tuple(orig.items()):
-##                        if K not in new:
-##                            if V is self._EXPR_PLACEHOLDER:
-##                                V = assign
-##                            descends[K] = V
-##                new_stack.append(descends)
-##
-##        print(new_stack)
-##        inner_k, inner_v = new_stack.pop().items()
-##        while new_stack:
-##            # for outer in reversed(new_stack):
-##            outer = new_stack.pop()
-##            outer[inner_k] = inner_v
-
-##        # keys = []
-##        # vals = []
-##        orig = orig.copy()
-##        old = orig
-##        print(old)
-##        print(upd)
-##        # return
-##
-##        new = {}
-##        descends = {}
-##        innermost = False
-##        while not innermost:
-##            for K, V in tuple(upd.items()):
-##                if V is self._EXPR_PLACEHOLDER:
-##                    innermost = True
-##                    V = assign
-##                descends[K] = V
-##                if isinstance(V, Mapping):
-##                    upd = V
-##                for k, v in tuple(new.items()):
-##                    if k not in upd:
-##                        if v is self._EXPR_PLACEHOLDER:
-##                            innermost = True
-##                            v = assign
-##                        new[k] = v
-##                old[K] = new
-##                # new[K] = descends
-##                # descends = None
-
-##        innermost = False
-##        while not innermost:
-##            for K, V in tuple(upd.items()):
-##                print(f"@ K, V: {new = }")
-##                if V is self._EXPR_PLACEHOLDER:
-##                    innermost = True
-##                    V = assign
-##                    print(f"V: {assign = }")
-##                # print(f"{V = }")
-##                new[K] = V
-##                if isinstance(V, Mapping):
-##                    upd = V
-##
-##                for k, v in tuple(new.items()):
-##                    print(f"@ k, v: {new = }")
-##                    # if K not in old:
-##                    if v is self._EXPR_PLACEHOLDER:
-##                        innermost = True
-##                        new[k] = assign
-##                        print(f"v: {assign = }")
-##                    if isinstance(v, Mapping):
-##                        new = v
-##
-##                    print("for loop", old)
-##                old[K] = new
-##
-##            print("while loop", old)
-##        return new
-
-##        stack = [upd]
-##        while stack:
-##            if not isinstance(orig, Mapping):
-##                print("Here?")
-##                self._nested_update({}, upd, assign)
-##            # for d in stack:
-##            upd = stack.pop()
-##            for k, v in upd.items():
-##                print(stack, upd)
-##                if v is self._EXPR_PLACEHOLDER:
-##                    v = assign
-##                if isinstance(v, Mapping):
-##                    new = orig.get(k, {})
-##                    # stack.insert(0, orig.get(k, {}))
-##                    stack.insert(0, new)
-##                    upd = v
-##                else:
-##                    print("Reached innermost dict?")
-##                    # stack.insert(0, {k: v})
-##                    orig[k] = v
-##
-##        return orig
-
-
-        if not isinstance(orig, dict):
-            self._nested_update({}, upd, assign)
+        # We cannot use Mapping because its instance check is recursive.
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
             if isinstance(v, dict):
-                # updated = self._nested_update(orig.get(k, {}), v, assign)
+                # Give parameters to the generator runner:
                 updated = yield (orig.get(k, {}), v, assign)
                 if isinstance(updated, GeneratorType):
                     updated = yield from updated
@@ -1638,35 +1579,30 @@ class Unparser(NodeVisitor):
                 orig[k] = v
         return orig
 
-    def _undo_nest(self, target: MutableMapping, assign: Any) -> dict[str]:
-        '''
-        '''
-        return self._nested_update({}, target, assign)
-        # return target
-
     def visit_Dict(self, node: Dict) -> dict[str]:
         new_d = {}
         for key, val in zip(node.keys, node.values):
-            target = self.visit(key)
-            value = self.visit(val)
-            if isinstance(target, Mapping):
+            target = (yield key)
+            value = (yield val)
+            if isinstance(target, dict):
                 # An Attribute
-                new_d = self._nested_update(new_d, target, value)
+                new_d = self._run_nested_update(new_d, target, value)
             else:
                 # An assignment
                 new_d.update({target: value})
         return new_d
 
     def visit_List(self, node: List) -> list:
-        return [self.visit(e) for e in node.elts]
+        l = []
+        for e in node.elts:
+            l.append((yield e))
+        return l
 
     def visit_Module(self, node: Module) -> list[dict[str]]:
-        d = {}
+        body = []
         for n in node.body:
-            for k, v in (yield n).items():
-                d[k] = v
-        return d
-        return {k: v for n in node.body for k, v in self.visit(n).items()}
+            body.append((yield n))
+        return body
 
     def visit_Name(self, node: Name) -> str:
         return node.id
@@ -1685,25 +1621,61 @@ class ConfigFileMaker(NodeVisitor):
 
     def stringify(
         self,
-        tree: Sequence[AST] | Module,
+        tree: Iterable[AST] | Module,
         sep: str = '\n\n'
     ) -> FileContents:
         '''
         Convert an AST to the contents of a config file.
+
+        :param tree: The ASTs to be converted to strings
+        :type tree: :class:`Iterable`[:class:`AST`] | :class:`Module`
+
+        :param sep: The separator to use between tree nodes,
+            defaults to ``'\n\n'``
+        :type sep: :class:`str`
         '''
         if isinstance(tree, Module):
             tree = tree.body
-        strings = [self.visit(n) for n in tree]
+        strings = (self.visit(node) for node in tree)
         return sep.join(strings)
 
+    def visit(self, node: AST):
+        '''
+        Use a stack to overcome the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        '''
+        stack = [self.genvisit(node)]
+        result = None
+        while stack:
+            try:
+                node = stack[-1].send(result)
+                stack.append(self.genvisit(node))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    def genvisit(self, node: AST):
+        '''
+        Use generators to overcome the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        '''
+        name = 'visit_' + type(node).__name__
+        result = getattr(self, name)(node)
+        if isinstance(result, GeneratorType):
+            result = yield from result
+        return result
+
+
     def visit_Attribute(self, node: Attribute) -> str:
-        base = self.visit(node.value)
+        base = (yield node.value)
         attr = node.attr
         return f"{base}.{attr}"
 
     def visit_Assign(self, node: Assign) -> str:
-        target = self.visit(node.targets[-1])
-        value = self.visit(node.value)
+        target = (yield node.targets[-1])
+        value = (yield node.value)
         return f"{target} {value}"
 
     def visit_Constant(self, node: Constant) -> str:
@@ -1715,19 +1687,35 @@ class ConfigFileMaker(NodeVisitor):
         return str(val)
 
     def visit_Dict(self, node: Dict) -> str:
-        keys = (self.visit(k) for k in node.keys)
-        values = (self.visit(v) for v in node.values)
-        assignments = (' '.join(pair) for pair in zip(keys, values))
+        keys = []
+        values = []
+        for k in node.keys:
+            keys.append((yield k))
+        for v in node.values:
+            self._indent_level += 1
+            values.append((yield v))
+            self._indent_level -= 1
+        assignments = tuple(' '.join(pair) for pair in zip(keys, values))
         self._indent_level += 1
-        joined = f"\n{self.indent()}".join(assignments)
-        string = f"{{\n{self.indent()}{joined}"
+        if len(assignments) > 1:
+            opening = f"{{\n{self.indent()}"
+            joiner = f"\n{self.indent()}" 
+            self._indent_level -= 1
+            closing = f"\n{self.indent()}}}"
+        else:
+            opening = "{"
+            joiner = ""
+            closing = "}"
+        joined = joiner.join(assignments)
+        string = f"{opening}{joined}{closing}"
         self._indent_level -= 1
-        string += f"\n{self.indent()}}}"
         return string
 
     def visit_List(self, node: List) -> str:
         one_line_limit = 3
-        elems = tuple(self.visit(e) for e in node.elts)
+        elems = []
+        for e in node.elts:
+            elems.append((yield e))
         if len(elems) > one_line_limit:
             self._indent_level += 1
             joined = ('\n' + self.indent()).join(elems)
@@ -1746,44 +1734,7 @@ class ConfigFileMaker(NodeVisitor):
 def parse(file: PathLike = None) -> Module:
     return FileParser(file).parse()
 
+
 def unparse(node: AST) -> str:
     return Unparser().unparse(node)
-
-
-if __name__ == '__main__':
-    string = '''
-z {
-    a.b.c.d.e = 3
-    a.b.c.dd.ee = 4
-}
-'''
-    '''
-z {
-    a [
-        {foo 3  }
-    ]
-    b.c.d = {
-        bb {
-            aaa 1
-            bbb 2
-        }
-    }
-}
-
-    '''
-    print("string = '''" + string + "'''")
-    result = RecursiveDescentParser(Lexer(string)).parse()
-##    import os.path
-##    CONFIG_FILE: str = os.path.abspath(os.path.expanduser(
-##        # '~/.config/mybar/conf.json'
-##        '~/.config/mybar/mybar.conf'
-##    ))
-##    result = FileParser(CONFIG_FILE).to_dict()
-##    result = parse(CONFIG_FILE)
-    # print(result)
-    # print(ast.dump(result))
-    print(Unparser().unparse(result))
-    # result = Unparser().unparse(result)
-    # print(result['a']['a']['a']['a']['a']['a'].keys())
-    # print(DictDisassembler.make_file(Unparser().unparse(result)))
 
