@@ -1,13 +1,4 @@
-__all__ = (
-    'Token',
-    'Lexer',
-    'FileParser',
-    'DictParser',
-    'Unparser',
-    'ConfigFileMaker',
-)
-
-
+import ast
 import re
 import string
 import sys
@@ -23,12 +14,25 @@ from ast import (
     NodeVisitor,
 )
 from enum import Enum
+from itertools import zip_longest
 from os import PathLike
 from queue import LifoQueue
 from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
-from typing import Any, NamedTuple, NoReturn, Self, TypeAlias, TypeVar
+from types import GeneratorType
+from typing import (
+    Any,
+    Iterable,
+    Literal,
+    NamedTuple,
+    NoReturn,
+    Self,
+    TypeAlias,
+    TypeVar
+)
 
-from ._types import FileContents
+# from ._types import FileContents, PythonData
+FileContents = 'FileContents'
+PythonData = 'PythonData'
 
 Token = TypeVar('Token')
 Lexer = TypeVar('Lexer')
@@ -41,64 +45,81 @@ TokenValue: TypeAlias = str
 Location: TypeAlias = tuple[LineNo, ColNo]
 
 
+class KeyValuePair(Dict):
+    '''
+    One key-value pair in a dictionary.
+    '''
+
 EOF = ''
 NEWLINE = '\n'
+UNKNOWN = 'UNKNOWN'
 NOT_IN_IDS = string.punctuation.replace('_', '\s')
+KEYWORDS = ()
 
 
 class Grammar:
-    # I have no clue whether or not the following makes sense.
     '''
-    mod = expr*
-        | Assign(identifier target, expr? value)*
+    Module : Assignment
+           | Assignment Delimiter Module
 
-    expr = Constant(constant value)
-         | Dict(Assign*)
-         | List(expr* elts)
-         | Attribute(identifier value, identifier attr)
+    Assignment : Identifier MaybeEQ Expr
 
-    constant = integer | float | string | boolean
-    string = speech_char (text? speech_char{2}? text?)* speech_char
-    speech_char = ['"`]{3} | ['"`]
-    boolean = 'True' | 'False' | 'yes' | 'no'
+    Identifier : Attribute
+    Attribute : Dotted Attribute
+              | ID
+    Dotted : ID PERIOD
+
+    Expr : LITERAL
+         | List
+         | Dict
+         | Delimiter
+         | None
+
+    List : L_BRACKET RepeatedExpr R_BRACKET
+
+    Dict : L_CURLY_BRACE RepeatedKVP R_CURLY_BRACE
+
+    RepeatedExpr : Expr Delimiter RepeatedExpr
+                 | None
+
+    RepeatedKVP : KVPair Delimiter RepeatedKVP
+                | None
+
+    KVPair : Identifier MaybeEQ Expr
+
+    MaybeEQ : EQUALS | None
+
+    Delimiter : NEWLINE | COMMA | None
     '''
 
 
-class Literal(Enum):
+class TokKind(Enum):
+    NEWLINE = repr(NEWLINE)
+    EOF = repr(EOF)
+
+    # Ignored tokens:
+    COMMENT = 'COMMENT'
+    SPACE = 'SPACE'
+
+    # Literals:
     FLOAT = 'FLOAT'
     INTEGER = 'INTEGER'
     STRING = 'STRING'
     TRUE = 'TRUE'
     FALSE = 'FALSE'
+    NONE = 'NONE'
 
-class Ignore(Enum):
-    COMMENT = 'COMMENT'
-    SPACE = 'SPACE'
-
-class Newline(Enum):
-    NEWLINE = repr(NEWLINE)
-
-class EndOfFile(Enum):
-    EOF = repr(EOF)
-
-class Unknown(Enum):
-    UNKNOWN = 'UNKNOWN'
-
-class Symbol(Enum):
+    # Symbols:
     IDENTIFIER = 'IDENTIFIER'
     KEYWORD = 'KEYWORD'
 
-class Keyword(Enum):
-    pass
-KEYWORDS = ()
-
-class BinOp(Enum):
+    # Binary operators:
     ASSIGN = '='
     ATTRIBUTE = '.'
     ADD = '+'
     SUBTRACT = '-'
 
-class Syntax(Enum):
+    # Syntax:
     COMMA = ','
     L_PAREN = '('
     R_PAREN = ')'
@@ -107,19 +128,42 @@ class Syntax(Enum):
     L_CURLY_BRACE = '{'
     R_CURLY_BRACE = '}'
 
-AssignEvalNone = tuple((*Newline, *EndOfFile, *Unknown, ))
+    UNKNOWN = 'UNKNOWN'
 
-TokenKind = Enum(
-    'TokenKind',
-    ((k.name, k.value) for k in (
-        *Literal,
-        *Symbol,
-        *Syntax,
-        *BinOp,
-        *Ignore,
-        *AssignEvalNone,
-    ))
-)
+# T_AssignEvalNone = tuple((*Newline, *TokKind))
+T_AssignEvalNone = {TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA}
+'''These tokens eval to None after a "="'''
+
+T_Ignore = {TokKind.SPACE, TokKind.COMMENT}
+'''These tokens are ignored by the parser'''
+
+T_Literal = {
+    TokKind.STRING,
+    TokKind.INTEGER,
+    TokKind.FLOAT,
+    TokKind.TRUE,
+    TokKind.FALSE,
+    TokKind.NONE
+}
+
+T_Syntax = {
+    TokKind.COMMA,
+    TokKind.L_BRACKET,
+    TokKind.L_CURLY_BRACE,
+    TokKind.R_BRACKET,
+    TokKind.R_CURLY_BRACE,
+    TokKind.L_PAREN,
+    TokKind.R_PAREN,
+}
+
+T_EndOfExpr = {
+    TokKind.EOF,
+    TokKind.NEWLINE,
+    TokKind.COMMA,
+    TokKind.R_BRACKET,
+    TokKind.R_CURLY_BRACE,
+}
+'''These tokens mark the end of an expression.'''
 
 
 class ConfigError(SyntaxError):
@@ -164,7 +208,7 @@ class TokenError(ConfigError):
         :type with_col: :class:`bool`
         
         :param leader: The error leader to use,
-            defaults to that of the lexer of the first token
+            defaults to that of the first token
         :type leader: :class:`str`
 
         :param indent: Indent by this many spaces * 2,
@@ -179,16 +223,12 @@ class TokenError(ConfigError):
 
         first_tok = tokens[0]
         lexer = first_tok.lexer
+        if leader is None:
+            leader = first_tok.error_leader()
 
         if indent is None:
             indent = 0
         dent = ' ' * indent
-
-        if leader is None:
-            if lexer is not None:
-                leader = dent + first_tok.error_leader(with_col)
-            else:
-                leader = ""
 
         max_len = 100
         break_line = "\n" + dent if len(leader + msg) > max_len else ""
@@ -198,7 +238,7 @@ class TokenError(ConfigError):
         if len(tokens) == 1:
             line_bridge = " "
             line = lexer.get_line(first_tok)
-            if first_tok.kind is Literal.STRING:
+            if first_tok.kind is TokKind.STRING:
                 text = first_tok.match_repr()
             else:
                 text = first_tok.value
@@ -218,10 +258,11 @@ class TokenError(ConfigError):
 
             between = tuple(t for t in all_toks if start <= t.cursor <= end)
 
-            if any(t.kind is Newline.NEWLINE for t in between):
+            if any(t.kind is TokKind.NEWLINE for t in between):
                 # Consolidate multiple lines:
                 with_dups = (
-                    lexer.get_line(t) for t in between if t.kind not in Ignore
+                    lexer.get_line(t) for t in between
+                    if t.kind not in T_Ignore
                 )
                 lines = dict.fromkeys(with_dups)
                 # Don't count line breaks twice:
@@ -235,13 +276,12 @@ class TokenError(ConfigError):
             kind = t.kind
             match kind:
 
-                case kind if kind in (*Ignore, EndOfFile.EOF):
+                case kind if kind in (*T_Ignore, TokKind.EOF):
                     if t is between[-1]:
                         # highlight += '^'
                         token_length = 1
-                    # continue
 
-                case Literal.STRING:
+                case TokKind.STRING:
                     # match_repr() contains the quotation marks:
                     token_length = len(t.match_repr())
 
@@ -252,7 +292,7 @@ class TokenError(ConfigError):
 
         # Determine how far along the first token is in the line:
         line_start = len(line) - len(line.lstrip())
-        if between[-1].kind is Newline.NEWLINE:
+        if between[-1].kind is TokKind.NEWLINE:
             line_end = len(line) - len(line.rstrip())
             line_start += line_end
         tok_start_distance = first_tok.colno - line_start - 1
@@ -266,7 +306,7 @@ class TokenError(ConfigError):
 
 class ParseError(TokenError):
     '''
-    Exception raised during file parsing operations.
+    Exception raised during string parsing operations.
     '''
     pass
 
@@ -289,7 +329,7 @@ class Token:
     :type value: :class:`str`
 
     :param kind: The token's distict kind
-    :type kind: :class:`TokenKind`
+    :type kind: :class:`TokKind`
 
     :param matchgroups: The value gotten by re.Match.groups() when
         making this token
@@ -297,10 +337,11 @@ class Token:
 
     :param lexer: The lexer used to find this token, optional
     :type lexer: :class:`Lexer`
-
-    :param file: The file from which this token came, optional
-    :type file: :class:`PathLike`
     '''
+
+##    :param file: The file from which this token came, optional
+##    :type file: :class:`PathLike`
+##    '''
     __slots__ = (
         'at',
         'value',
@@ -317,7 +358,7 @@ class Token:
         self,
         at: tuple[CharNo, Location],
         value: TokenValue,
-        kind: TokenKind,
+        kind: TokKind,
         matchgroups: tuple[str],
         lexer: Lexer = None,
         file: PathLike = None,
@@ -349,13 +390,28 @@ class Token:
         s = f"{cls}({attrs})"
         return s
 
-    def __class_getitem__(cls, item: TokenKind) -> str:
+    def __class_getitem__(cls, item: TokKind) -> str:
+        return cls
         item_name = (
             item.__class__.__name__
             if not hasattr(item, '__name__')
             else item.__name__
         )
         return f"{cls.__name__}[{item_name}]"
+
+    def error_leader(self, with_col: bool = False) -> str:
+        '''
+        Return the beginning of an error message that features the
+        filename, line number and possibly current column number.
+
+        :param with_col: Also print the current column number,
+            defaults to ``False``
+        :type with_col: :class:`bool`
+        '''
+        file = f"File {self.file}, " if self.file is not None else ''
+        column = ', column ' + str(self.colno) if with_col else ''
+        msg = f"{file}Line {self.lineno}{column}: "
+        return msg
 
     def match_repr(self) -> str | None:
         '''
@@ -367,20 +423,6 @@ class Token:
         quote = self.matchgroups[0]
         val = self.matchgroups[1]
         return f"{quote}{val}{quote}"
-
-    def error_leader(self, with_col: bool = False) -> str:
-        '''
-        Return the beginning of an error message that features the
-        filename, line number and possibly current column number.
-
-        :param with_col: Also print the token's column number,
-            defaults to ``False``
-        :type with_col: :class:`bool`
-        '''
-        file = f"File {self.file}, " if self.file is not None else ""
-        column = ', column ' + str(self.colno) if with_col else ""
-        msg = f"{file}line {self.lineno}{column}: "
-        return msg
 
     def coords(self) -> Location:
         '''
@@ -427,63 +469,55 @@ class Lexer:
             r'^(?P<speech_char>["\'`]{3}|["\'`])'
             r'(?P<text>(?!(?P=speech_char)).*?)*'
             r'(?P=speech_char)'
-        ), Literal.STRING),
-        (re.compile(r'^\d*\.\d[\d_]*'), Literal.FLOAT),
-        (re.compile(r'^\d+'), Literal.INTEGER),
+        ), TokKind.STRING),
+        (re.compile(r'^\d*\.\d[\d_]*'), TokKind.FLOAT),
+        (re.compile(r'^\d+'), TokKind.INTEGER),
 
         # Ignore
         ## Skip comments
-        (re.compile(r'^\#.*(?=\n*)'), Ignore.COMMENT),
+        (re.compile(r'^\#.*(?=\n*)'), TokKind.COMMENT),
         ## Finds empty assignments:
-        (re.compile(r'^' + NEWLINE + r'+'), Newline.NEWLINE),
+        (re.compile(r'^' + NEWLINE + r'+'), TokKind.NEWLINE),
         ## Skip all other whitespace:
-        (re.compile(r'^[^' + NEWLINE + r'\S]+'), Ignore.SPACE),
+        (re.compile(r'^[^' + NEWLINE + r'\S]+'), TokKind.SPACE),
 
         # Operators
-        (re.compile(r'^='), BinOp.ASSIGN),
-        (re.compile(r'^\.'), BinOp.ATTRIBUTE),
+        (re.compile(r'^='), TokKind.ASSIGN),
+        (re.compile(r'^\.'), TokKind.ATTRIBUTE),
 
         # Syntax
-        (re.compile(r'^\,'), Syntax.COMMA),
-        (re.compile(r'^\('), Syntax.L_PAREN),
-        (re.compile(r'^\)'), Syntax.R_PAREN),
-        (re.compile(r'^\['), Syntax.L_BRACKET),
-        (re.compile(r'^\]'), Syntax.R_BRACKET),
-        (re.compile(r'^\{'), Syntax.L_CURLY_BRACE),
-        (re.compile(r'^\}'), Syntax.R_CURLY_BRACE),
+        (re.compile(r'^\,'), TokKind.COMMA),
+        (re.compile(r'^\('), TokKind.L_PAREN),
+        (re.compile(r'^\)'), TokKind.R_PAREN),
+        (re.compile(r'^\['), TokKind.L_BRACKET),
+        (re.compile(r'^\]'), TokKind.R_BRACKET),
+        (re.compile(r'^\{'), TokKind.L_CURLY_BRACE),
+        (re.compile(r'^\}'), TokKind.R_CURLY_BRACE),
 
         # Booleans
-        (re.compile(r'^(true|yes)', re.IGNORECASE), Literal.TRUE),
-        (re.compile(r'^(false|no)', re.IGNORECASE), Literal.FALSE),
+        (re.compile(r'^(true|yes)', re.IGNORECASE), TokKind.TRUE),
+        (re.compile(r'^(false|no)', re.IGNORECASE), TokKind.FALSE),
 
         # Symbols
-        *tuple(dict.fromkeys(KEYWORDS, Symbol.KEYWORD).items()),
-        (re.compile(r'^[^' + NOT_IN_IDS + r']+'), Symbol.IDENTIFIER),
+        *((r'^' + kw, TokKind.KEYWORD) for kw in KEYWORDS),
+        (re.compile(r'^[^' + NOT_IN_IDS + r']+'), TokKind.IDENTIFIER),
     )
 
     def __init__(
         self,
         string: str = None,
-        file: PathLike = None,
+        file: str = None
     ) -> None: 
-        if string is None:
-            if file is None:
-                msg = "`string` parameter is required when `file` is not given"
-                raise ValueError(msg)
-
-            with open(file, 'r') as f:
-                string = f.read()
-
         self._string = string
         self._lines = self._string.split('\n')
-        self._file = file
-        self._token_stack = LifoQueue()
         self._tokens = []
+        self._string_stack = LifoQueue()
 
         self._cursor = 0  # 0-indexed
         self._lineno = 1  # 1-indexed
         self._colno = 1  # 1-indexed
-        self.eof = EndOfFile.EOF
+        self.eof = TokKind.EOF
+        self._file = file
 
     def lineno(self) -> int:
         '''
@@ -551,7 +585,7 @@ class Lexer:
         self._cursor = 0
         self._lineno = 1
         self._colno = 1
-        self._tokens.clear()
+        self._tokens = []
         return self
 
     def get_prev(self, back: int = 1, since: Token = None) -> tuple[Token]:
@@ -581,9 +615,10 @@ class Lexer:
             defaults to ``False``
         :type with_col: :class:`bool`
         '''
-        file = self._file if self._file is not None else ''
+        # file = self._file if self._file is not None else ''
         column = ', column ' + str(self._colno) if with_col else ''
-        msg = f"File {file!r}, line {self._lineno}{column}: "
+        # msg = f"File {file!r}, line {self._lineno}{column}: "
+        msg = f"Line {self._lineno}{column}: "
         return msg
 
     def get_token(self) -> Token:
@@ -592,9 +627,22 @@ class Lexer:
 
         :raises: :exc:`TokenError` upon an unexpected token
         '''
+        try:
+            return next(self._get_token())
+        except StopIteration as e:
+            return e.value
+
+    def _get_token(self) -> Token:
+        '''
+        A generator.
+        Return the next token in the lexing stream.
+
+        :raises: :exc:`StopIteration` to give the current token
+        :raises: :exc:`TokenError` upon an unexpected token
+        '''
         # The stack will have contents after string concatenation.
-        if not self._token_stack.empty():
-            tok = self._token_stack.get()
+        if not self._string_stack.empty():
+            tok = self._string_stack.get()
             self._tokens.append(tok)
             return tok
 
@@ -618,20 +666,20 @@ class Lexer:
                 file=self._file
             )
 
-            if kind in (Ignore.SPACE, Ignore.COMMENT):
+            if kind in T_Ignore:
                 l = len(tok.value)
                 self._cursor += l
                 self._colno += l
-                return tok
+                return (yield from self._get_token())
 
             # Update location:
             self._cursor += len(tok.value)
             self._colno += len(tok.value)
-            if kind is Newline.NEWLINE:
+            if kind is TokKind.NEWLINE:
                 self._lineno += len(tok.value)
                 self._colno = 1
 
-            if kind is Literal.STRING:
+            if kind is TokKind.STRING:
                 # Process strings by removing quotes:
                 speech_char = tok.matchgroups[0]
                 value = tok.value.strip(speech_char)
@@ -642,12 +690,12 @@ class Lexer:
                 # Concatenate neighboring strings:
                 if self.STRING_CONCAT:
                     while True:
-                        maybe_str = self.get_token()
-                        if maybe_str.kind in (*Ignore, Newline.NEWLINE):
+                        maybe_str = yield from self._get_token()
+                        if maybe_str.kind in (*T_Ignore, TokKind.NEWLINE):
                             continue
                         break
 
-                    if maybe_str.kind is Literal.STRING:
+                    if maybe_str.kind is TokKind.STRING:
                         # Concatenate.
                         tok.value += maybe_str.value
                         self._tokens.append(tok)
@@ -655,7 +703,7 @@ class Lexer:
 
                     else:
                         # Handle the next token separately.
-                        self._token_stack.put(maybe_str)
+                        self._string_stack.put(maybe_str)
 
             self._tokens.append(tok)
             return tok
@@ -679,7 +727,7 @@ class Lexer:
             bad_token = Token(
                 value=bad_value,
                 at=(self._cursor, (self._lineno, self._colno)),
-                kind=Unknown.UNKNOWN,
+                kind=UNKNOWN,
                 matchgroups=None,
                 lexer=self,
                 file=self._file
@@ -708,33 +756,59 @@ class Lexer:
                     raise StackTraceSilencer(1)  # Sorry...
 
 
-class FileParser:
+class RecursiveDescentParser:
     '''
-    Parse config files, converting them to abstract syntax trees.
+    Parse strings, converting them to abstract syntax trees.
 
-    :param file: If given, parse this file, optional
-    :type file: :class:`PathLike`
-
-    :param string: If given, parse this string, optional
-    :type string: :class:`str`
+    :param lexer: The lexer used for feeding tokens
+    :type lexer: :class:`Lexer`
     '''
     def __init__(
         self,
-        file: PathLike = None,
-        *,
-        string: str = None,
+        lexer: Lexer,
     ) -> None:
-        if string is None:
-            if file is None:
-                msg = "Either a string or a filename is required"
-                raise ValueError(msg)
-
-        self._file = file
-        self._string = string
-        self._lexer = Lexer(string, file)
+        self._lexer = lexer
         self._tokens = self._lexer.lex()
         self._cursor = 0
-        self._current_expr = None
+        self._lookahead = self._tokens[self._cursor]
+
+    End = TokKind.EOF
+
+    class Expr:
+        '''
+        Expr : LITERAL
+             | List
+             | Dict
+             | Delimiter
+             | None
+        '''
+
+    class RepeatedExpr:
+        '''
+        RepeatedExpr : Expr Delimiter RepeatedExpr
+                     | None
+        '''
+
+    class RepeatedKVP:
+        '''
+        RepeatedKVP : KVPair Delimiter RepeatedKVP
+                    | None
+        '''
+
+    class KVPair:
+        '''
+        KVPair : IDENTIFIER MaybeEQ Expr
+        '''
+
+    class MaybeEQ:
+        '''
+        MaybeEQ : EQUALS | None
+        '''
+
+    class Delimiter:
+        '''
+        Delimiter : NEWLINE | COMMA | None
+        '''
 
     def tokens(self) -> list[Token]:
         '''
@@ -750,13 +824,6 @@ class FileParser:
         '''
         return {t.cursor: t for t in self.tokens()}
 
-    def _cur_tok(self) -> Token:
-        '''
-        Return the current token being parsed.
-        :rtype: :class:`Token`
-        '''
-        return self._tokens[self._cursor]
-
     def _advance(self) -> Token:
         '''
         Move to the next token. Return that token.
@@ -764,8 +831,19 @@ class FileParser:
         '''
         if self._cursor < len(self._tokens) - 1:
             self._cursor += 1
-        curr = self._cur_tok()
-        return curr
+        return self._tokens[self._cursor]
+
+    def _skip_all_whitespace(self) -> Token:
+        '''
+        Return the current or next non-whitespace token.
+        This also skips newlines.
+        :rtype: :class:`Token`
+        '''
+        tok = self._tokens[self._cursor]
+        while True:
+            if tok.kind not in (*T_Ignore, TokKind.NEWLINE):
+                return tok
+            tok = self._advance()
 
     def _next(self) -> Token:
         '''
@@ -773,12 +851,12 @@ class FileParser:
         :rtype: :class:`Token`
         '''
         while True:
-            if not (tok := self._advance()).kind in (*Ignore, Newline.NEWLINE):
+            if not (tok := self._advance()).kind in T_Ignore:
                 return tok
 
     def _expect_curr(
         self,
-        kind: TokenKind | tuple[TokenKind],
+        kind: TokKind | tuple[TokKind],
         errmsg: str = None
     ) -> Token | NoReturn | bool:
         '''
@@ -788,44 +866,18 @@ class FileParser:
         If the test passes, return the current token.
 
         :param kind: The kind(s) to expect from the current token
-        :type kind: :class:`TokenKind`
+        :type kind: :class:`TokKind`
 
         :param errmsg: The error message to display, optional
         :type errmsg: :class:`str`
         '''
         if not isinstance(kind, tuple):
             kind = (kind,)
-        tok = self._cur_tok()
+        tok = self._lookahead
         if tok.kind not in kind:
             if errmsg is None:
                 return False
-            raise ParseError.hl_error(tok, errmsg)
-        return tok
-
-    def _expect_next(
-        self,
-        kind: TokenKind | tuple[TokenKind],
-        errmsg: str
-    ) -> NoReturn | bool:
-        '''
-        Test if the next token is of a certain kind given by `kind`.
-        If the test fails, raise :exc:`ParseError` using
-        `errmsg` or return ``False`` if `errmsg` is ``None``.
-        If the test passes, return the current token.
-
-        :param kind: The kind(s) to expect from the current token
-        :type kind: :class:`TokenKind`
-
-        :param errmsg: The error message to display, optional
-        :type errmsg: :class:`str`
-        '''
-        if not isinstance(kind, tuple):
-            kind = (kind,)
-        tok = self._next()
-        if tok.kind not in kind:
-            if errmsg is None:
-                return False
-            raise ParseError.hl_error(tok, errmsg)
+            raise ParseError.hl_error(tok, errmsg, self)
         return tok
 
     def _reset(self) -> None:
@@ -833,122 +885,52 @@ class FileParser:
         Return the lexer to the first token of the token stream.
         '''
         self._cursor = 0
+        self._lexer.reset()
 
-    def _not_eof(self) -> bool:
-        '''
-        Return whether the current token is NOT the end-of-file.
-        '''
-        return (self._cur_tok().kind is not EndOfFile.EOF)
+    def _parse_assign(self) -> Assign:
+        # Advance to the next assignment:
+        self._lookahead = self._skip_all_whitespace()
+        if self._lookahead.kind in {TokKind.EOF, TokKind.NEWLINE}:
+            return TokKind.EOF
 
-    def _should_skip(self) -> bool:
-        '''
-        Return whether the current token is whitespace or a comment.
-        '''
-        return (self._cur_tok().kind in (*Ignore, Newline.NEWLINE))
-
-    def _parse_root_assign(self) -> Assign:
-        '''
-        Parse an assignment in the outermost scope at the current token::
-
-            foo = 'bar'  # -> Assign([Name('foo')], Constant('bar'))
-
-        :returns: An ``Assign`` object built from a key-value pair
-        :rtype: :class:`Assign`
-        '''
-        while self._should_skip():
-            self._next()
         msg = "Invalid syntax (expected an identifier):"
-        target_tok = self._expect_curr(Symbol.IDENTIFIER, msg)
-        self._current_expr = Assign
+        target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
         target = Name(target_tok.value)
-        target._token = target_tok
 
-        possible_ops = (BinOp.ATTRIBUTE, BinOp.ASSIGN, Syntax.L_CURLY_BRACE)
-        msg = "Invalid syntax (expected '=' or '{'):"
-
-        # Ignore newlines between identifier and operator:
-        self._next()
-        operator = self._expect_curr(possible_ops, msg)
-
-        if operator.kind is BinOp.ATTRIBUTE:
-            target = self._parse_attribute(target)
-            operator = self._expect_curr(possible_ops, msg)
-
-        if operator.kind is Syntax.L_CURLY_BRACE:
-            value = self._parse_object()
+        maybe_attr = self._next()
+        if maybe_attr.kind is TokKind.ATTRIBUTE:
+            target = next(self._parse_attribute(target))
+            self._lookahead = maybe_equals = self._skip_all_whitespace()
         else:
-            value = self._parse_expr()
+            self._lookahead = maybe_equals = maybe_attr
+        target._token = assigner = target_tok
+
+        if maybe_equals.kind is TokKind.ASSIGN:
+            self._lookahead = self._next()
+
+        try:
+            value = next(self._parse_expr())
+        except StopIteration as e:
+            value = e.args[0]
+        if value in {TokKind.NEWLINE, TokKind.EOF}:
+            if maybe_equals.kind is TokKind.ASSIGN:
+                value = Constant(None)
+            else:
+                msg = "Invalid syntax (missing assignment):"
+                raise ParseError.hl_error(
+                    (target_tok, self._lookahead), msg, self
+                )
 
         if isinstance(value, Name):
             msg = f"Invalid syntax: Cannot use variable names as expressions"
-            raise ParseError.hl_error(value._token, msg)
+            raise ParseError.hl_error(value._token, msg, self)
 
         node = Assign([target], value)
-        node._token = operator
+        node._token = assigner
 
-        # Advance to the next assignment:
         self._next()
-        return node
+        return (yield node)
 
-    def _parse_expr(self) -> AST:
-        '''
-        Parse an expression at the current token.
-
-        :rtype: :class:`AST`
-        '''
-        while True:
-            tok = self._advance()
-            kind = tok.kind
-
-            match kind:
-                case EndOfFile.EOF:
-                    return tok
-                case kind if kind in Ignore:
-                    continue
-                case Newline.NEWLINE | Syntax.COMMA:
-                    if self._current_expr in (Assign, Dict):
-                        node = Constant(None)
-                    else:
-                        continue
-                case kind if kind in Literal:
-                    node = self._parse_literal(tok)
-                case BinOp.ATTRIBUTE:
-                    node = self._parse_mapping(self._parse_attribute(tok))
-                case Syntax.L_BRACKET:
-                    node = self._parse_list()
-                case Syntax.L_CURLY_BRACE:
-                    node = self._parse_object()
-                case Symbol.IDENTIFIER:
-                    node = Name(tok.value)
-                case _:
-                    return tok
-
-            node._token = tok
-            return node
-
-    def _parse_list(self) -> List:
-        '''
-        Parse a list at the current token::
-
-            ['a', 'b']  # -> List([Constant('a'), Constant('b')])
-
-        :rtype: :class:`List`
-        '''
-        msg = "_parse_list() called at the wrong time"
-        self._expect_curr(Syntax.L_BRACKET, msg)
-        self._current_expr = List
-        elems = []
-        while True:
-            elem = self._parse_expr()
-            if isinstance(elem, Token):
-                if elem.kind is EndOfFile.EOF:
-                    msg = "Invalid syntax: Unmatched '[':"
-                    raise ParseError.hl_error(elem, msg)
-                if elem.kind is Syntax.R_BRACKET:
-                    break
-            elems.append(elem)
-        return List(elems)
-        
     def _parse_attribute(self, outer: Name | Attribute) -> Attribute:
         '''
         Parse an attribute at the current token inside an object::
@@ -960,54 +942,107 @@ class FileParser:
         :type outer: :class:`Name` | :class:`Attribute`
         :rtype: :class:`Attribute`
         '''
+        self._lookahead = self._skip_all_whitespace()
         msg = (
             "_parse_attribute() called at the wrong time",
             "Invalid syntax (expected an identifier):",
         )
-        operator = self._expect_curr(BinOp.ATTRIBUTE, msg[0])
-        maybe_base = self._expect_next(Symbol.IDENTIFIER, msg[1])
-        attr = maybe_base.value
-        target = Attribute(outer, attr)
-        maybe_another = self._next()
-        target._token = maybe_base
-        if maybe_another.kind is BinOp.ATTRIBUTE:
-            target = self._parse_attribute(target)
-        return target
+        self._expect_curr(TokKind.ATTRIBUTE, msg[0])
+        self._lookahead = self._next()
+        while True:
+            # This may be the base of another attr, or it may be the
+            # terminal attr:
+            maybe_base = self._expect_curr(TokKind.IDENTIFIER, msg[1])
+            attr = maybe_base.value
+            outer = Attribute(outer, attr)
+            outer._token = maybe_base
+            # Any more dots?
+            if self._next().kind is not TokKind.ATTRIBUTE:
+                break
+            self._lookahead = self._next()
+        yield outer
 
-    def _parse_mapping(self) -> Dict:
+    def _parse_expr(self) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
         '''
-        Parse a 1-to-1 mapping at the current token inside an object::
+        Parse an expression at the current token.
 
-            {key = 'val'}  # -> Dict([Name('key')], [Constant('val')])
-
-        :rtype: :class:`Dict`
+        :rtype: :class:`AST` | :class:`Token`[TokKind.EOF | TokKind.NEWLINE]
         '''
-        msg = (
-            "Invalid syntax (expected an identifier):",
-            "Invalid syntax (expected '=' or '.'):"
-        )
-        self._current_expr = Dict
-        target_tok = self._expect_curr(Symbol.IDENTIFIER, msg[0])
-        target = Name(target_tok.value)
-        target._token = target_tok
+        tok = self._lookahead
+        kind = tok.kind
+        match kind:
+            case kind if kind in T_EndOfExpr:
+                yield kind
 
-        maybe_attr = self._next()
-        if maybe_attr.kind is BinOp.ATTRIBUTE:
-            target = self._parse_attribute(target)
+            case kind if kind in T_Literal:
+                match tok.kind:
+                    case TokKind.STRING:
+                        value = tok.value
+                    case TokKind.INTEGER:
+                        value = int(tok.value)
+                    case TokKind.FLOAT:
+                        value = float(tok.value)
+                    case TokKind.TRUE:
+                        value = True
+                    case TokKind.FALSE:
+                        value = False
+                    case TokKind.NONE:
+                        value = None
+                    case _:
+                        msg = f"Expected a literal, but got {tok.value!r}"
+                        raise ParseError.hl_error(tok, msg, self)
+                node = Constant(value)
 
-        assign_tok = self._expect_curr(BinOp.ASSIGN, msg[1])
-        value = self._parse_expr()
-        # Disallow assigning identifiers:
-        if isinstance(value, Name):
-            typ = value._token.kind.value
-            val = repr(value._token.value)
-            note = f"expected expression, got {typ} {val}"
-            msg = f"Invalid assignment: {note}:"
-            raise ParseError.hl_error(value._token, msg)
-        node = Dict([target], [value])
-        node._token = assign_tok
-        return node
+            case TokKind.L_BRACKET:
+                node = (yield from self._parse_list())
+            case TokKind.L_CURLY_BRACE:
+                node = (yield from self._parse_object())
 
+            case TokKind.IDENTIFIER:
+                node = Name(tok.value)
+            case _:
+                # typ = tok.kind.value.lower()
+                msg = (f"Expected an expression,"
+                       f" but got {tok.value!r} instead.")
+                raise ParseError.hl_error(tok, msg, self)
+
+        node._token = tok
+        yield node
+
+    def _parse_list(self) -> List:
+        '''
+        Parse a list at the current token::
+
+            ['a', 'b']  # -> List([Constant('a'), Constant('b')])
+
+        :rtype: :class:`List`
+        '''
+        msg = "_parse_list() called at the wrong time"
+        elems = []
+        self._lookahead = self._next()
+        while True:
+            try:
+                elem = next(self._parse_expr())
+            except StopIteration as e:
+                elem = e.value
+            if elem is TokKind.EOF:
+                msg = "Invalid syntax: Unmatched '[':"
+                raise ParseError.hl_error(self._lookahead, msg, self)
+            if isinstance(elem, Name):
+                note = (f"Expected an expression,"
+                        f" but got {self._lookahead.value!r} instead.")
+                msg = f"Invalid syntax: {note}"
+                raise ParseError.hl_error(self._lookahead, msg, self)
+            if elem is TokKind.R_BRACKET:
+                self._lookahead = self._next()
+                break
+            if elem in {TokKind.COMMA, TokKind.NEWLINE}:
+                self._lookahead = self._next()
+                continue
+            elems.append(elem)
+            self._lookahead = self._next()
+        yield List(elems)
+        
     def _parse_object(self) -> Dict:
         '''
         Parse a dict containing many mappings at the current token::
@@ -1028,8 +1063,7 @@ class FileParser:
         msg = (
             "_parse_object() called at the wrong time",
         )
-        self._expect_curr(Syntax.L_CURLY_BRACE, msg[0])
-        self._current_expr = Dict
+        start = self._expect_curr(TokKind.L_CURLY_BRACE, msg[0])
         keys = []
         vals = []
 
@@ -1037,17 +1071,40 @@ class FileParser:
             tok = self._next()
             kind = tok.kind
             match kind:
-                case EndOfFile.EOF:
-                    msg = "Invalid syntax: Unmatched '{':"
-                    raise ParseError.hl_error(tok, msg)
-                case Syntax.R_CURLY_BRACE:
-                    break
-                case kind if kind in (*Ignore, Syntax.COMMA, Newline.NEWLINE):
-                    continue
-                case Symbol.IDENTIFIER:
-                    pair = self._parse_mapping()
-                    key = pair.keys[-1]  # Only one key and one value
-                    val = pair.values[-1]
+                case TokKind.IDENTIFIER:
+                    # Parse a new key-value pair:
+                    # pair = self._parse_key_val_pair()
+
+                    msg = (
+                        "Invalid syntax (expected an identifier):",
+                        "Invalid syntax:"
+                    )
+                    # key_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
+                    key_tok = self._tokens[self._cursor]
+                    key = Name(key_tok.value)
+                    key._token = key_tok
+
+                    maybe_attr = self._next()
+                    if maybe_attr.kind is TokKind.ATTRIBUTE:
+                        key = next(self._parse_attribute(key))
+                        self._lookahead = maybe_equals = self._next()
+                    else:
+                        self._lookahead = maybe_equals = maybe_attr
+
+                    if maybe_equals.kind is TokKind.ASSIGN:
+                        self._lookahead = self._next()
+                    oldval = val = next(self._parse_expr())
+                    if val in (TokKind.NEWLINE, TokKind.R_CURLY_BRACE):
+                        val = Constant(None)
+
+                    # Disallow assigning identifiers:
+                    if isinstance(val, (Name, Attribute)):
+                        typ = value._token.kind.value.lower()
+                        val = repr(val._token.value)
+                        note = f"expected expression, got {typ} {val}"
+                        msg = f"Invalid assignment: {note}:"
+                        raise ParseError.hl_error(val._token, msg, self)
+
                     if key not in keys:
                         keys.append(key)
                         vals.append(val)
@@ -1057,115 +1114,220 @@ class FileParser:
                         # Equivalent to dict.update():
                         vals[idx].keys = val.keys
                         vals[idx].values = val.values
+
+                    if oldval is TokKind.R_CURLY_BRACE:
+                        # In case a blank map is at the end of a dict:
+                        break
+
+                case kind if kind in (TokKind.COMMA, TokKind.NEWLINE):
+                    continue
+
+                case TokKind.R_CURLY_BRACE:
+                    break
+
+                case TokKind.EOF:
+                    msg = "Invalid syntax: Unmatched '{':"
+                    raise ParseError.hl_error(start, msg, self)
+
                 case _:
-                    typ = kind.value
+                    typ = kind.value.lower()
                     val = repr(tok.value)
                     note = f"expected variable name, got {typ} {val}"
-                    msg = f"Invalid target for assignment: {note}:"
-                    raise ParseError.hl_error(tok, msg)
+                    note2 = "\n(Did you mean '}'?)" if kind in T_Syntax else ""
+                    msg = f"Invalid target for assignment: {note}{note2}:"
+                    raise ParseError.hl_error(tok, msg, self)
 
         # Put all the assignments together:
-        return Dict(keys, vals)
+        node = Dict(keys, vals)
+        node._token = start
+        yield node
 
-    def _parse_literal(self, tok) -> Constant:
+    def _parse_key_val_pair(self) -> Dict:
         '''
-        Parse a literal constant value at the current token::
+        Parse a 1-to-1 mapping at the current token inside an object::
 
-            42  # -> Constant(42)
+            {key = 'val'}  # -> Dict([Name('key')], [Constant('val')])
 
-        :rtype: :class:`Constant`
+        :rtype: :class:`Dict`
         '''
-        self._current_expr = Constant
-        match tok.kind:
-            # Return literals as Constants:
-            case Literal.STRING:
-                value = tok.value
-            case Literal.INTEGER:
-                value = int(tok.value)
-            case Literal.FLOAT:
-                value = float(tok.value)
-            case Literal.TRUE:
-                value = True
-            case Literal.FALSE:
-                value = False
-            case _:
-                raise ParseError("Expected a literal, but got " + repr(tok))
-        return Constant(value)
+        msg = (
+            "Invalid syntax (expected an identifier):",
+            "Invalid syntax (expected '=' or '.'):"
+        )
+        target_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
+        target = Name(target_tok.value)
+        target._token = target_tok
 
-    def _parse_stmt(self) -> Assign:
-        '''
-        Parse an assignment statement at the current token::
+        maybe_attr = self._next()
+        if maybe_attr.kind is TokKind.ATTRIBUTE:
+            target = self._parse_attribute(target)
 
-            foo = ['a', 'b']  # -> Assign(
-                [Name('foo')],
-                List([Constant('a'), Constant('b')])
-            )
+        assign_tok = self._expect_curr(TokKind.ASSIGN, msg[1])
+        value = (yield from self._parse_expr())
+        # Disallow assigning identifiers:
+        if isinstance(value, Name):
+            typ = value._token.kind.value
+            val = repr(value._token.value)
+            note = f"expected expression, got {typ} {val}"
+            msg = f"Invalid assignment: {note}:"
+            raise ParseError.hl_error(value._token, msg, self)
+        node = Dict([target], [value])
+        node._token = assign_tok
+        yield node
 
-        :rtype: :class:`Assign`
-        '''
-        while self._not_eof():
-            tok = self._cur_tok()
-            kind = tok.kind
-            assign = self._parse_root_assign()
-            return assign
-
-    def _get_stmts(self) -> list[Assign]:
-        '''
-        Parse many assignment statements and return them in a list.
-        '''
-        self._reset()
+    def _parse(self) -> Module:
         assignments = []
-        while self._not_eof():
-            assignments.append(self._parse_stmt())
+        while True:
+            try:
+                assign = next(self._parse_assign())
+            except StopIteration as e:
+                assign = e.value
+            if assign is TokKind.EOF:
+                break
+            if assign is None:
+                # This happens when there are no assignments at all.
+                break
+            assignments.append(assign)
         self._reset()
-        return assignments
+        yield Module(assignments)
 
     def parse(self) -> Module:
         '''
         Parse the lexer stream and return it as a :class:`Module`.
         '''
-        return Module(self._get_stmts())
+        self._reset()
+        try:
+            return next(self._parse())
+        except StopIteration as e:
+            return e.value
 
-    def to_dict(self, tree: AST = None) -> dict[str]:
+    def to_dict(self) -> dict[str]:
         '''
         Parse a config file and return its data as a :class:`dict`.
         '''
-        if tree is None:
-            self._lexer.reset()
-            tree = self._get_stmts()
-
-        u = Unparser()
-        mapping = {}
-        for node in tree:
-            if not isinstance(node, Assign):
-                # Each statement must map one thing to another.
-                # This statement breaks that rule.
-                note = (
-                    f"{node._token.kind.value} cannot be at"
-                    f" the start of a statement"
-                )
-                msg = f"Invalid syntax: {node._token.match_repr()!r} ({note})"
-                raise ParseError.hl_error(node._token, msg)
-
-            unparsed = u.visit(node)
-            mapping.update(unparsed)
-        return mapping
+        self._reset()
+        tree = self.parse()
+        return Unparser().unparse(tree)
 
 
-class DictParser:
+class FileParser(RecursiveDescentParser):
+    '''
+    A class for parsing text files.
+
+    :param file: The filename used to source an input string
+    :type file: :class:`PathLike`
+
+    :param lexer: The lexer to use for parsing.
+    :type lexer: :class:`Lexer`
+    '''
+    def __init__(
+        self,
+        file: PathLike = None,
+        *,
+        lexer: Lexer = None,
+    ) -> None:
+        if lexer is None:
+            if file is None:
+                msg = "Either a `file` or a `lexer` argument is required"
+                raise ValueError(msg)
+            with open(file, 'r') as f:
+                string = f.read()
+            lexer = Lexer(string, file)
+
+        self._file = file
+        self._string = string
+        self._lexer = lexer
+        self._tokens = self._lexer.lex()
+        self._cursor = 0
+        self._lookahead = self._tokens[self._cursor]
+
+
+class DictDisassembler:
     '''
     Convert Python dicts to ASTs.
     '''
     @classmethod
-    def _process_nested_dict(
+    def disassemble(cls, data: Mapping | list[dict[str]]) -> Module:
+        '''
+        Convert a dict to a Module AST.
+
+        :param data: The dict to convert
+        :type data: :class:`Mapping`
+        '''
+        return Module([cls._parse_node(d) for d in data])
+
+    @classmethod
+    def make_file(cls, data: Mapping) -> FileContents:
+        '''
+        Disassemble a Python dictionary and return the contents of the
+        config file that could be parsed back into its AST.
+
+        :param data: The dict to convert
+        :type data: :class:`Mapping`
+        '''
+        tree = cls.disassemble(data)
+        text = ConfigFileMaker().stringify(tree)
+        return text
+
+    @classmethod
+    def _run_process_nested_dict(
         cls,
-        dct: Mapping | Any,
+        dct: dict | Any,
         roots: Sequence[str] = [],
         descended: int = 0
     ) -> tuple[list[list[str]], list[object]]:
+        '''
+        Unravel nested dicts into keys and assignment values.
+        This method runs :meth:`_process_nested_dict()`
+        For use with :meth:`_process_nested_attrs()`
+        Use generators and a stack to bypass the Python recursion limit.
+
+        :param dct: The nested dict to process, or an inner value of it
+        :type dct: :class:`dict` | :class:`Any`
+
+        :param roots: The keys which surround the current `dct`
+        :type roots: :class:`Sequence`[:class:`str`], defaults to ``[]``
+
+        :param descended: How far `dct` is from the outermost key
+        :type descended: :class:`int`, defaults to ``0``
+        '''
+        stack = [cls._process_nested_dict(dct, roots, descended)]
+        result = None
+        while stack:
+            try:
+                args = stack[-1].send(result)
+                stack.append(cls._process_nested_dict(*args))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    @classmethod
+    def _process_nested_dict(
+        cls,
+        dct: dict | Any,
+        roots: Sequence[str] = [],
+        descended: int = 0
+    ) -> tuple[list[list[str]], list[object]]:
+        '''
+        Unravel nested dicts into keys and assignment values.
+        For use with :meth:`_process_nested_attrs()`
+
+        :param dct: The nested dict to process, or an inner value of it
+        :type dct: :class:`dict` | :class:`Any`
+
+        :param roots: The keys which surround the current `dct`
+        :type roots: :class:`Sequence`[:class:`str`], defaults to ``[]``
+
+        :param descended: How far `dct` is from the outermost key
+        :type descended: :class:`int`, defaults to ``0``
+
+        :returns: Attribute names and assignment values
+        '''
         nodes = []
         vals = []
-        if not isinstance(dct, Mapping):
+        if not isinstance(dct, dict):
             # An assignment.
             return ([roots], [dct])
 
@@ -1173,20 +1335,20 @@ class DictParser:
             # An attribute.
             for a, v in dct.items():
                 roots.append(a)
-                return cls._process_nested_dict(v, roots, descended)
+                result = (yield (v, roots, descended))
+                return result
 
         descended = 0  # Start of a tree.
         for attr, v in dct.items():
             roots.append(attr)
-            if isinstance(v, Mapping):
+            if isinstance(v, dict):
                 if descended < len(roots):
                     descended = -len(roots)
                 # Descend into lower tree.
-                inner_nodes, inner_vals = cls._process_nested_dict(
-                    v,
-                    roots,
-                    descended
-                )
+                inner = (yield (v, roots, descended))
+                if isinstance(inner, GeneratorType):
+                    inner = yield from inner
+                inner_nodes, inner_vals = inner
                 nodes.extend(inner_nodes)
                 vals.extend(inner_vals)
             else:
@@ -1201,9 +1363,12 @@ class DictParser:
         attrs: Sequence[Sequence[str]]
     ) -> list[Attribute]:
         '''
+        Convert a list of attribute names to an :class:`Attribute` node.
+
+        :param attrs: The list of attribute keynames to convert
+        :type attrs: :class:`Sequence`[:class:`Sequence`[:class:`str`]]
         '''
         nodes = []
-        spent = []
         if not isinstance(attrs, Sequence):
             return attrs
         for node_attrs in attrs:
@@ -1215,64 +1380,52 @@ class DictParser:
         return nodes
 
     @classmethod
-    def _parse_node(cls, thing) -> AST:
+    def _parse_node(cls, node: Any) -> AST:
         '''
+        Parse a Python object and return its corresponding AST node.
+
+        :param node: The node to parse
+        :type node: :class:`Any`
         '''
-        if isinstance(thing, Mapping):
+        if isinstance(node, Mapping):
             keys = []
             vals = []
-            for key, val in thing.items():
-
+            for key, val in node.items():
                 if isinstance(val, Mapping):
-                    # An attribute, possibly nested.
-                    attrs, assigns = cls._process_nested_dict(val, [key])
+                    if len(node) == 1:
+                        attribute = True
+                    else:
+                        attribute = False
+
+                    # An attribute, possibly nested, or an assignment.
+                    attrs, assigns = cls._run_process_nested_dict(val, [key])
                     nodes = cls._process_nested_attrs(attrs)
                     keys.extend(nodes)
                     vals.extend(assigns)
+
                 else:
                     # An explicit assignment.
-                    node = Name(key)
-                    keys.append(node)
+                    attribute = False
+                    keys.append(Name(key))
                     v = cls._parse_node(val)
                     vals.append(v)
+
+            if attribute:
+                return Assign(keys, cls._parse_node(*vals))
             return Dict(keys, [cls._parse_node(v) for v in vals])
 
-        elif isinstance(thing, list):
-            values = [Name(v) for v in thing]
+        elif isinstance(node, list):
+            values = [cls._parse_node(v) for v in node]
             return List(values)
 
-        elif isinstance(thing, (int, float, str)):
-            return Constant(thing)
+        elif isinstance(node, (int, float, str)):
+            return Constant(node)
 
-        elif thing in (None, True, False):
-            return Constant(thing)
+        elif node in (None, True, False):
+            return Constant(node)
 
         else:
-            return thing
-
-    @classmethod
-    def parse(cls, mapping: Mapping) -> Module:
-        '''
-        Convert a dict to a Module AST.
-
-        :param mapping: The dict to convert
-        :type mapping: :class:`Mapping`
-        '''
-        if not isinstance(mapping, Mapping):
-            return mapping
-        assignments = []
-        for key, val in mapping.items():
-            node = Assign([Name(key)], cls._parse_node(val))
-            assignments.append(node)
-        return Module(assignments)
-
-    @classmethod
-    def make_file(cls, mapping: Mapping) -> FileContents:
-        '''
-        '''
-        tree = cls.parse(mapping)
-        text = ConfigFileMaker().stringify(tree.body)
-        return text
+            return node
 
 
 class Unparser(NodeVisitor):
@@ -1283,15 +1436,45 @@ class Unparser(NodeVisitor):
 
     def unparse(self, node: AST) -> dict:
         '''
+        Unparse an AST, converting it to an equivalent Python data
+        structure.
         '''
         return self.visit(node)
 
+    def visit(self, node: AST):
+        '''
+        Use a stack to overcome the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        '''
+        stack = [self.genvisit(node)]
+        result = None
+        while stack:
+            try:
+                node = stack[-1].send(result)
+                stack.append(self.genvisit(node))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    def genvisit(self, node: AST):
+        '''
+        Use generators to overcome the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        '''
+        name = 'visit_' + type(node).__name__
+        result = getattr(self, name)(node)
+        if isinstance(result, GeneratorType):
+            result = yield from result
+        return result
+
     def visit_Assign(self, node: Assign) -> dict:
-        target = self.visit(node.targets[-1])
-        value = self.visit(node.value)
+        target = yield node.targets[-1]
+        value = yield node.value
         if not isinstance(target, str):
             # `target` is an attribute turned into a nested dict
-            return self._undo_nest(target, value)
+            return self._run_nested_update({}, target, assign)
         return {target: value}
 
     def visit_Attribute(self, node: Attribute) -> dict:
@@ -1305,68 +1488,121 @@ class Unparser(NodeVisitor):
         self,
         node: Attribute | Name,
         attrs: Sequence[str] = []
-    ) -> dict | list[str]:
+    ) -> list[str]:
         '''
+        Convert nested :class:`Attribute`s to a list of attr names.
+
+        :param node: The Attribute to convert
+        :type node: :class:`Attribute` | :class:`Name`
+
+        :param attrs: A list of preexisting attribute names
+        :type attrs: :class:`Sequence`[:class:`str`]
         '''
-        if isinstance(node, Name):
-            attrs.append(node.id)
-            return attrs
-        if not attrs:
-            # A new nested Attribute.
-            attrs = [node.attr]
-        elif isinstance(node, Attribute):
-            attrs.append(node.attr)
-        n = node.value
-        return self._nested_attr_to_dict(n, attrs)
+        while not isinstance(node, Name):
+            if not attrs:
+                # A new nested Attribute.
+                attrs = [node.attr]
+            elif isinstance(node, Attribute):
+                attrs.append(node.attr)
+            node = node.value
+
+        attrs.append(node.id)
+        return attrs
+
 
     def visit_Constant(self, node: Constant) -> str | int | float | None:
         return node.value
 
-    def _nested_update(
+    def _run_nested_update(
         self,
         orig: Mapping | Any,
         upd: Mapping,
         assign: Any
     ) -> dict:
         '''
+        Merge two dicts and properly give them their innermost values.
+        Use generators and a stack to bypass the Python recursion limit.
+        Credit to Dave Beazley (2014).
+
+        :param orig: The original dict
+        :type orig: :class:`dict` | :class:`Any`
+
+        :param upd: A dict that updates `orig`
+        :type upd: :class:`dict`
+
+        :param assign: A value that will be stored in the innermost dict
+        :type assign: :class:`Any`
         '''
-        upd = upd.copy()
-        if not isinstance(orig, Mapping):
-            return self._nested_update({}, upd, assign)
-        orig = orig.copy()
+        stack = [self._nested_update(orig, upd, assign)]
+        result = None
+        while stack:
+            try:
+                args = stack[-1].send(result)
+                stack.append(self._nested_update(*args))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    def _nested_update(
+        self,
+        orig: dict | Any,
+        upd: dict,
+        assign: Any
+    ) -> dict:
+        '''
+        Merge two dicts and properly give them their innermost values.
+        Use generators and a stack to bypass the Python recursion limit.
+        Credit to Dave Beazley (2014).
+
+        :param orig: The original dict
+        :type orig: :class:`dict` | :class:`Any`
+
+        :param upd: A dict that updates `orig`
+        :type upd: :class:`dict`
+
+        :param assign: A value that will be stored in the innermost dict
+        :type assign: :class:`Any`
+        '''
+        # We cannot use Mapping because its instance check is recursive.
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
-            if isinstance(v, Mapping):
-                updated = self._nested_update(orig.get(k, {}), v, assign)
+            if isinstance(v, dict):
+                # Give parameters to the generator runner:
+                updated = yield (orig.get(k, {}), v, assign)
+                if isinstance(updated, GeneratorType):
+                    updated = yield from updated
                 orig[k] = updated
             else:
                 orig[k] = v
         return orig
 
-    def _undo_nest(self, target: MutableMapping, assign: Any) -> dict[str]:
-        '''
-        '''
-        return self._nested_update({}, target, assign=assign)
-
     def visit_Dict(self, node: Dict) -> dict[str]:
         new_d = {}
         for key, val in zip(node.keys, node.values):
-            target = self.visit(key)
-            value = self.visit(val)
-            if isinstance(target, Mapping):
+            target = (yield key)
+            value = (yield val)
+            if isinstance(target, dict):
                 # An Attribute
-                new_d = self._nested_update(new_d, target, value)
+                new_d = self._run_nested_update(new_d, target, value)
             else:
                 # An assignment
                 new_d.update({target: value})
         return new_d
 
     def visit_List(self, node: List) -> list:
-        return [self.visit(e) for e in node.elts]
+        l = []
+        for e in node.elts:
+            l.append((yield e))
+        return l
 
     def visit_Module(self, node: Module) -> list[dict[str]]:
-        return [self.visit(n) for n in node.body]
+        body = []
+        for n in node.body:
+            body.append((yield n))
+        return body
 
     def visit_Name(self, node: Name) -> str:
         return node.id
@@ -1377,29 +1613,70 @@ class ConfigFileMaker(NodeVisitor):
     Convert ASTs to string representations with config file syntax.
     '''
     def __init__(self) -> None:
-        self.indent = 4 * ' '
+        self._indent = 4 * ' '
+        self._indent_level = 0
+
+    def indent(self) -> str:
+        return self._indent_level * self._indent
 
     def stringify(
         self,
-        tree: Sequence[AST] | Module,
+        tree: Iterable[AST] | Module,
         sep: str = '\n\n'
     ) -> FileContents:
         '''
+        Convert an AST to the contents of a config file.
+
+        :param tree: The ASTs to be converted to strings
+        :type tree: :class:`Iterable`[:class:`AST`] | :class:`Module`
+
+        :param sep: The separator to use between tree nodes,
+            defaults to ``'\n\n'``
+        :type sep: :class:`str`
         '''
         if isinstance(tree, Module):
             tree = tree.body
-        strings = [self.visit(n) for n in tree]
+        strings = (self.visit(node) for node in tree)
         return sep.join(strings)
 
+    def visit(self, node: AST):
+        '''
+        Use a stack to overcome the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        '''
+        stack = [self.genvisit(node)]
+        result = None
+        while stack:
+            try:
+                node = stack[-1].send(result)
+                stack.append(self.genvisit(node))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    def genvisit(self, node: AST):
+        '''
+        Use generators to overcome the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        '''
+        name = 'visit_' + type(node).__name__
+        result = getattr(self, name)(node)
+        if isinstance(result, GeneratorType):
+            result = yield from result
+        return result
+
+
     def visit_Attribute(self, node: Attribute) -> str:
-        base = self.visit(node.value)
+        base = (yield node.value)
         attr = node.attr
         return f"{base}.{attr}"
 
     def visit_Assign(self, node: Assign) -> str:
-        target = self.visit(node.targets[-1])
-        value = self.visit(node.value)
-        return f"{target} = {value}"
+        target = (yield node.targets[-1])
+        value = (yield node.value)
+        return f"{target} {value}"
 
     def visit_Constant(self, node: Constant) -> str:
         val = node.value
@@ -1410,21 +1687,42 @@ class ConfigFileMaker(NodeVisitor):
         return str(val)
 
     def visit_Dict(self, node: Dict) -> str:
-        keys = (self.visit(k) for k in node.keys)
-        values = (self.visit(v) for v in node.values)
-        assignments = (' = '.join(pair) for pair in zip(keys, values))
-        joined = f"\n{self.indent}".join(assignments)
-        string = f"{{\n{self.indent}{joined}\n}}"
+        keys = []
+        values = []
+        for k in node.keys:
+            keys.append((yield k))
+        for v in node.values:
+            self._indent_level += 1
+            values.append((yield v))
+            self._indent_level -= 1
+        assignments = tuple(' '.join(pair) for pair in zip(keys, values))
+        self._indent_level += 1
+        if len(assignments) > 1:
+            opening = f"{{\n{self.indent()}"
+            joiner = f"\n{self.indent()}" 
+            self._indent_level -= 1
+            closing = f"\n{self.indent()}}}"
+        else:
+            opening = "{"
+            joiner = ""
+            closing = "}"
+        joined = joiner.join(assignments)
+        string = f"{opening}{joined}{closing}"
+        self._indent_level -= 1
         return string
 
     def visit_List(self, node: List) -> str:
         one_line_limit = 3
-        elems = tuple(self.visit(e) for e in node.elts)
+        elems = []
+        for e in node.elts:
+            elems.append((yield e))
         if len(elems) > one_line_limit:
-            joined = ('\n' + self.indent).join(elems)
-            string = f"[\n{self.indent}{joined}\n]"
+            self._indent_level += 1
+            joined = ('\n' + self.indent()).join(elems)
+            string = f"[\n{self.indent()}{joined}\n]"
+            self._indent_level -= 1
         else:
-            joined = ', '.join(elems)
+            joined = ', '.join(str(e) for e in elems)
             string = f"[{joined}]"
         return string
 
@@ -1433,9 +1731,10 @@ class ConfigFileMaker(NodeVisitor):
         return string
 
 
-def parse(file: PathLike = None, string: str = None) -> Module:
-    return FileParser(file, string).parse()
+def parse(file: PathLike = None) -> Module:
+    return FileParser(file).parse()
+
 
 def unparse(node: AST) -> str:
-    pass
+    return Unparser().unparse(node)
 
