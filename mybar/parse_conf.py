@@ -1028,11 +1028,6 @@ class RecursiveDescentParser:
             if elem is TokKind.EOF:
                 msg = "Invalid syntax: Unmatched '[':"
                 raise ParseError.hl_error(self._lookahead, msg, self)
-            if isinstance(elem, Name):
-                note = (f"Expected an expression,"
-                        f" but got {self._lookahead.value!r} instead.")
-                msg = f"Invalid syntax: {note}"
-                raise ParseError.hl_error(self._lookahead, msg, self)
             if elem is TokKind.R_BRACKET:
                 self._lookahead = self._next()
                 break
@@ -1207,7 +1202,9 @@ class RecursiveDescentParser:
         '''
         self._reset()
         tree = self.parse()
-        return Unparser().unparse(tree)
+        unparsed = Unparser().unparse(tree)
+        dictified = {k: v for d in unparsed for k, v in d.items()}
+        return dictified
 
 
 class FileParser(RecursiveDescentParser):
