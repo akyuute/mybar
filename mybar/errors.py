@@ -1,5 +1,4 @@
 __all__ = (
-    'AskWriteNewFile',
     'BrokenFormatStringError',
     'CLIFatalError',
     'CLIUsageError',
@@ -94,7 +93,7 @@ class CLIFatalError(Exception):
     :type msg: :class:`str`
     '''
     def __init__(self, msg: str) -> None:
-        super().__init__(self)
+        super().__init__()
         self.msg = msg
 
     def __str__(self):
@@ -106,19 +105,6 @@ class CLIUsageError(CLIFatalError):
     Raised when the CLI program is used incorrectly.
     '''
     pass
-
-
-class AskWriteNewFile(Exception):
-    '''
-    Raised when :meth:`Template.from_file` is given a broken config file path.
-    This allows the command line utility to ask the user if they would
-    like the config file automatically written.
-
-    :param requested_file: The nonexistent file requested by user input
-    :type requested_file: :class:`PathLike`
-    '''
-    def __init__(self, requested_file: PathLike) -> None:
-        self.requested_file = requested_file
 
 
 class FailedSetup(Exception):

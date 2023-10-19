@@ -11,7 +11,7 @@ from os import PathLike
 
 from . import __version__
 from .constants import CONFIG_FILE
-from .errors import AskWriteNewFile, CLIFatalError, CLIUsageError
+from .errors import CLIUsageError
 from .namespaces import BarConfigSpec, CmdOptionSpec, FieldSpec
 from ._types import (
     AssignmentOption,
