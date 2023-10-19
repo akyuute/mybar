@@ -1,10 +1,10 @@
 __all__ = (
-    'parse',
     'ast_to_data',
     'convert_file',
     'data_to_text',
     'text_to_data',
     'FileParser',
+    'parse',
     'PyParser',
     'Unparser'
 )
@@ -54,6 +54,7 @@ LineNo: TypeAlias = int
 ColNo: TypeAlias = int
 TokenValue: TypeAlias = str
 Location: TypeAlias = tuple[LineNo, ColNo]
+ConstantValue = str | int | float | bool | Literal[None]
 
 
 class KeyValuePair(Dict):
@@ -473,17 +474,29 @@ class Lexer:
     :type file: :class: `PathLike`
     '''
     STRING_CONCAT = True  # Concatenate neighboring strings
-    SPEECH_CHARS = tuple('"\'`') + ('"""', "'''")
+    SPEECH_CHARS = tuple('"\'`') + ('"""', "'''", "```")
+    MULTILINE_QUOTES = SPEECH_CHARS[-3:]
 
     _rules = (
         # Data types
+        ## Multiline strings
         (re.compile(
-            r'^(?P<speech_char>["\'`]{3}|["\'`])'
-            r'(?P<text>(?!(?P=speech_char)).*?)*'
+            r'^(?P<speech_char>["\'`]{3})'
+            r'(?P<text>((?!(?P=speech_char)).|' + NEWLINE + r')*)'
+            r'(?P=speech_char)'
+        , re.MULTILINE), TokKind.STRING),
+        ## Single-line strings
+        (re.compile(
+            r'^(?P<speech_char>["\'`])'
+            r'(?P<text>((?!(?P=speech_char)).)*)'
             r'(?P=speech_char)'
         ), TokKind.STRING),
+        ## Numbers
         (re.compile(r'^\d*\.\d[\d_]*'), TokKind.FLOAT),
         (re.compile(r'^\d+'), TokKind.INTEGER),
+        ## Booleans
+        (re.compile(r'^(true|yes)', re.IGNORECASE), TokKind.TRUE),
+        (re.compile(r'^(false|no)', re.IGNORECASE), TokKind.FALSE),
 
         # Ignore
         ## Skip comments
@@ -505,10 +518,6 @@ class Lexer:
         (re.compile(r'^\]'), TokKind.R_BRACKET),
         (re.compile(r'^\{'), TokKind.L_CURLY_BRACE),
         (re.compile(r'^\}'), TokKind.R_CURLY_BRACE),
-
-        # Booleans
-        (re.compile(r'^(true|yes)', re.IGNORECASE), TokKind.TRUE),
-        (re.compile(r'^(false|no)', re.IGNORECASE), TokKind.FALSE),
 
         # Symbols
         *((r'^' + kw, TokKind.KEYWORD) for kw in KEYWORDS),
@@ -703,7 +712,7 @@ class Lexer:
                 if self.STRING_CONCAT:
                     while True:
                         maybe_str = yield from self._get_token()
-                        if maybe_str.kind in (*T_Ignore, TokKind.NEWLINE):
+                        if maybe_str.kind in T_Ignore:
                             continue
                         break
 
@@ -748,7 +757,7 @@ class Lexer:
                 if bad_value in self.SPEECH_CHARS:
                     msg = f"Unmatched quote: {bad_value!r}"
                 elif bad_value.startswith(self.SPEECH_CHARS):
-                    msg = f"Unmatched quote: {bad_value!r}"
+                    msg = f"Unmatched quote: startswith {bad_value!r}"
 
                 else:
                     msg = f"Unexpected token: {bad_value!r}"
@@ -864,9 +873,16 @@ class RecursiveDescentParser:
         self._lexer.reset()
 
     def _parse_assign(self) -> Assign:
+        '''
+        Parse an assignment at the current token::
+
+            a 42  # -> Assign([Name('a')], Constant(42))
+
+        :rtype: :class:`Assign`
+        '''
         # Advance to the next assignment:
         self._lookahead = self._skip_all_whitespace()
-        if self._lookahead.kind in {TokKind.EOF, TokKind.NEWLINE}:
+        if self._lookahead.kind in (TokKind.EOF, TokKind.NEWLINE):
             return TokKind.EOF
 
         msg = "Invalid syntax (expected an identifier):"
@@ -1019,9 +1035,8 @@ class RecursiveDescentParser:
         Parse a dict containing many mappings at the current token::
 
             {
-                foo = 'bar'
+                foo 'bar'
                 baz = 42
-                ...
             }
 
             # -> Dict(
@@ -1044,13 +1059,11 @@ class RecursiveDescentParser:
             match kind:
                 case TokKind.IDENTIFIER:
                     # Parse a new key-value pair:
-                    # pair = self._parse_key_val_pair()
 
                     msg = (
                         "Invalid syntax (expected an identifier):",
                         "Invalid syntax:"
                     )
-                    # key_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
                     key_tok = self._tokens[self._cursor]
                     key = Name(key_tok.value)
                     key._token = key_tok
@@ -1180,8 +1193,8 @@ class RecursiveDescentParser:
         self._reset()
         tree = self.parse()
         unparsed = Unparser().unparse(tree)
-        dictified = {k: v for d in unparsed for k, v in d.items()}
-        return dictified
+        # print(unparsed)
+        return unparsed
 
 
 class FileParser(RecursiveDescentParser):
@@ -1220,6 +1233,9 @@ class PyParser:
     '''
     Convert Python config data to ASTs.
     '''
+
+    ELEMS_ARE_FIELD_NAMES = ('field_order',)
+
     @classmethod
     def parse(cls, data: Mapping | list[dict[str]]) -> Module:
         '''
@@ -1228,8 +1244,19 @@ class PyParser:
         :param data: The dict to convert
         :type data: :class:`Mapping`
         '''
-        assigns = [Assign([Name(k)], cls._parse_node(v)) for k, v in data.items()]
-        return Module(assigns)
+        assignments = []
+        for key, val in data.items():
+
+            # Treat to field names:
+            if key in cls.ELEMS_ARE_FIELD_NAMES:
+                if isinstance(val, Sequence):
+                    val = List([Name(field) for field in val])
+                    a = Assign([Name(key)], val)
+
+            else:
+                a = Assign([Name(key)], cls._parse_node(val))
+            assignments.append(a)
+        return Module(assignments)
 
     @classmethod
     def make_file(cls, data: Mapping) -> FileContents:
@@ -1241,7 +1268,6 @@ class PyParser:
         :type data: :class:`Mapping`
         '''
         tree = cls.parse(data)
-        print(ast.dump(tree))
         text = ConfigFileMaker().stringify(tree)
         return text
 
@@ -1486,7 +1512,7 @@ class Unparser(NodeVisitor):
         return attrs
 
 
-    def visit_Constant(self, node: Constant) -> str | int | float | None:
+    def visit_Constant(self, node: Constant) -> ConstantValue:
         return node.value
 
     def _run_nested_update(
@@ -1575,10 +1601,10 @@ class Unparser(NodeVisitor):
         return l
 
     def visit_Module(self, node: Module) -> list[dict[str]]:
-        body = []
+        config = {}
         for n in node.body:
-            body.append((yield n))
-        return body
+            config.update((yield n))
+        return config
 
     def visit_Name(self, node: Name) -> str:
         return node.id
@@ -1706,7 +1732,7 @@ class ConfigFileMaker(NodeVisitor):
         return string
 
 
-def parse(file: PathLike = None, string: str = None) -> Module:
+def parse(file: PathLike = None, string: FileContents = None) -> Module:
     '''
     Parse a config file and return its AST.
 
@@ -1717,6 +1743,9 @@ def parse(file: PathLike = None, string: str = None) -> Module:
         return FileParser(file).parse()
     if file is None:
         return RecursiveDescentParser(Lexer(string)).parse()
+    raise ValueError(
+        "A `file` argument is required when `string` is not given or None."
+    )
 
 
 def ast_to_data(node: AST) -> PythonData:
