@@ -11,8 +11,8 @@ import sphinx_rtd_theme
 
 project = 'mybar'
 copyright = '2021-present LonelyAbsol'
-author = 'LonelyAbsol'
-release = '0.6'
+author = 'akyuute'
+release = '0.8'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -23,14 +23,12 @@ extensions = [
     # 'attributetable',
 ]
 
-# sys.path.insert(0, os.path.abspath('../mybar'))
 sys.path.insert(0, os.path.abspath('../'))
-# sys.path.insert(0, os.path.abspath('./mybar'))
-# sys.path.insert(0, os.path.abspath('.'))
 
 autodoc_default_options = {
     'members': True,
     'undoc-members': True,
+    'show-inheritance': True,
     # 'imported-members': True,
     'exclude-members': '__init__',
 ##    'autodoc_class_content': 'class',
@@ -53,5 +51,4 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = 'sphinx_rtd_theme'
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
-# html_theme = 'alabaster'
 html_static_path = ['_static']
