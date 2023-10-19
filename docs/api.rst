@@ -39,7 +39,7 @@ Field Functions are evaluated at each `interval` to create content for Fields_.
 Templates
 ----------
 
-.. autoclass:: mybar.templates.BarTemplate
+.. autoclass:: mybar.bar.BarConfig
    :show-inheritance:
    :members:
    :exclude-members: __init__
@@ -64,19 +64,24 @@ Constants
 
 String Formatting
 ------------------
+
 .. automodule:: mybar.formatting
-    :members:
-    :exclude-members: __init__, conversions_to_secs
+   :members:
+   :exclude-members: __init__, conversions_to_secs
 
 
 Config File Parsing
 --------------------
+
 .. automodule:: mybar.parse_conf
-    :members:
-    :exclude-members: __init__
+   :show-inheritance:
+   :members:
+   :exclude-members: __init__
+
 
 Utilities
 ----------
+
 .. automodule:: mybar.utils
    :members:
    :exclude-members: __init__
