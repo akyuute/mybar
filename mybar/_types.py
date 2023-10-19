@@ -8,6 +8,8 @@ __all__ = (
     'Line',
     'ConsoleControlCode',
     'JSONText',
+    'FileContents',
+    'PythonData',
 
     'Contents',
     'Field',
@@ -74,6 +76,7 @@ Line: TypeAlias = str
 ConsoleControlCode: TypeAlias = str
 JSONText: TypeAlias = str
 FileContents: TypeAlias = str
+PythonData: TypeAlias = object
 
 # Used by Field and Bar:
 Contents: TypeAlias = str
