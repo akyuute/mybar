@@ -734,7 +734,7 @@ class Lexer:
                 # Concatenate neighboring strings:
                 if self.STRING_CONCAT:
                     while True:
-                        maybe_str = yield from self._get_token()
+                        maybe_str = (yield from self._get_token())
                         if maybe_str.kind in T_Ignore:
                             continue
                         break
@@ -1396,7 +1396,7 @@ class PyParser:
                 # Descend into lower tree.
                 inner = (yield (v, roots, descended))
                 if isinstance(inner, GeneratorType):
-                    inner = yield from inner
+                    inner = (yield from inner)
                 inner_nodes, inner_vals = inner
                 nodes.extend(inner_nodes)
                 vals.extend(inner_vals)
@@ -1515,12 +1515,12 @@ class Unparser(NodeVisitor):
         name = 'visit_' + type(node).__name__
         result = getattr(self, name)(node)
         if isinstance(result, GeneratorType):
-            result = yield from result
+            result = (yield from result)
         return result
 
     def visit_Assign(self, node: Assign) -> dict:
-        target = yield (node.targets[-1])
-        value = yield (node.value)
+        target = (yield (node.targets[-1]))
+        value = (yield (node.value))
         if not isinstance(target, str):
             # `target` is an attribute turned into a nested dict
             return self._run_nested_update({}, target, assign)
@@ -1620,9 +1620,9 @@ class Unparser(NodeVisitor):
                 v = assign
             if isinstance(v, dict):
                 # Give parameters to the generator runner:
-                updated = yield (orig.get(k, {}), v, assign)
+                updated = (yield (orig.get(k, {}), v, assign))
                 if isinstance(updated, GeneratorType):
-                    updated = yield from updated
+                    updated = (yield from updated)
                 orig[k] = updated
             else:
                 orig[k] = v
@@ -1713,7 +1713,7 @@ class ConfigFileMaker(NodeVisitor):
         name = 'visit_' + type(node).__name__
         result = getattr(self, name)(node)
         if isinstance(result, GeneratorType):
-            result = yield from result
+            result = (yield from result)
         return result
 
     def visit_Attribute(self, node: Attribute) -> str:
