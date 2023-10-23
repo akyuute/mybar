@@ -64,7 +64,6 @@ class KeyValuePair(Dict):
 
 EOF = ''
 NEWLINE = '\n'
-UNKNOWN = 'UNKNOWN'
 NOT_IN_IDS = string.punctuation.replace('_', '\s')
 KEYWORDS = ()
 
@@ -260,18 +259,10 @@ class TokenError(ConfigError):
 
         else:
             # Highlight multiple tokens using all in the range:
-            start = tokens[0].cursor
-            end = tokens[-1].cursor
             line_bridge = " "
-
-            try:
-                # Reset the lexer since it's already passed our tokens:
-                all_toks = lexer.reset().lex()
-            except TokenError:
-                all_toks = tokens
-
-            between = tuple(t for t in all_toks if start <= t.cursor <= end)
-
+            between = lexer.in_range(tokens[0], tokens[-1])
+            if not between:
+                between = tokens
             if any(t.kind is TokKind.NEWLINE for t in between):
                 # Consolidate multiple lines:
                 with_dups = (
@@ -287,20 +278,19 @@ class TokenError(ConfigError):
 
         # Work out the highlight line:
         for t in between:
+            token_length = len(t.value)
             kind = t.kind
             match kind:
-
-                case kind if kind in (*T_Ignore, TokKind.EOF):
+                case kind if kind in (*T_Ignore, TokKind.NEWLINE, TokKind.EOF):
                     if t is between[-1]:
-                        # highlight += '^'
-                        token_length = 1
-
+                        token_length = 0
                 case TokKind.STRING:
                     # match_repr() contains the quotation marks:
                     token_length = len(t.match_repr())
-
+                case TokKind.UNKNOWN:
+                    token_length = 1
                 case _:
-                    token_length = len(t.value)
+                    pass
 
             highlight += '^' * token_length
 
@@ -403,6 +393,15 @@ class Token:
         s = f"{cls}({attrs})"
         return s
 
+    def __lt__(self, other) -> bool:
+        pass
+    def __le__(self, other) -> bool:
+        pass
+    def __gt__(self, other) -> bool:
+        pass
+    def __ge__(self, other) -> bool:
+        pass
+
     def __class_getitem__(cls, item: TokKind) -> str:
         return cls
         item_name = (
@@ -434,7 +433,7 @@ class Token:
         if not len(self.matchgroups) > 1:
             return None
         quote = self.matchgroups[0]
-        val = self.matchgroups[1]
+        val = self.value
         return f"{quote}{val}{quote}"
 
     def coords(self) -> Location:
@@ -532,7 +531,8 @@ class Lexer:
         self._string = string
         self._lines = self._string.split('\n')
         self._tokens = []
-        self._string_stack = LifoQueue()
+        self._string_stack = None
+        self._token_stack = []
 
         self._cursor = 0  # 0-indexed
         self._lineno = 1  # 1-indexed
@@ -609,6 +609,24 @@ class Lexer:
         self._tokens = []
         return self
 
+    def in_range(self, first: Token, last: Token) -> tuple[Token]:
+        '''
+        Gather tokens from between a range spanned by two tokens.
+
+        :param first: The first token to gather
+        :type first: :class:`Token`
+
+        :param last: The last token to gather
+        :type last: :class:`Token`
+        '''
+        tokens = self._tokens
+        if last not in tokens:
+            raise ValueError("`last` token not yet lexed!")
+        start = first.cursor
+        end = last.cursor
+        between = tuple(t for t in tokens if start <= t.cursor <= end)
+        return between
+
     def get_prev(self, back: int = 1, since: Token = None) -> tuple[Token]:
         '''
         Retrieve tokens from before the current position of the lexer.
@@ -621,10 +639,10 @@ class Lexer:
         :type since: :class:`Token`
         '''
         if since is None:
-            return self._tokens[-back:]
+            return tuple(self._tokens[-back:])
         tokens = self._tokens
         idx = tuple(tok.cursor for tok in tokens).index(since.cursor)
-        ret = tokens[idx - back : idx + 1]
+        ret = tuple(tokens[idx - back : idx + 1])
         return ret
 
     def error_leader(self, with_col: bool = False) -> str:
@@ -662,8 +680,8 @@ class Lexer:
         :raises: :exc:`TokenError` upon an unexpected token
         '''
         # The stack will have contents after string concatenation.
-        if not self._string_stack.empty():
-            tok = self._string_stack.get()
+        if self._token_stack:
+            tok = self._token_stack.pop()
             self._tokens.append(tok)
             return tok
 
@@ -701,8 +719,13 @@ class Lexer:
                 self._colno = 1
 
             if kind is TokKind.STRING:
+                # Add to the string stack for error handling:
+                self._string_debug = tok
                 # Process strings by removing quotes:
                 speech_char = tok.matchgroups[0]
+                if speech_char in self.MULTILINE_QUOTES:
+                    lines = tok.value.count(NEWLINE)
+                    self._lineno += lines
                 value = tok.value.strip(speech_char)
                 if '\\' in value:
                     value = unescape_backslash(value)
@@ -724,7 +747,10 @@ class Lexer:
 
                     else:
                         # Handle the next token separately.
-                        self._string_stack.put(maybe_str)
+                        self._token_stack.append(maybe_str)
+
+                # self._tokens.append(self._string_debug)
+                self._string_debug = None
 
             self._tokens.append(tok)
             return tok
@@ -748,24 +774,45 @@ class Lexer:
             bad_token = Token(
                 value=bad_value,
                 at=(self._cursor, (self._lineno, self._colno)),
-                kind=UNKNOWN,
+                kind=TokKind.UNKNOWN,
                 matchgroups=None,
                 lexer=self,
                 file=self._file
             )
-            try:
-                if bad_value in self.SPEECH_CHARS:
-                    msg = f"Unmatched quote: {bad_value!r}"
-                elif bad_value.startswith(self.SPEECH_CHARS):
-                    msg = f"Unmatched quote: startswith {bad_value!r}"
+            bad_toks = (bad_token,)
 
+            if bad_value.startswith(self.SPEECH_CHARS):
+                if self._string_debug is None:
+                    # Broken single speech characters
+                    msg = f"Unmatched quote:"
+                    raise TokenError.hl_error(bad_toks, msg)
+
+                # Broken triple speech characters
+                msg = f"Unmatched multiline quote:"
+                self._tokens.append(self._string_debug)
+
+                # Two quotes of each kind:
+                pairs = (s*2 for s in self.SPEECH_CHARS[:3])
+                maybe_first_two = self._string_debug
+                if maybe_first_two.match_repr() in pairs:
+                    # The current token is part of a multiline speech
+                    # char begun by the previous token.
+                    bad_toks = (maybe_first_two, bad_token)
+
+            else:
+                too_long = 8
+                if len(bad_value) > too_long:
+                    msg = f"Unexpected token:"
                 else:
                     msg = f"Unexpected token: {bad_value!r}"
 
-                raise TokenError.hl_error(bad_token, msg)
+            self._tokens.append(bad_token)
 
+            # Do some stack trace magic:
+            try:
+                raise TokenError.hl_error(bad_toks, msg)
             except TokenError as e:
-                # Avoid recursive stack traces with hundreds of frames:
+                # Avoid long stack traces with many frames:
                 import __main__ as possibly_repl
                 if not hasattr(possibly_repl, '__file__'):
                     # User is in a REPL! Don't yeet them.
