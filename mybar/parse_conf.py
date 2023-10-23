@@ -1523,7 +1523,7 @@ class Unparser(NodeVisitor):
         value = (yield (node.value))
         if not isinstance(target, str):
             # `target` is an attribute turned into a nested dict
-            return self._run_nested_update({}, target, assign)
+            return self._run_nested_update({}, target, value)
         return {target: value}
 
     def visit_Attribute(self, node: Attribute) -> dict:
