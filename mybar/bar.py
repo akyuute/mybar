@@ -2,10 +2,7 @@
 #TODO: Finish Mocp line!
 
 
-__all__ = (
-    'Bar',
-    'write_initial_config'
-)
+__all__ = ('Bar',)
 
 
 import asyncio
