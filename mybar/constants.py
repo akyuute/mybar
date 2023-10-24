@@ -14,11 +14,11 @@ from ._types import ConsoleControlCode
 import os.path
 
 
-CONFIG_FILE: str = os.path.abspath(os.path.expanduser(
-    # '~/.config/mybar/conf.json'
+CONFIG_FILE: str = (
     '~/.config/mybar/mybar.conf'
-))
-'''The default bar config file path.'''
+    # '~/.config/mybar/conf.json'
+)
+'''The default mybar config file path.'''
 
 DEBUG: bool = False
 '''The default debug state.'''

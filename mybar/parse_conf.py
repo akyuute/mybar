@@ -5,8 +5,6 @@ __all__ = (
     'text_to_data',
     'FileParser',
     'parse',
-    'PyParser',
-    'Unparser'
 )
 
 
@@ -1834,5 +1832,6 @@ def convert_file(file: PathLike = None) -> PythonData:
     '''
     if file is None:
         file = CONFIG_FILE
-    return Unparser().unparse(FileParser(file).parse())
+    absolute = os.path.abspath(os.path.expanduser(file))
+    return Unparser().unparse(FileParser(absolute).parse())
 
