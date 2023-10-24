@@ -1,43 +1,36 @@
 __all__ = (
 
-    'ColorEscaping',
-
-    'Separator',
+    'ASCII_Icon',
     'ASCII_Separator',
-    'Unicode_Separator',
-    'Line',
+    'Args',
+    'AssignmentOption',
+    'ColorEscaping',
     'ConsoleControlCode',
-    'JSONText',
-    'FileContents',
-    'PythonData',
-
     'Contents',
+    'Duration',
     'Field',
     'FieldName',
     'FieldOrder',
     'FieldPrecursor',
-    'Pattern',
-    'Icon',
-    'ASCII_Icon',
-    'Unicode_Icon',
-
+    'FileContents',
     'FormatStr',
-    'FormatterLiteral: TypeAlias = str | None',
-    'FormatterFname: TypeAlias = str | None',
-    'FormatterFormatSpec: TypeAlias = str | None',
-    'FormatterConversion: TypeAlias = str | None',
-
+    'FormatterConversion',
+    'FormatterFname',
+    'FormatterFormatSpec',
+    'FormatterLiteral',
+    'Icon',
+    'JSONText',
+    'Kwargs',
+    'Line',
+    'NmConnFilterSpec',
+    'NmConnIDSpecifier',
     'OptName',
     'OptSpec',
-    'AssignmentOption',
-
-    'Args',
-    'Kwargs',
-
-    'Duration',
-
-    'NmConnIDSpecifier',
-    'NmConnFilterSpec',
+    'Pattern',
+    'PythonData',
+    'Separator',
+    'Unicode_Icon',
+    'Unicode_Separator',
 
 )
 
@@ -153,8 +146,8 @@ Duration: TypeAlias = Literal[
 
 NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
 '''
-One of several keywords NetworkManager provides to narrow down connection results.
-From the ``nmcli`` man page:
+One of several keywords NetworkManager provides to narrow down
+connection results. From the ``nmcli`` man page:
 
 .. code-block:: none
 
@@ -178,7 +171,8 @@ From the ``nmcli`` man page:
 
 NmConnFilterSpec: TypeAlias = dict[NmConnIDSpecifier, str]
 '''
-A dict passed to :func:`get_net_stats()` to filter multiple connections.
+A dict passed to :func:`mybar.field_funcs.get_net_stats` to filter
+multiple connections.
 '''
 
 
