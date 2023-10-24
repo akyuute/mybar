@@ -40,7 +40,7 @@ from os import PathLike
 from typing import NoReturn
 
 
-def run(once: bool = False, file: PathLike = None) -> NoReturn | None:
+def run(*, once: bool = False, file: PathLike = None) -> NoReturn | None:
     '''
     Generate a new :class:`Bar` from a config file and run it in STDOUT.
     Ask to write the file if it doesn't exist.
