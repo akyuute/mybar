@@ -2,7 +2,7 @@ __all__ = (
     'FieldSpec',
     'BarSpec',
     'BarConfigSpec',
-    'CMDLineSpec',
+    '_CmdOptionSpec',
 )
 
 
@@ -31,7 +31,7 @@ P = ParamSpec('P')
 
 class FieldSpec(TypedDict, total=False):
     '''
-    Specifies the structure of :class:`mybar.Field` constructor
+    A dict specifying the structure of :class:`mybar.Field` constructor
     parameters.
     '''
     name: Required[FieldName]
@@ -49,13 +49,16 @@ class FieldSpec(TypedDict, total=False):
     args: Args
     kwargs: Kwargs
     setup: Callable[P, P.kwargs]
-    # Set this to use different icons for different output streams:
+    '''
+    Set `icons` to use different icons for different output streams:
+    '''
     icons: Sequence[[ASCII_Icon, Unicode_Icon]]
 
 
 class BarSpec(TypedDict, total=False):
     '''
-    Specifies the structure of :class:`mybar.Bar` constructor parameters.
+    A dict specifying the structure of :class:`mybar.Bar` constructor
+    parameters.
     '''
     refresh: float
     run_once: bool
@@ -65,20 +68,24 @@ class BarSpec(TypedDict, total=False):
     override_cooldown: float
     thread_cooldown: float
 
-    # The following field params are mutually exclusive with `template`.
+    '''
+    The following field params are mutually exclusive with `template`:
+    '''
     fields: Iterable[Field | FieldName]
     field_order: Required[list[FieldName]]
     separator: Separator
     separators: Sequence[[ASCII_Separator, Unicode_Separator]]
 
-    # The `template` param is mutually exclusive with all field params.
+    '''
+    The `template` param is mutually exclusive with all field params:
+    '''
     template: FormatStr
 
 
 class BarConfigSpec(BarSpec, total=False):
     '''
-    Specifies the structure of :class:`mybar.bar.BarConfig` constructor
-    parameters.
+    A dict specifying the structure of :class:`mybar.bar.BarConfig`
+    constructor parameters.
     '''
     debug: bool
     field_definitions: dict[FieldName, FieldSpec]
@@ -86,9 +93,9 @@ class BarConfigSpec(BarSpec, total=False):
     unicode: bool
 
 
-class CmdOptionSpec(TypedDict, total=False):
+class _CmdOptionSpec(TypedDict, total=False):
     '''
-    Specifies command options.
+    A dict specifying two special command line options.
     '''
     config_file: PathLike
     dump_config: bool | int = 4

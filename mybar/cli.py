@@ -1,5 +1,5 @@
 __all__ = (
-    'Parser',
+    'ArgParser',
     'OptionsAsker',
 )
 
@@ -12,7 +12,7 @@ from os import PathLike
 from . import __version__
 from .constants import CONFIG_FILE
 from .errors import CLIUsageError
-from .namespaces import BarConfigSpec, CmdOptionSpec, FieldSpec
+from .namespaces import BarConfigSpec, _CmdOptionSpec, FieldSpec
 from ._types import (
     AssignmentOption,
     FieldName,
@@ -33,22 +33,26 @@ class ArgFormatter:
     @staticmethod
     def SplitFirst(char: str) -> Callable[[str], str]:
         '''
-        Give this to the `type` parameter of :func:`ArgumentParser.add_argument`
-        and it will split args using `char`.
+        Give this to the `type` parameter of
+        :func:`ArgumentParser.add_argument` and it will split args using
+        `char`.
         '''
         return (lambda f: f.split(char, 1))
 
     @staticmethod
     def ToTuple(length: int) -> Callable[[Any], tuple]:
         '''
-        Give this to the `type` parameter of :func:`ArgumentParser.add_argument`
-        and it will fill tuples with `length` copies of the arg.
+        Give this to the `type` parameter of
+        :func:`ArgumentParser.add_argument` and it will fill tuples with
+        `length` copies of the arg.
         '''
         return (lambda s: (s,) * length)
 
 
-class Parser(ArgumentParser):
-    '''A custom command line parser used by the command line utility.'''
+class ArgParser(ArgumentParser):
+    '''
+    A custom command line parser used by the command line utility.
+    '''
     assignment_arg_map = {
         'icon_pairs': 'field_icons',
     }
@@ -63,7 +67,7 @@ class Parser(ArgumentParser):
     def parse_args(
         self,
         args: list[str] = None
-    ) -> tuple[BarConfigSpec, CmdOptionSpec]:
+    ) -> tuple[BarConfigSpec, _CmdOptionSpec]:
         '''
         Parse command line arguments and return a dict of options.
         This will additionally process args with key-value pairs.
@@ -85,7 +89,7 @@ class Parser(ArgumentParser):
 
         # For options that control what the command does:
         keys = (
-            CmdOptionSpec.__optional_keys__ | CmdOptionSpec.__required_keys__
+            _CmdOptionSpec.__optional_keys__ | _CmdOptionSpec.__required_keys__
         )
         cmd_options = {k: params.pop(k) for k in keys if k in params}
         return params, cmd_options
@@ -393,13 +397,11 @@ class OptionsAsker:
         case_sensitive: bool = False,
         highlight_method: HighlightMethod | None = HighlightMethod.CAPITALIZE,
     ) -> None:
-        # self.default_val = default_val
         if default not in opts:
             raise ValueError(
                 f"The option dict {opts!r} "
                 f"must contain the provided default option, {default!r}"
             )
-        # self.opts = opts.copy()
         self.default = default
         self.default_val = opts[default]
         self.question = question
@@ -417,8 +419,8 @@ class OptionsAsker:
         '''
         A tuple of option names with the default highlighted.
 
-        :param highlight_method: How the default option should be differentiated,
-            defaults to :obj:`HighlightMethod.CAPITALIZE`
+        :param highlight_method: How the default option should be
+            differentiated, defaults to :obj:`HighlightMethod.CAPITALIZE`
         :type highlight_method: :class:`HighlightMethod`
 
         :returns: A tuple of option names
@@ -448,9 +450,11 @@ class OptionsAsker:
         :param prompt: Shows possible option names for the user to input
         :type prompt: :class:`string`, optional
 
-        :param repeat_prompt: Repeat the whole prompt if the user enters an invalid option,
-            defaults to ``True``
-            Setting this to ``False`` is useful if :attr:`OptionsAsker.question` is very long.
+        :param repeat_prompt: Repeat the whole prompt if the user enters
+            an invalid option, defaults to ``True``
+            Setting this to ``False`` is useful if
+            :attr:`OptionsAsker.question` is very long.
+
         :type repeat_prompt: :class:`bool`
 
         :returns: The option value chosen by the user
@@ -459,7 +463,8 @@ class OptionsAsker:
         answer = self.MISSING
         options = f"[{'/'.join(self.optstrings)}]"
         if prompt is None:
-            prompt = f"{self.question} {options} " if self.question else f"{options} "
+            q = self.question
+            prompt = f"{q} {options} " if q else f"{options} "
 
         prompted = False
         while answer not in self.choices:
