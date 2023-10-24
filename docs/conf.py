@@ -27,8 +27,8 @@ sys.path.insert(0, os.path.abspath('../'))
 
 autodoc_default_options = {
     'members': True,
-    'undoc-members': True,
-    'show-inheritance': True,
+    # 'undoc-members': True,
+    # 'show-inheritance': True,
     # 'imported-members': True,
     'exclude-members': '__init__',
 ##    'autodoc_class_content': 'class',
