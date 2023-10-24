@@ -46,8 +46,9 @@ P = ParamSpec('P')
 class Field:
     '''
     Continuously generate and format one bit of information in a
-        :class:`Bar`.
-    Pre-existing default Fields can be looked up by name.
+    :class:`Bar`.
+
+    Pre-defined default Fields can be looked up by name.
 
     :param name: A unique identifier for the new field,
         defaults to `func.`:attr:`__name__`
@@ -67,6 +68,7 @@ class Field:
         Valid placeholders:
             - ``{icon}`` references `icon`
             - ``{}`` references field contents
+
         Example:
             When the field's current contents are ``'69F'`` and its icon
             is ``'TEMP'``,
@@ -128,10 +130,7 @@ class Field:
         support for Unicode is more likely available.
         This enables the same :class:`Field` instance to use the most
         optimal icon automatically.
-    :type icons: tuple[
-            :class:`_types.ASCII_Icon`
-            :class:`_types.Unicode_Icon`,
-        ], optional
+    :type icons: tuple[:class:`_types.ASCII_Icon`, :class:`_types.Unicode_Icon`], optional
 
 
     :raises: :exc:`errors.IncompatibleArgsError` when
@@ -379,11 +378,11 @@ class Field:
         :type name: :class:`str`
 
         :param overrides: Custom parameters that override those of the default Field
-        :type overrides: :class:`_types.FieldSpec`, optional
+        :type overrides: :class:`namespaces.FieldSpec`, optional
 
         :param source: The :class:`dict` in which to look up default fields,
             defaults to :attr:`Field._default_fields`
-        :type source: dict[:class:`_types.FieldName`, :class:`_types.FieldSpec`]
+        :type source: dict[:class:`_types.FieldName`, :class:`namespaces.FieldSpec`]
 
         :returns: A new :class:`Field`
         :rtype: :class:`Field`
@@ -415,7 +414,7 @@ class Field:
         Get a :class:`Field` from a curly-brace field in a format string.
 
         :param template: The format string to convert
-        :type template: :class`FormatStr`
+        :type template: :class`_types.FormatStr`
         '''
         sig = FormatterFieldSig.from_str(fmt)
         field = cls.from_default(sig.name)

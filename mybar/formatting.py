@@ -60,28 +60,22 @@ class FormatterFieldSig(NamedTuple):
     by Formatter().parse().
 
     :param lit: Literal text preceding a replacement field
-    :type lit: :class:`FormatterLiteral`
+    :type lit: :class:`_types.FormatterLiteral`
 
     :param name: The name of such a field, found inside curly braces
-    :type name: :class:`FormatterFname`
+    :type name: :class:`_types.FormatterFname`
 
     :param spec: The field's format spec, found inside curly braces
-    :type spec: :class:`FormatterFormatSpec`
+    :type spec: :class:`_types.FormatterFormatSpec`
 
     :param conv: The field's conversion value, found inside curly braces
-    :type conv: :class:`FormatterConversion`, optional
+    :type conv: :class:`_types.FormatterConversion`, optional
     '''
 
     lit: FormatterLiteral
     name: FormatterFname
     spec: FormatterFormatSpec
     conv: FormatterConversion
-
-##    def __repr__(self) -> str:
-##        field_names = self._fields
-##        # Stolen from collections.__init__:
-##        repr_fmt = '(' + ', '.join(f'{name}=%r' for name in field_names) + ')'
-##        return repr_fmt % self
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.as_string()!r})"
@@ -94,7 +88,7 @@ class FormatterFieldSig(NamedTuple):
         only process the first one.
 
         :param fmt: The format string to convert
-        :type fmt: :class:`FormatStr`
+        :type fmt: :class:`_types.FormatStr`
         '''
         try:
             parsed = tuple(Formatter().parse(fmt))
@@ -134,16 +128,16 @@ class FormatterFieldSig(NamedTuple):
         '''
         Recreate a format string field from a single field signature.
 
-        :param with_literal: Include the signature's :class:`FormatterLiteral`,
+        :param with_literal: Include the signature's :class:`_types.FormatterLiteral`,
             defaults to ``True``
         :type with_literal: :class:`bool`
 
-        :param with_conv: Include the signature's :class:`FormatterConversion`,
+        :param with_conv: Include the signature's :class:`_types.FormatterConversion`,
             defaults to ``True``
         :type with_conv: :class:`bool`
 
         :returns: The format string represented by the signature
-        :rtype: :class:`FormatStr`
+        :rtype: :class:`_types.FormatStr`
         '''
         if self.name is None:
             # This format string has no fields whatsoever.
@@ -209,7 +203,7 @@ class FmtStrStructure(tuple[FormatterFieldSig]):
             Raise :exc:`InvalidFormatStringFieldNameError` for any fields
             with names not in `valid_names`.
             When `valid_names` is ``None``, field names are not checked.
-        :type valid_names: Container[:class:`FormatterFname`]
+        :type valid_names: Container[:class:`_types.FormatterFname`]
 
         :param check_positionals: Ensure each field has a name,
             defaults to ``False``.
@@ -320,8 +314,8 @@ class MissingFieldnameError(FormatStringError):
         :param epilogue: A message at the end of the traceback
         :type epilogue: :class:`str`
 
-        :returns: A new :class:`MissingFieldnameError`
-        :rtype: :class:`MissingFieldnameError`
+        :returns: A new :class:`errors.MissingFieldnameError`
+        :rtype: :class:`errors.MissingFieldnameError`
         '''
         rebuilt = ""
         highlight = " "  # Account for the repr quotation mark.
@@ -360,7 +354,7 @@ class ConditionalFormatStr:
     groupings shown blank when the mapping is formatted.
 
     :param fmt: The initial format string
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param sep: Surrounds related fields and literal text that should be
         grouped together, defaults to ``":"``
@@ -728,12 +722,14 @@ class ElapsedTime:
 
         For example...
 
-            - Running ``in_desired_units(12345, ('mins', 'hours'))``
-                | yields ``{'hours': 3, 'mins': 25.75}``,
-            - but ``in_desired_units(12345, ('mins', 'days'))``
-                | yields ``{'days': 0, 'mins': 205.75}``,
-            - and ``in_desired_units(12345, ('hours',))``
-                | yields ``{'hours': 3.4291666666666667}``.
+        Running ``in_desired_units(12345, ('mins', 'hours'))``
+             yields ``{'hours': 3, 'mins': 25.75}``,
+
+        but ``in_desired_units(12345, ('mins', 'days'))``
+             yields ``{'days': 0, 'mins': 205.75}``,
+
+        and ``in_desired_units(12345, ('hours',))``
+             yields ``{'hours': 3.4291666666666667}``.
 
         :param secs: Seconds to be converted
         :type secs: :class:`int`

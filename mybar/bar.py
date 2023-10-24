@@ -2,7 +2,7 @@
 #TODO: Finish Mocp line!
 
 
-__all__ = ('Bar',)
+__all__ = ('Bar', 'BarConfig')
 
 
 import asyncio
@@ -29,7 +29,7 @@ from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor, FieldSpec
 from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
-from .namespaces import BarConfigSpec, BarSpec, CmdOptionSpec, FieldSpec
+from .namespaces import BarConfigSpec, BarSpec, _CmdOptionSpec, FieldSpec
 from ._types import (
     Args,
     ASCII_Icon,
@@ -58,22 +58,23 @@ from typing import (
 )
 
 Bar = TypeVar('Bar')
+BarConfig = TypeVar('BarConfig')
 
 
 class BarConfig(dict):
     '''
     Build and transport configs between files, dicts and command lines.
 
-    :param options: Optional :class:`_types.BarConfigSpec` parameters
+    :param options: Optional :class:`namespaces.BarConfigSpec` parameters
         that override those of `defaults`
-    :type options: :class:`_types.BarConfigSpec`
+    :type options: :class:`namespaces.BarConfigSpec`
 
     :param defaults: Parameters to use by default,
         defaults to :attr:`Bar._default_params`
     :type defaults: :class:`dict`
 
     .. note:: `options` and `defaults` must be :class:`dict` instances
-        of form :class:`_types.BarConfigSpec`
+        of form :class:`namespaces.BarConfigSpec`
 
     '''
     def __init__(
@@ -107,7 +108,7 @@ class BarConfig(dict):
         *,
         defaults: BarConfigSpec = None,
         overrides: BarConfigSpec = {},
-    ) -> Self:
+    ) -> BarConfig:
         '''
         Return a new :class:`BarConfig` from a config file path.
 
@@ -115,13 +116,13 @@ class BarConfig(dict):
             defaults to ``'~/.mybar.json'``
         :type file: :class:`PathLike`
 
-        :param defaults: The base :class:`_types.BarConfigSpec` dict
+        :param defaults: The base :class:`namespaces.BarConfigSpec` dict
             whose params the new :class:`BarConfig` will override,
             defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`_types.BarConfigSpec`
+        :type defaults: :class:`namespaces.BarConfigSpec`
 
         :param overrides: Additional param overrides to the config file
-        :type overrides: :class:`_types.BarConfigSpec`
+        :type overrides: :class:`namespaces.BarConfigSpec`
 
         :returns: A new :class:`BarConfig` instance
         :rtype: :class:`BarConfig`
@@ -161,10 +162,10 @@ class BarConfig(dict):
         Return a config with a unified `field_definitions`.
 
         :param params: The config to process
-        :type params: :class:`BarConfigSpec`
+        :type params: :class:`namespaces.BarConfigSpec`
 
         :returns: The processed config
-        :rtype: :class:`BarConfigSpec`
+        :rtype: :class:`namespaces.BarConfigSpec`
         '''
         all_except_defs = (
             BarConfigSpec.__optional_keys__
@@ -177,7 +178,7 @@ class BarConfig(dict):
                 defs[maybe_def] = config.pop(maybe_def)
 
         # Remove command line options:
-        for option in CmdOptionSpec.__optional_keys__:
+        for option in _CmdOptionSpec.__optional_keys__:
             defs.pop(option, None)
 
         config['field_definitions'] = defs
@@ -187,7 +188,7 @@ class BarConfig(dict):
     def from_stdin(
         cls,
         write_new_file_dft: bool = True
-    ) -> Self:
+    ) -> BarConfig:
         '''Return a new :class:`BarConfig` using args from STDIN.
         Prompt the user before writing a new config file if one does
         not exist.
@@ -199,7 +200,7 @@ class BarConfig(dict):
         :returns: A new :class:`BarConfig`
         :rtype: :class:`BarConfig`
         '''
-        parser = cli.Parser()
+        parser = cli.ArgParser()
         try:
             bar_options, command_options = parser.parse_args()
         except CLIUsageError as e:
@@ -295,7 +296,7 @@ class BarConfig(dict):
 
         :returns: The converted file and its raw text contents
         :rtype: tuple[
-            :class:`_types.BarSpec`,
+            :class:`namespaces.BarSpec`,
             :class:`_types.FileContents`
             ]
         '''
@@ -320,15 +321,15 @@ class BarConfig(dict):
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param spec: The :class:`_types.BarSpec` to write
-        :type spec: :class:`_types.BarSpec`, optional
+        :param spec: The :class:`namespaces.BarSpec` to write
+        :type spec: :class:`namespaces.BarSpec`, optional
 
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
 
         :param defaults: Any default parameters that `spec` should
             override, defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`_types.BarSpec`
+        :type defaults: :class:`namespaces.BarSpec`
         '''
         unpythoned = cls._remove_unserializable(spec, defaults=defaults)
         absolute = os.path.abspath(os.path.expanduser(file))
@@ -350,13 +351,10 @@ class BarConfig(dict):
         :type file: :class:`PathLike`
 
         :returns: The converted file and its raw text
-        :rtype: tuple[:class:`_types.BarConfigSpec`,
+        :rtype: tuple[:class:`namespaces.BarConfigSpec`,
             :class:`_types.JSONText`]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
-        p = Parser(file=absolute)
-        data = p.to_dict()
-        text = p._string
         with open(absolute, 'r') as f:
             data = json.load(f)
             text = f.read()
@@ -377,15 +375,15 @@ class BarConfig(dict):
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param spec: The :class:`_types.BarSpec` to write
-        :type spec: :class:`_types.BarSpec`, optional
+        :param spec: The :class:`namespaces.BarSpec` to write
+        :type spec: :class:`namespaces.BarSpec`, optional
 
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
 
         :param defaults: Any default params that `spec` should override,
             defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`_types.BarSpec`
+        :type defaults: :class:`namespaces.BarSpec`
         '''
         un_pythoned = cls._remove_unserializable(spec, defaults=defaults)
         absolute = os.path.abspath(os.path.expanduser(file))
@@ -405,12 +403,12 @@ class BarConfig(dict):
         Remove Python-specific API elements like functions which cannot
         be serialized for writing to files.
 
-        :param spec: The :class:`_types.BarConfigSpec` to convert
-        :type spec: :class:`_types.BarConfigSpec`
+        :param spec: The :class:`namespaces.BarConfigSpec` to convert
+        :type spec: :class:`namespaces.BarConfigSpec`
 
         :param defaults: Any default params that `spec` should override,
             defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`_types.BarSpec`
+        :type defaults: :class:`namespaces.BarSpec`
         '''
         if defaults is None:
             defaults = Bar._default_params.copy()
@@ -440,8 +438,8 @@ class BarConfig(dict):
         '''
         Return a :class:`BarConfig` as a string with JSON formatting.
 
-        :param spec: The :class:`_types.BarSpec` to convert
-        :type spec: :class:`_types.BarSpec`, optional
+        :param spec: The :class:`namespaces.BarSpec` to convert
+        :type spec: :class:`namespaces.BarSpec`, optional
 
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
@@ -449,9 +447,6 @@ class BarConfig(dict):
         cleaned = cls._remove_unserializable(spec)
         return json.dumps(cleaned, indent=indent)
 
-
-    def convert():
-        pass
 
 class Bar:
     '''
@@ -463,7 +458,7 @@ class Bar:
 
     :param template: A curly-brace format string with field names,
         defaults to ``None``
-    :type template: :class:`formatting.FormatStr`
+    :type template: :class:`_types.FormatStr`
 
     :param separator: The field separator when `fields` is given,
         defaults to ``'|'``
@@ -519,10 +514,7 @@ class Bar:
         support for Unicode is more likely.
         This enables the same :class:`Bar` instance to use the most
         optimal separator automatically.
-    :type separators: tuple[
-            :class:`_types.ASCII_Separator`,
-            :class:`_types.Unicode_Separator`
-        ], optional
+    :type separators: tuple[:class:`_types.ASCII_Separator`, :class:`_types.Unicode_Separator` ], optional
 
     :param stream: The bar's output stream,
         defaults to :attr:`sys.stdout`
@@ -712,7 +704,7 @@ class Bar:
         *,
         overrides: BarSpec = {},
         ignore_with: Pattern | tuple[Pattern] | None = '//'
-    ) -> Self:
+    ) -> Bar:
         '''
         Return a new :class:`Bar` from a :class:`BarConfig`
         or a dict of :class:`Bar` parameters.
@@ -725,7 +717,7 @@ class Bar:
 
         :param overrides: Replace items in `config` with these params,
             defaults to ``{}``
-        :type overrides: :class:`BarSpec`
+        :type overrides: :class:`namespaces.BarSpec`
 
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
         :type ignore_with: :class:`_types.Pattern` |
@@ -747,10 +739,10 @@ class Bar:
             is not properly defined in `field_definitions`
         :raises: :exc:`errors.InvalidFieldSpecError` when
             a field definition is not of the form
-            :class:`_types.FieldSpec`
+            :class:`namespaces.FieldSpec`
 
         .. note:: `config` can be a regular :class:`dict`
-        as long as it matches the form of :class:`_types.BarSpec`.
+            as long as it matches the form of :class:`namespaces.BarSpec`.
 
         '''
         if ignore_with is None:
@@ -901,7 +893,7 @@ class Bar:
         cls,
         file: PathLike = None,
         overrides: BarSpec = {}
-    ) -> Self:
+    ) -> Bar:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
@@ -911,7 +903,7 @@ class Bar:
 
         :param overrides: Replace items in `config` with these params,
             defaults to ``{}``
-        :type overrides: :class:`BarSpec`
+        :type overrides: :class:`namespaces.BarSpec`
 
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
@@ -986,7 +978,7 @@ class Bar:
         it will override the new field order.
 
         :param field: The field to append
-        :type field: :class:`FieldPrecursor`
+        :type field: :class:`_types.FieldPrecursor`
 
         :returns: The modified bar
         :rtype: :class:`Bar`
@@ -1007,7 +999,7 @@ class Bar:
         the fields are displayed.
 
         :param field: The fields to append
-        :type field: :class:`FieldPrecursor`
+        :type field: :class:`_types.FieldPrecursor`
 
         :returns: The modified bar
         :rtype: :class:`Bar`
@@ -1060,19 +1052,19 @@ class Bar:
         Convert :class:`Field` precursors to :class:`Field` instances.
 
         Take an iterable of field names, :class:`Field` instances, or
-        :class:`FormatterFieldSig` tuples and convert them to
+        :class:`formatting.FormatterFieldSig` tuples and convert them to
         corresponding default Fields.
         Return a dict mapping field names to Fields, along with a
         duplicate-preserving list of field names that were found.
 
-        :param fields: An iterable of :class:`FieldPrecursor` to convert
+        :param fields: An iterable of :class:`_types.FieldPrecursor` to convert
         :type fields: :class:`Iterable[FieldPrecursor]`
 
         :returns: A dict mapping field names to :class:`Field` instances
         :rtype: :class:`tuple[FieldOrder, dict[FieldName, Field]]`
 
         :raises: :exc:`errors.InvalidFieldError` when an element
-            of `fields` is not a :class:`FieldPrecursor`
+            of `fields` is not a :class:`_types.FieldPrecursor`
         '''
         normalized = {}
         names = []

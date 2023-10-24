@@ -41,14 +41,14 @@ from typing import Literal, TypeAlias, NamedTuple, Any
 from enum import Enum
 
 
-# Field functions
-
 async def get_audio_volume(
     fmt: FormatStr = "{:02.0f}{state}",
     *args, **kwargs
 ) -> Contents:
-    '''Currently awaiting a more practical implementation that supports
-    instantaneous updates. A socket would be quite nice for that.'''
+    '''
+    Currently awaiting a more practical implementation that supports
+    instantaneous updates. A socket would be quite nice for that.
+    '''
 ##    '''Returns system audio volume from ALSA amixer. SIGUSR1 is used to
 ##    notify the thread of volume changes from button presses.'''
     pat = re.compile(r'.*\[(\d+)%\] \[(\w+)\]')
@@ -123,17 +123,15 @@ async def get_battery_info(
         two optional named fields:
             - ``pct``: Current battery percent as a :class:`float`
             - ``state``: Whether or not the battery is charging
+
         Defaults to ``"{pct:02.0f}{state}"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
     '''
-    # if not (battery := psutil.sensors_battery()):
     battery = psutil.sensors_battery()
     if not battery:
         return ""
-##        # return (None, None)
     state = "CHG" if battery.power_plugged else ''
     info = fmt.format_map({'pct': battery.percent, 'state': state})
-##    return battery.power_plugged, info
     return info
 
 
@@ -149,8 +147,9 @@ def get_cpu_temp(
         two optional named fields:
             - ``temp``: Current CPU temperature as a :class:`float`
             - ``scale``: ``'C'`` or ``'F'``, depending on `in_fahrenheit`
+
         Defaults to ``"{temp:02.0f}{scale}"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param in_fahrenheit: Display the temperature in Fahrenheit instead of Celcius,
         defaults to ``False``
@@ -178,7 +177,7 @@ def get_cpu_usage(
 
     :param fmt: A curly-brace format string with one positional field,
         defaults to ``"{:02.0f}%"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param interval: Time to block before returning a result.
         Only set this in a threaded :class:`Field`.
@@ -194,8 +193,8 @@ def get_datetime(
     '''
     Current time as formatted with `fmt`.
 
-    :param fmt: A format string with %-based format codes used by ``datetime.strftime()``,
-        defaults to ``"%Y-%m-%d %H:%M:%S"``
+    :param fmt: A format string with %-based format codes used by
+        ``datetime.strftime()``, defaults to ``"%Y-%m-%d %H:%M:%S"``
     :type fmt: :class:`str`
 
     .. seealso:: `strftime() format codes <https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes>`_
@@ -220,15 +219,16 @@ async def get_disk_usage(
             - ``used``: Used disk space
             - ``free``: Free disk space (``total - used``)
             - ``percent``: Percent of total disk space that is used (``used / total``, a :class:`float`)
+
         Defaults to ``"{free:.1f}{unit}"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param path: The path to a directory or file on a disk partition,
         defaults to ``'/'``
     :type path: :class:`os.PathLike`
 
     :param unit: The unit prefix symbol
-    :type unit: :class:`MetricSymbol`
+    :type unit: :class:`_types.MetricSymbol`
     '''
     if unit not in POWERS_OF_1024:
         raise InvalidArgError(
@@ -262,8 +262,9 @@ def get_host(
             - ``release``: Kernel release
             - ``version``: Kernel version
             - ``machine``: Machine architecture
+
         Defaults to ``"{nodename}"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
     '''
     keys = ('sysname', 'nodename', 'release', 'version', 'machine')
     host = fmt.format_map(dict(zip(keys, os.uname())))
@@ -289,18 +290,19 @@ def get_mem_usage(
             - ``total``: Total disk partition size
             - ``used``: Used disk space
             - ``free``: ``total``-``used`` disk space
-            - ``percent``: ``used``/``total`` disk space as a :class:`float`
+            - ``percent``: ``used``/``total`` disk space as a
+                :class:`float`
+
         Defaults to ``"{free:.1f}{unit}"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param path: The path to a directory or file on a disk partition,
         defaults to ``'/'``
     :type path: :class:`os.PathLike`
 
     :param unit: The unit prefix symbol
-    :type unit: :class:`MetricSymbol`
+    :type unit: :class:`_types.MetricSymbol`
     '''
-    # '''Returns total RAM used including buffers and cache in GiB.'''
     memory = psutil.virtual_memory()
     factor = POWERS_OF_1024[unit]
     converted = {
@@ -329,14 +331,15 @@ async def get_net_stats(
             - ``uuid``: The connection uuid
             - ``type``: The connection type
             - ``device``: The connection device
+
         Defaults to ``"{name}"``
-    :type fmt: :class:`FormatStr`
+    :type fmt: :class:`_types.FormatStr`
 
     :param nm: Use `NetworkManager`, defaults to ``True``
     :type nm: :class:`bool`
 
     :param nm_filt: Filter from active `NetworkManager` connections
-    :type nm_filt: :class:`NmConnFilterSpec`, optional
+    :type nm_filt: :class:`_types.NmConnFilterSpec`, optional
 
     :param default: The string to replace `fmt` fields when there is no active connection.
     :type default: :class:`str`
@@ -403,8 +406,6 @@ async def get_net_stats(
         return ssid
 
 
-# Uptime
-
 async def get_uptime(
     fmt: FormatStr,
     dynamic: bool = True,
@@ -416,24 +417,41 @@ async def get_uptime(
     System uptime.
 
     This function does some neat things.
-    When `dynamic` is ``True``, the format string is split into groups using `sep`.
-    If any format string fields in a group evaluate to 0, the whole group is hidden.
-    For example, using the format string ``"{days}d:{hours}h:{mins}m"``, 86580 seconds is represented as ``"1d:0h:3m"`` with `dynamic` = ``False``, but would be shortened to ``"1d:3m"`` with `dynamic` = ``True``.
-    ``"{hours}"`` will round `hours` to an integer by default.
-    If :class:`float` values are desired, a format spec must be used:
+    When `dynamic` is ``True``, the format string is split into groups
+    using `sep`. If any format string fields in a group evaluate to
+    0, the whole group is hidden.
+
+    For example, using the format string ``"{days}d:{hours}h:{mins}m"``,
+    86580 seconds is represented as ``1d:0h:3m`` when `dynamic` is
+    ``False``, but would be shortened to ``1d:3m`` when `dynamic`
+    is ``True``.
+
+    Using only one unit, like ``"{hours}"``, will round `hours` to an
+    integer by default. If floating point values are desired, a format
+    spec must be used:
         ``"{hours:.4f}"``
-    Format specs can be used to great effect, like in all other field functions which accept `fmt`:
+
+    Format specs can be used to great effect, like in all other field
+    functions which accept `fmt`:
         ``"{hours:_^10.4f}"``
 
-    :param fmt: A curly-brace format string with seven optional named fields:
-        ``secs``, ``mins``, ``hours``, ``days``, ``weeks``, ``months``, and ``years``
-    :type fmt: :class:`FormatStr`
+    .. seealso:: The Python `format spec mini language documentation
+        <https://docs.python.org/3/library/string.html#format-\
+        specification-mini-language>`_
 
-    :param dynamic: Given `sep`, automatically hide groups of units when they are ``0``.
+    :param fmt: A curly-brace format string with seven optional named\
+    fields:
+        ``secs``, ``mins``, ``hours``, ``days``, ``weeks``, ``months``,
+        and ``years``
+
+    :type fmt: :class:`_types.FormatStr`
+
+    :param dynamic: Given `sep`, automatically hide groups of units when
+        they are ``0``.
     :type dynamic: :class:`bool`
 
-    :param sep: Delimits groups of format fields to be hidden/shown together,
-        defaults to ``":"``
+    :param sep: Delimits groups of format fields to be hidden/shown
+        together, defaults to ``":"``
     :type sep: :class:`str`
     '''
     secs = time.time() - psutil.boot_time()
