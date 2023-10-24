@@ -490,7 +490,7 @@ class Lexer:
         ), TokKind.STRING),
         ## Numbers
         (re.compile(r'^\d*\.\d[\d_]*'), TokKind.FLOAT),
-        (re.compile(r'^\d+'), TokKind.INTEGER),
+        (re.compile(r'^\d+[\d_]*'), TokKind.INTEGER),
         ## Booleans
         (re.compile(r'^(true|yes)', re.IGNORECASE), TokKind.TRUE),
         (re.compile(r'^(false|no)', re.IGNORECASE), TokKind.FALSE),
