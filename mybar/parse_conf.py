@@ -148,6 +148,8 @@ T_AssignEvalNone = {TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA}
 T_Ignore = {TokKind.SPACE, TokKind.COMMENT}
 '''These tokens are ignored by the parser'''
 
+T_Invisible = {*T_Ignore, TokKind.NEWLINE}
+
 T_Literal = {
     TokKind.STRING,
     TokKind.INTEGER,
@@ -476,31 +478,41 @@ class Lexer:
 
     _rules = (
         # Data types
+
         ## Multiline strings
         (re.compile(
             r'^(?P<speech_char>["\'`]{3})'
             r'(?P<text>((?!(?P=speech_char)).|' + NEWLINE + r')*)'
             r'(?P=speech_char)'
         , re.MULTILINE), TokKind.STRING),
+
         ## Single-line strings
         (re.compile(
             r'^(?P<speech_char>["\'`])'
             r'(?P<text>((?!(?P=speech_char)).)*)'
             r'(?P=speech_char)'
         ), TokKind.STRING),
+
         ## Numbers
-        (re.compile(r'^\d*\.\d[\d_]*'), TokKind.FLOAT),
-        (re.compile(r'^\d+[\d_]*'), TokKind.INTEGER),
+        (re.compile(
+            r'^\d?(\d*|[\d_]*\d)'
+            r'\.'
+            # Match trailing '_' and catch resulting Py ValueError later:
+            r'\d[\d_]*'
+        ), TokKind.FLOAT),
+            # Again here:
+        (re.compile(r'^\d[\d_]*'), TokKind.INTEGER),
+
         ## Booleans
         (re.compile(r'^(true|yes)', re.IGNORECASE), TokKind.TRUE),
         (re.compile(r'^(false|no)', re.IGNORECASE), TokKind.FALSE),
 
         # Ignore
-        ## Skip comments
+        ## Comments
         (re.compile(r'^\#.*(?=\n*)'), TokKind.COMMENT),
-        ## Finds empty assignments:
+        ## Matching Newline helps find empty assignments:
         (re.compile(r'^' + NEWLINE + r'+'), TokKind.NEWLINE),
-        ## Skip all other whitespace:
+        ## All other whitespace
         (re.compile(r'^[^' + NEWLINE + r'\S]+'), TokKind.SPACE),
 
         # Operators
@@ -618,8 +630,8 @@ class Lexer:
         :type last: :class:`Token`
         '''
         tokens = self._tokens
-        if last not in tokens:
-            raise ValueError("`last` token not yet lexed!")
+        if last not in tokens and last.kind not in T_Invisible:
+            tokens.append(last)
         start = first.cursor
         end = last.cursor
         between = tuple(t for t in tokens if start <= t.cursor <= end)
@@ -1012,23 +1024,27 @@ class RecursiveDescentParser:
                 yield kind
 
             case kind if kind in T_Literal:
-                match tok.kind:
-                    case TokKind.STRING:
-                        value = tok.value
-                    case TokKind.INTEGER:
-                        value = int(tok.value)
-                    case TokKind.FLOAT:
-                        value = float(tok.value)
-                    case TokKind.TRUE:
-                        value = True
-                    case TokKind.FALSE:
-                        value = False
-                    case TokKind.NONE:
-                        value = None
-                    case _:
-                        msg = f"Expected a literal, but got {tok.value!r}"
-                        raise ParseError.hl_error(tok, msg, self)
-                node = Constant(value)
+                try:
+                    match tok.kind:
+                        case TokKind.STRING:
+                            value = tok.value
+                        case TokKind.INTEGER:
+                            value = int(tok.value)
+                        case TokKind.FLOAT:
+                            value = float(tok.value)
+                        case TokKind.TRUE:
+                            value = True
+                        case TokKind.FALSE:
+                            value = False
+                        case TokKind.NONE:
+                            value = None
+                        case _:
+                            msg = f"Expected a literal, but got {tok.value!r}"
+                            raise ParseError.hl_error(tok, msg, self)
+                    node = Constant(value)
+                except ValueError:
+                    msg = f"Invalid {kind.value.lower()} value: {tok.value!r}"
+                    raise ParseError.hl_error(tok, msg, self)
 
             case TokKind.L_BRACKET:
                 node = (yield from self._parse_list())
@@ -1235,7 +1251,6 @@ class RecursiveDescentParser:
         '''
         Parse a config file and return its data as a :class:`dict`.
         '''
-        self._reset()
         tree = self.parse()
         unparsed = Unparser().unparse(tree)
         # print(unparsed)
