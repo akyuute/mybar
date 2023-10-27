@@ -2,10 +2,12 @@ __all__ = (
     'FieldSpec',
     'BarSpec',
     'BarConfigSpec',
+    'ConfigFileSpec',
     '_CmdOptionSpec',
 )
 
 
+from ast import Dict, List
 from os import PathLike
 
 from ._types import (
@@ -22,8 +24,8 @@ from ._types import (
     Unicode_Separator,
 )
 
-from collections.abc import Callable, Iterable, Sequence
-from typing import ParamSpec, Required, Sequence, TypedDict, TypeVar
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import ParamSpec, Required, TypedDict, TypeVar
 
 
 Bar = TypeVar('Bar')
@@ -34,7 +36,7 @@ class FieldSpec(TypedDict, total=False):
     A dict specifying the structure of :class:`mybar.Field` constructor
     parameters.
     '''
-    name: Required[FieldName]
+    name: FieldName
     func: Callable[P, str]
     icon: Icon
     template: FormatStr
@@ -52,7 +54,7 @@ class FieldSpec(TypedDict, total=False):
     '''
     Set `icons` to use different icons for different output streams:
     '''
-    icons: Sequence[[ASCII_Icon, Unicode_Icon]]
+    icons: Sequence[ASCII_Icon, Unicode_Icon]
 
 
 class BarSpec(TypedDict, total=False):
@@ -72,9 +74,9 @@ class BarSpec(TypedDict, total=False):
     The following field params are mutually exclusive with `template`:
     '''
     fields: Iterable[Field | FieldName]
-    field_order: Required[list[FieldName]]
+    field_order: Sequence[FieldName]
     separator: Separator
-    separators: Sequence[[ASCII_Separator, Unicode_Separator]]
+    separators: Sequence[ASCII_Separator, Unicode_Separator]
 
     '''
     The `template` param is mutually exclusive with all field params:
@@ -84,18 +86,18 @@ class BarSpec(TypedDict, total=False):
 
 class BarConfigSpec(BarSpec, total=False):
     '''
-    A dict specifying the structure of :class:`mybar.bar.BarConfig`
-    constructor parameters.
+    Specify :class:`mybar.bar.BarConfig` and config file options.
     '''
     debug: bool
-    field_definitions: dict[FieldName, FieldSpec]
-    field_icons: dict[FieldName, Icon]
+    field_definitions: Mapping[FieldName, FieldSpec]
+    field_icons: Mapping[FieldName, Sequence[ASCII_Icon, Unicode_Icon] | Icon]
+    field_order: Iterable[FieldName]
     unicode: bool
 
 
 class _CmdOptionSpec(TypedDict, total=False):
     '''
-    A dict specifying two special command line options.
+    Specify special command line optional arguments.
     '''
     config_file: PathLike
     dump_config: bool | int = 4
