@@ -27,9 +27,9 @@ from . import field_funcs
 from . import parse_conf
 from . import utils
 from .errors import *
-from .field import Field, FieldPrecursor, FieldSpec
+from .field import Field, FieldPrecursor
 from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
-from .namespaces import BarConfigSpec, BarSpec, _CmdOptionSpec, FieldSpec
+from .namespaces import BarConfigSpec, BarSpec, FieldSpec, _CmdOptionSpec
 from ._types import (
     Args,
     ASCII_Icon,
@@ -145,9 +145,17 @@ class BarConfig(dict):
         options = from_file | overrides
 
         # Don't clobber a file's field definitions:
-        for key in ('field_definitions',):
-            if key in options:
-                options[key] = from_file[key] | overrides.get(key, {})
+        for opt in ('field_definitions',):
+            if opt in options:
+                options[opt] = from_file[opt] | overrides.get(opt, {})
+
+##        # Prevent defaults from setting options that take precedence:
+##        precedence = (
+##            ('separators', 'separator'),
+##        )
+##        for opt, dft in precedence:
+##            if opt in options:
+##                defaults.pop(dft, None)
 
         config = cls(options, defaults)
         config.file = absolute
@@ -454,7 +462,7 @@ class Bar:
 
     :param fields: An iterable of default field names or :class:`Field`
         instances, defaults to ``None``
-    :type fields: :class:`Iterable[Field | str]`
+    :type fields: :class:`Iterable[_types.FieldPrecursor]`
 
     :param template: A curly-brace format string with field names,
         defaults to ``None``
@@ -553,7 +561,7 @@ class Bar:
     def __init__(
         self,
         template: FormatStr = None,
-        fields: Iterable[Field | FieldName] = None,
+        fields: Iterable[FieldPrecursor] = None,
         *,
         field_order: Iterable[FieldName] = None,
         separator: str = '|',
@@ -582,13 +590,13 @@ class Bar:
 
             if template is None:
                 raise IncompatibleArgsError(
-                    f"Either a list of Fields 'fields' "
-                    f"or a format string 'template' is required."
+                    f"Either a list of Fields `fields` "
+                    f"or a format string `template` is required."
                 )
 
             elif not isinstance(template, str):
                 raise TypeError(
-                    f"Format string 'template' must be a string, "
+                    f"Format string `template` must be a string, "
                     f"not {type(template)}"
                 )
 
@@ -601,12 +609,14 @@ class Bar:
 
         # Fall back to using fields.
         elif not hasattr(fields, '__iter__'):
-            raise TypeError("The 'fields' argument must be iterable.")
+            raise TypeError("The `fields` argument must be iterable.")
 
-        elif separator is None and separators is None:
-            raise IncompatibleArgsError(
-                "A separator is required when 'template' is None."
-            )
+        if separators is None:
+            if separator is None:
+                msg = "A separator is required when `template` is None."
+                raise IncompatibleArgsError(msg)
+            separators = (separator, separator)
+        self._separators = separators
 
         field_names, fields = self._normalize_fields(fields)
 
@@ -619,10 +629,6 @@ class Bar:
         self._buffers = dict.fromkeys(self._fields, '')
 
         self.template = template
-
-        if separators is None:
-            separators = (separator, separator)
-        self._separators = separators
 
         self._endline = '\n' if endline is True else '\r'
         self.join_empty_fields = join_empty_fields
@@ -745,11 +751,11 @@ class Bar:
             as long as it matches the form of :class:`namespaces.BarSpec`.
 
         '''
-        if ignore_with is None:
-            data = deepcopy(config)
-        else:
-            data = utils.scrub_comments(config, ignore_with)
-
+        data = deepcopy(config)
+##        if ignore_with is None:
+##            data = deepcopy(config)
+##        else:
+##            data = utils.scrub_comments(config, ignore_with)
         data.update(overrides)
 
         bar_params = cls._default_params | data

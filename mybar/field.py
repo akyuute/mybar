@@ -2,6 +2,7 @@
 #TODO: Finish Mocp line!
 
 
+#TODO: CHECK WITH NEW ATTR BAR.UNICODE TO GET APPROPRIATE ICON WITHOUT LOSING STATE!
 __all__ = (
     'Field',
 )
