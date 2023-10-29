@@ -47,7 +47,7 @@ from ._types import (
     Unicode_Separator,
 )
 
-from collections.abc import Container, Iterable, Iterator, Sequence
+from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
 from os import PathLike
 from typing import (
     IO,
@@ -71,9 +71,9 @@ class BarConfig(dict):
 
     :param defaults: Parameters to use by default,
         defaults to :attr:`Bar._default_params`
-    :type defaults: :class:`dict`
+    :type defaults: :class:`Mapping`
 
-    .. note:: `options` and `defaults` must be :class:`dict` instances
+    .. note:: `options` and `defaults` must be :class:`Mapping` instances
         of form :class:`namespaces.BarConfigSpec`
 
     '''
@@ -712,8 +712,8 @@ class Bar:
         which is ``'//'`` by default.
         If :param ignore_with: is ``None``, do not remove any values.
 
-        :param config: The :class:`dict` to convert
-        :type config: :class:`dict`
+        :param config: The :class:`Mapping` to convert
+        :type config: :class:`Mapping`
 
         :param overrides: Replace items in `config` with these params,
             defaults to ``{}``
@@ -809,7 +809,7 @@ class Bar:
 
             cust_icons = field_icons.get(name, None)
             if cust_icons is not None:
-                if not isinstance(cust_icons, (list, tuple)):
+                if isinstance(cust_icons, str):
                     # When one icon is given, override both defaults:
                     cust_icons = (cust_icons, cust_icons)
                 if unicode is not None:
@@ -1047,7 +1047,7 @@ class Bar:
     def _normalize_fields(
         self,
         fields: Iterable[FieldPrecursor],
-    ) -> tuple[FieldOrder, dict[FieldName, Field]]:
+    ) -> tuple[FieldOrder, Mapping[FieldName, Field]]:
         '''
         Convert :class:`Field` precursors to :class:`Field` instances.
 
@@ -1060,17 +1060,15 @@ class Bar:
         :param fields: An iterable of :class:`_types.FieldPrecursor` to convert
         :type fields: :class:`Iterable[FieldPrecursor]`
 
-        :returns: A dict mapping field names to :class:`Field` instances
-        :rtype: :class:`tuple[FieldOrder, dict[FieldName, Field]]`
+        :returns: The field order and a dict mapping field names to
+            :class:`Field` instances
+        :rtype: :class:`tuple[FieldOrder, Mapping[FieldName, Field]]`
 
         :raises: :exc:`errors.InvalidFieldError` when an element
             of `fields` is not a :class:`_types.FieldPrecursor`
         '''
         normalized = {}
         names = []
-
-##        if isinstance(fields, FmtStrStructure):
-##            names = parsed.get_names()
 
         for field in fields:
             if isinstance(field, Field):
