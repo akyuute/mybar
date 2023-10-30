@@ -149,14 +149,6 @@ class BarConfig(dict):
             if opt in options:
                 options[opt] = from_file[opt] | overrides.get(opt, {})
 
-##        # Prevent defaults from setting options that take precedence:
-##        precedence = (
-##            ('separators', 'separator'),
-##        )
-##        for opt, dft in precedence:
-##            if opt in options:
-##                defaults.pop(dft, None)
-
         config = cls(options, defaults)
         config.file = absolute
         config.file_contents = text
@@ -473,21 +465,21 @@ class Bar:
     :type separator: :class:`_types.ASCII_Separator` |
         :class:`_types.Unicode_Separator`
 
-    :param break_lines: Print each refresh after a newline character
-        (``'\\n'``), defaults to False
-    :type break_lines: :class:`bool`
+    :param refresh: How often in seconds the bar automatically redraws
+        itself, defaults to ``1.0``
+    :type refresh: :class:`float`
 
     :param count: Only print the bar this many times, or never stop
         when ``None``, defaults to ``None``
     :type count: :class:`int`
 
+    :param break_lines: Print each refresh after a newline character
+        (``'\\n'``), defaults to False
+    :type break_lines: :class:`bool`
+
     :param run_once: Whether the bar should print once and return,
         defaults to ``False``
     :type run_once: :class:`bool`
-
-    :param refresh: How often in seconds the bar automatically redraws
-        itself, defaults to ``1.0``
-    :type refresh: :class:`float`
 
     :param clock_align: Whether to synchronize redraws at the start of
         each new second (updates to the clock are shown accurately),
@@ -512,6 +504,10 @@ class Bar:
         A shorter cooldown means more chances to check if the bar has
         stopped and a faster exit time.
     :type thread_cooldown: :class:`float`
+
+    :param unicode: Use Unicode variants of `separators` and Field
+        icons, if given; optional
+    :type unicode: :class:`bool`
 
     :param separators: A tuple of 2 strings that separate fields when
         `fields` is given.
@@ -565,19 +561,20 @@ class Bar:
         *,
         field_order: Iterable[FieldName] = None,
         separator: str = '|',
-        break_lines: bool = False,
         refresh: float = 1.0,
-        stream: IO = sys.stdout,
         count: int = None,
+        break_lines: bool = False,
         run_once: bool = False,
         clock_align: bool = True,
         join_empty_fields: bool = False,
         override_cooldown: float = 1/8,
         thread_cooldown: float = 1/8,
+        unicode: bool = True,
 
         # Set this to use different seps for different output streams:
         separators: Sequence[ASCII_Separator, Unicode_Separator] = None,
 
+        stream: IO = sys.stdout,
         debug: bool = DEBUG,  # Not yet implemented!
     ) -> None:
         # Ensure the output stream has the required methods:
@@ -610,6 +607,10 @@ class Bar:
         # Fall back to using fields.
         elif not hasattr(fields, '__iter__'):
             raise TypeError("The `fields` argument must be iterable.")
+
+        if unicode is None:
+            unicode = not self.stream.isatty()
+        self._unicode = unicode
 
         if separators is None:
             if separator is None:
@@ -761,7 +762,6 @@ class Bar:
         bar_params = cls._default_params | data
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})
-        unicode = bar_params.pop('unicode', None)
         field_defs = bar_params.pop('field_definitions', {})
 
         if (template := bar_params.get('template')) is None:
@@ -818,8 +818,6 @@ class Bar:
                 if isinstance(cust_icons, str):
                     # When one icon is given, override both defaults:
                     cust_icons = (cust_icons, cust_icons)
-                if unicode is not None:
-                    cust_icons = (cust_icons[unicode], cust_icons[unicode])
 
             match field_params:
                 case None:
@@ -967,12 +965,12 @@ class Bar:
     def separator(self) -> Separator:
         '''
         The field separator as determined by the output stream.
-        Defaults to the TTY sep (self._separators[1]) if no stream is set.
+        Defaults to the TTY sep (self._separators[0]) if no stream is set.
         '''
         if self._stream is None:
             # Default to using the ASCII separator:
             return self._separators[0]
-        return self._separators[not self._stream.isatty()]
+        return self._separators[self._unicode]
 
     def append(self, field: FieldPrecursor) -> Self:
         '''

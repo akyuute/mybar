@@ -430,7 +430,8 @@ class Field:
         if self._bar is None:
             # Default to using the ASCII icon:
             return self._icons[0]
-        return self._icons[not self._bar._stream.isatty()]
+        unicode = self._bar._unicode or not self._bar._stream.isatty()
+        return self._icons[unicode]
 
     async def _asyncify(self, *args, **kwargs) -> str:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
