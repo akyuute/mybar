@@ -86,7 +86,7 @@ class BarSpec(TypedDict, total=False):
 
 class BarConfigSpec(BarSpec, total=False):
     '''
-    Specify :class:`mybar.bar.BarConfig` and config file options.
+    Specify options for :class:`mybar.bar.BarConfig` and config files.
     '''
     debug: bool
     field_definitions: Mapping[FieldName, FieldSpec]

@@ -3,8 +3,8 @@ __all__ = (
     'convert_file',
     'data_to_text',
     'text_to_data',
-    'FileParser',
     'parse',
+    'Grammar',
 )
 
 
@@ -52,7 +52,7 @@ LineNo: TypeAlias = int
 ColNo: TypeAlias = int
 TokenValue: TypeAlias = str
 Location: TypeAlias = tuple[LineNo, ColNo]
-ConstantValue = str | int | float | bool | Literal[None]
+ConstantValue: TypeAlias = str | int | float | bool | Literal[None]
 
 
 class KeyValuePair(Dict):
@@ -1054,7 +1054,6 @@ class RecursiveDescentParser:
             case TokKind.IDENTIFIER:
                 node = Name(tok.value)
             case _:
-                # typ = tok.kind.value.lower()
                 msg = (f"Expected an expression,"
                        f" but got {tok.value!r} instead.")
                 raise ParseError.hl_error(tok, msg, self)
