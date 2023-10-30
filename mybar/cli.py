@@ -282,8 +282,9 @@ class ArgParser(ArgumentParser):
         )
 
         self.add_argument(
-            '--endline',
+            '--break-lines',
             action='store_true',
+            dest='break_lines',
             help="Use a newline character at the end of every bar line.",
         )
 

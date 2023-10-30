@@ -473,9 +473,9 @@ class Bar:
     :type separator: :class:`_types.ASCII_Separator` |
         :class:`_types.Unicode_Separator`
 
-    :param endline: Print each refresh after a newline character (\\n),
-        defaults to False
-    :type endline: :class:`bool`
+    :param break_lines: Print each refresh after a newline character
+        (``'\\n'``), defaults to False
+    :type break_lines: :class:`bool`
 
     :param count: Only print the bar this many times, or never stop
         when ``None``, defaults to ``None``
@@ -565,7 +565,7 @@ class Bar:
         *,
         field_order: Iterable[FieldName] = None,
         separator: str = '|',
-        endline: bool = False,
+        break_lines: bool = False,
         refresh: float = 1.0,
         stream: IO = sys.stdout,
         count: int = None,
@@ -630,7 +630,7 @@ class Bar:
 
         self.template = template
 
-        self._endline = '\n' if endline is True else '\r'
+        self._endline = '\n' if break_lines is True else '\r'
         self.join_empty_fields = join_empty_fields
         self.refresh_rate = refresh
 
