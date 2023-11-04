@@ -1,20 +1,29 @@
 Config Files
 =============
 
-Here is the config file syntax.
+Config files are written as a series of variable assignments with a target
+and a value.
 
+Assigning Variables
+--------------------
+Values can be assigned to variables with or without an equals sign (``=``)::
 
-Assignments
-------------
-Values can be assigned to variables with or without an equals sign (=)::
-    
     my_favorite_number = 42
     my_favorite_color "Magenta"
+    is_but_a_flesh_wound= yes
 
-Variables can be left empty as long as they have an equals sign::
+Variables will not override default options if they are left empty with a
+trailing equals sign::
 
-    best_food "Pizza"
-    you_disagree =   # Evaluated as ``None``
+    run_once = yes  # Overrides ``no``
+    count =  # Defaults to 1
+
+More complex options represented by nested dicts in Python may be
+specified using object attributes::
+
+    uptime.kwargs.dynamic = no  # Display uptime without special formatting.
+
+Learn more about Field options in particular `here`_
 
 
 Data Types
@@ -32,8 +41,9 @@ Data Types
         False false no
 
 - Strings
-    Single-line strings can be enclosed by single quotes ('), double quotes (")
-    or backticks (`), and multiline strings are enclosed by three of any of those::
+    Single-line strings can be enclosed by single quotes (``'``), double
+    quotes (``"``) or backticks (`````), and multiline strings are enclosed by
+    three of any of those::
 
         foo "abc"
         bar 'def'
@@ -49,21 +59,19 @@ Data Types
         first_plus_second = "ABC"  "DEF"
         concatenated = "ABCDEF"
                     
-
 - Lists
-    Lists are enclosed by square brackets ([]). Elements inside lists are separated by spaces, commas or line breaks::
+    Lists are enclosed by square brackets (``[]``). Elements inside lists are separated by spaces, commas or line breaks::
 
-        field_order [
-            uptime,
-            cpu_usage cpu_temp
-            datetime
+        groceries [
+            bread,
+            milk eggs
+            bacon
         ]
-
 
 - Objects
     Objects, which are groups of key-value pairs, are enclosed by curly braces
-    ({}). Key names must be valid variable names, meaning they have no spaces and
-    don't contain symbols except underscore (_).
+    (``{}``). Key names must be valid variable names, meaning they have no
+    spaces and don't contain symbols except underscore (``_``).
     Values may be any expression, even another object::
 
         good_movies {
@@ -74,4 +82,110 @@ Data Types
                 here_is_a_nested_object 3.14
             }
         }
+
+
+- Comments
+    Single-line comments are made using the ``#`` symbol::
+
+        option = "The parser reads this."
+        # But this is a comment.
+            #And so is this.
+        option2 = "# But not this; It's inside a string."
+        # The parser ignores everything between ``#`` and the end of the line.
+         #   ignore = "Comment out any lines of code you want to skip."
+
+
+Configuring **mybar**
+----------------------
+
+- Bar parameters
+    The following options are used to control how the bar runs:
+
+    - `refresh`
+        `(float)` The bar's refresh rate in seconds per cycle
+    - `separator`
+        `(string)` A string or list of strings (one for ASCII
+        terminals, one for Unicode terminals) used to separate each Field
+    - `count`
+        `(integer)` How many times to print the bar before the program quits
+    - `template`
+        `(string)` A template string to use instead of `field_order`
+
+    - `field_order`
+        `(list)` A list of Fields to display if `template` is unset::
+
+            field_order [uptime cpu_usage cpu_temp net_stats datetime]
+
+    - `field_icons`
+        `(object)` An object mapping Field names to icons or lists of icons
+        (one for ASCII terminals, one for Unicode terminals) for each Field::
+
+            field_icons {
+                uptime "Up "
+                cpu_usage ["CPU ", "📈"]
+                cpu_temp ["", "\uf06d "]
+            }
+
+
+- Field definitions
+    Field definitions are objects with Field options used to override
+    defaults. See `Field options`_ for a complete reference. You may use the
+    rest of the file to customize specific Fields in the `field_order` list::
+
+        datetime {
+            interval 3
+            fmt "{} o'clock"
+        }
+
+        cpu_usage {threaded=False}
+
+
+- Custom Fields
+    Positionable Fields with custom values are specified with the `custom`
+    option::
+
+        my_custom_field = {
+            custom true
+            constant_value "Hello!"
+        }
+
+
+
+Here is an example config file::
+
+    separators ["|", " )( "]
+    refresh 0.5
+    unicode yes
+
+    field_order [
+        uptime
+        my_custom_field
+        cpu_usage
+        cpu_temp
+        mem_usage
+        # disk_usage
+        battery
+        net_stats
+        datetime
+    ]
+
+    field_icons {
+        uptime ["Up ", "\uf2f2 "]
+        cpu_usage ["CPU ", "\uf3fd "]
+        cpu_temp ["", "\uf06d "]
+        mem_usage ["MEM ", "\uf2db "]
+        battery "BAT "
+        net_stats ["", "\uf1eb "]
+    }
+
+    datetime {interval 10}
+
+    # Give the time function a different format:
+    datetime.kwargs.fmt '%H:%M:%S.%f'
+
+    my_custom_field {
+        custom yes
+        constant_output "Hi!"
+        template " {} "
+    }
 
