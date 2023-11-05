@@ -1578,7 +1578,7 @@ class Unparser(NodeVisitor):
         self,
         orig: Mapping | Any,
         upd: Mapping,
-        assign: Any
+        assign: Any = {}
     ) -> dict:
         '''
         Merge two dicts and properly give them their innermost values.
@@ -1591,7 +1591,8 @@ class Unparser(NodeVisitor):
         :param upd: A dict that updates `orig`
         :type upd: :class:`dict`
 
-        :param assign: A value that will be stored in the innermost dict
+        :param assign: A value that will be stored in the innermost dict,
+            defaults to ``{}`` for continued attribute parsing.
         :type assign: :class:`Any`
         '''
         stack = [self._nested_update(orig, upd, assign)]
@@ -1610,7 +1611,7 @@ class Unparser(NodeVisitor):
         self,
         orig: dict | Any,
         upd: dict,
-        assign: Any
+        assign: Any = {}
     ) -> dict:
         '''
         Merge two dicts and properly give them their innermost values.
@@ -1623,13 +1624,14 @@ class Unparser(NodeVisitor):
         :param upd: A dict that updates `orig`
         :type upd: :class:`dict`
 
-        :param assign: A value that will be stored in the innermost dict
+        :param assign: A value that will be stored in the innermost dict,
+            defaults to ``{}`` for continued attribute parsing.
         :type assign: :class:`Any`
         '''
-        # We cannot use Mapping because its instance check is recursive.
         for k, v in upd.items():
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
+            # We cannot use Mapping because its instance check is recursive.
             if isinstance(v, dict):
                 # Give parameters to the generator runner:
                 updated = (yield (orig.get(k, {}), v, assign))
@@ -1659,10 +1661,20 @@ class Unparser(NodeVisitor):
             l.append((yield e))
         return l
 
-    def visit_Module(self, node: Module) -> list[dict[str]]:
+    def visit_Module(self, node: Module) -> dict[str]:
         config = {}
         for n in node.body:
-            config.update((yield n))
+            assignment = (yield n)
+            if isinstance(n, Assign):
+                target_node = n.targets[0]
+                # Handle dict updates made using attributes:
+                if isinstance(target_node, Attribute):
+                    (target_name, new) ,= assignment.items()
+                    if target_name in config and isinstance(new, dict):
+                        old = config[target_name]
+                        updated = self._run_nested_update(old, new)
+                        assignment = {target_name: updated}
+            config.update(assignment)
         return config
 
     def visit_Name(self, node: Name) -> str:
