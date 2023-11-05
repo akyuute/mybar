@@ -2,7 +2,6 @@
 #TODO: Finish Mocp line!
 
 
-#TODO: CHECK WITH NEW ATTR BAR.UNICODE TO GET APPROPRIATE ICON WITHOUT LOSING STATE!
 __all__ = (
     'Field',
 )
@@ -399,9 +398,9 @@ class Field:
                 f"{name!r} is not the name of a default Field."
             ) from None
 
+        if overrides.get('interval', None) != default.get('interval', None):
+            overrides['timely'] = False
         if 'kwargs' in overrides and 'kwargs' in default:
-            # default['kwargs'].update(overrides['kwargs'])
-            # default['kwargs'] |= overrides['kwargs']
             overrides['kwargs'] = default['kwargs'] | overrides['kwargs']
 
         spec = default | overrides
