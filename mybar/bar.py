@@ -1,3 +1,5 @@
+#TODO: Bar.file = None | PathLike
+#TODO: Bar.config = None | BarConfig
 #TODO: Implement dynamic icons!
 #TODO: Finish Mocp line!
 
