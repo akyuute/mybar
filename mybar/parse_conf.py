@@ -27,7 +27,13 @@ from enum import Enum
 from itertools import zip_longest
 from os import PathLike
 from queue import LifoQueue
-from collections.abc import Mapping, MutableMapping, Sequence, MutableSequence
+from collections.abc import (
+    Callable,
+    Mapping,
+    MutableMapping,
+    Sequence,
+    MutableSequence
+)
 from types import GeneratorType
 from typing import (
     Any,
@@ -849,6 +855,7 @@ class RecursiveDescentParser:
         self._tokens = self._lexer.lex()
         self._cursor = 0
         self._lookahead = self._tokens[self._cursor]
+        self._current_attr_base = None
 
     End = TokKind.EOF
 
@@ -929,6 +936,44 @@ class RecursiveDescentParser:
         self._cursor = 0
         self._lexer.reset()
 
+    def _parse(self, callback: Callable) -> AST:
+        '''
+        Use generators and a stack to bypass the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        Run `callback` outside the Python call stack.
+
+        :param callback: The generator to run
+        :type callback: :class:`Callable`
+        '''
+        stack = [self._gen_parse(callback)]
+        result = None
+        while stack:
+            try:
+                callback = stack[-1].send(result)
+                stack.append(self._gen_parse(callback))
+                result = None
+            except StopIteration as e:
+                stack.pop()
+                result = e.value
+        return result
+
+    def _gen_parse(self, callback: Callable) -> AST:
+        '''
+        Use generators and a stack to bypass the Python recursion limit.
+        Credit to Dave Beazley (2014).
+        Run `callback` outside the Python call stack by sending it to
+        `_parse`
+
+        :param callback: The generator to send
+        :type callback: :class:`Callable`
+        '''
+        if not callable(callback):
+            return callback
+        result = callback()
+        if isinstance(result, GeneratorType):
+            result = (yield from result)
+        return result
+
     def _parse_assign(self) -> Assign:
         '''
         Parse an assignment at the current token::
@@ -948,7 +993,8 @@ class RecursiveDescentParser:
 
         maybe_attr = self._next()
         if maybe_attr.kind is TokKind.ATTRIBUTE:
-            target = next(self._parse_attribute(target))
+            self._current_attr_base = target
+            target = (yield self._parse_attribute)
             self._lookahead = maybe_equals = self._skip_all_whitespace()
         else:
             self._lookahead = maybe_equals = maybe_attr
@@ -958,7 +1004,7 @@ class RecursiveDescentParser:
             self._lookahead = self._next()
 
         try:
-            value = next(self._parse_expr())
+            value = (yield self._parse_expr)
         except StopIteration as e:
             value = e.args[0]
         if value in {TokKind.NEWLINE, TokKind.EOF}:
@@ -980,7 +1026,7 @@ class RecursiveDescentParser:
         self._next()
         return (yield node)
 
-    def _parse_attribute(self, outer: Name | Attribute) -> Attribute:
+    def _parse_attribute(self) -> Attribute:
         '''
         Parse an attribute at the current token inside an object::
 
@@ -998,6 +1044,8 @@ class RecursiveDescentParser:
         )
         self._expect_curr(TokKind.ATTRIBUTE, msg[0])
         self._lookahead = self._next()
+
+        outer = self._current_attr_base
         while True:
             # This may be the base of another attr, or it may be the
             # terminal attr:
@@ -1009,9 +1057,10 @@ class RecursiveDescentParser:
             if self._next().kind is not TokKind.ATTRIBUTE:
                 break
             self._lookahead = self._next()
-        yield outer
+        self._current_attr_base = None
+        return outer
 
-    def _parse_expr(self) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
+    def _parse_expr(self, *args) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
         '''
         Parse an expression at the current token.
 
@@ -1021,7 +1070,7 @@ class RecursiveDescentParser:
         kind = tok.kind
         match kind:
             case kind if kind in T_EndOfExpr:
-                yield kind
+                return kind
 
             case kind if kind in T_Literal:
                 try:
@@ -1047,9 +1096,9 @@ class RecursiveDescentParser:
                     raise ParseError.hl_error(tok, msg, self)
 
             case TokKind.L_BRACKET:
-                node = (yield from self._parse_list())
+                node = (yield self._parse_list)
             case TokKind.L_CURLY_BRACE:
-                node = (yield from self._parse_object())
+                node = (yield self._parse_object)
 
             case TokKind.IDENTIFIER:
                 node = Name(tok.value)
@@ -1059,9 +1108,9 @@ class RecursiveDescentParser:
                 raise ParseError.hl_error(tok, msg, self)
 
         node._token = tok
-        yield node
+        return node
 
-    def _parse_list(self) -> List:
+    def _parse_list(self, *args) -> List:
         '''
         Parse a list at the current token::
 
@@ -1073,10 +1122,8 @@ class RecursiveDescentParser:
         elems = []
         self._lookahead = self._next()
         while True:
-            try:
-                elem = next(self._parse_expr())
-            except StopIteration as e:
-                elem = e.value
+            elem = (yield self._parse_expr)
+
             if elem is TokKind.EOF:
                 msg = "Invalid syntax: Unmatched '[':"
                 raise ParseError.hl_error(self._lookahead, msg, self)
@@ -1088,9 +1135,9 @@ class RecursiveDescentParser:
                 continue
             elems.append(elem)
             self._lookahead = self._next()
-        yield List(elems)
+        return List(elems)
         
-    def _parse_object(self) -> Dict:
+    def _parse_object(self, *args) -> Dict:
         '''
         Parse a dict containing many mappings at the current token::
 
@@ -1130,14 +1177,14 @@ class RecursiveDescentParser:
 
                     maybe_attr = self._next()
                     if maybe_attr.kind is TokKind.ATTRIBUTE:
-                        key = next(self._parse_attribute(key))
+                        key = (yield self._parse_attribute)
                         self._lookahead = maybe_equals = self._next()
                     else:
                         self._lookahead = maybe_equals = maybe_attr
 
                     if maybe_equals.kind is TokKind.ASSIGN:
                         self._lookahead = self._next()
-                    oldval = val = next(self._parse_expr())
+                    oldval = val = (yield self._parse_expr)
                     if val in (TokKind.NEWLINE, TokKind.R_CURLY_BRACE):
                         val = Constant(None)
 
@@ -1184,9 +1231,9 @@ class RecursiveDescentParser:
         # Put all the assignments together:
         node = Dict(keys, vals)
         node._token = start
-        yield node
+        return node
 
-    def _parse_key_val_pair(self) -> Dict:
+    def _parse_key_val_pair(self, *args) -> Dict:
         '''
         Parse a 1-to-1 mapping at the current token inside an object::
 
@@ -1204,7 +1251,8 @@ class RecursiveDescentParser:
 
         maybe_attr = self._next()
         if maybe_attr.kind is TokKind.ATTRIBUTE:
-            target = self._parse_attribute(target)
+            self._current_attr_base = target
+            target = self._parse_attribute()
 
         assign_tok = self._expect_curr(TokKind.ASSIGN, msg[1])
         value = (yield from self._parse_expr())
@@ -1217,23 +1265,8 @@ class RecursiveDescentParser:
             raise ParseError.hl_error(value._token, msg, self)
         node = Dict([target], [value])
         node._token = assign_tok
-        yield node
-
-    def _parse(self) -> Module:
-        assignments = []
-        while True:
-            try:
-                assign = next(self._parse_assign())
-            except StopIteration as e:
-                assign = e.value
-            if assign is TokKind.EOF:
-                break
-            if assign is None:
-                # This happens when there are no assignments at all.
-                break
-            assignments.append(assign)
-        self._reset()
-        yield Module(assignments)
+        # yield node
+        return node
 
     def parse(self, string: str = None) -> Module:
         '''
@@ -1241,10 +1274,17 @@ class RecursiveDescentParser:
         '''
         #TODO: string param instead of making people pass Lexer() as an arg
         self._reset()
-        try:
-            return next(self._parse())
-        except StopIteration as e:
-            return e.value
+        assignments = []
+        while True:
+            assign = self._parse(self._parse_assign)
+            if assign is TokKind.EOF:
+                break
+            if assign is None:
+                # This happens when there are no assignments at all.
+                break
+            assignments.append(assign)
+        self._reset()
+        return Module(assignments)
 
     def to_dict(self) -> dict[str]:
         '''
