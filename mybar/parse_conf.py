@@ -860,6 +860,7 @@ class RecursiveDescentParser:
                 msg = (
                     "A `string` argument is required when `lexer` is"
                     " not given."
+                )
                 raise ValueError(msg)
             lexer = Lexer(string)
         self._lexer = lexer
