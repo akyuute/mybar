@@ -1,5 +1,3 @@
-#TODO: Bar.file = None | PathLike
-#TODO: Bar.config = None | BarConfig
 #TODO: Implement dynamic icons!
 #TODO: Finish Mocp line!
 
@@ -666,6 +664,9 @@ class Bar:
         # self._thread_loop = asyncio.new_event_loop()
         self._loop = asyncio.new_event_loop()
 
+        self._file = None
+        self._config = None
+
     def __contains__(self, other: FieldPrecursor) -> bool:
         if isinstance(other, str):
             weak_test = (other in self._field_order)
@@ -705,6 +706,20 @@ class Bar:
         fields = utils.join_options(names, final_sep='', limit=3)
         cls = type(self).__name__
         return f"{cls}(fields=[{fields}])"
+
+    @property
+    def config(self) -> BarConfig:
+        '''
+        The :class:`BarConfig` used to instantiate the Bar, if applicable.
+        '''
+        return self._config
+
+    @property
+    def file(self) -> PathLike:
+        '''
+        The config file used to instantiate the Bar, if applicable.
+        '''
+        return self._file
 
     @classmethod
     def from_config(
@@ -769,8 +784,8 @@ class Bar:
         if (template := bar_params.get('template')) is None:
             if field_order is None:
                 raise IncompatibleArgsError(
-                    "A bar format string 'template' is required "
-                    "when field order list 'field_order' is undefined."
+                    "A bar format string `template` is required "
+                    "when field order list `field_order` is undefined."
                 )
         else:
             parsed = FmtStrStructure.from_str(template)
@@ -892,6 +907,8 @@ class Bar:
             field_order=field_order,
             **bar_params
         )
+        bar._config = config
+        bar._file = config.file
         return bar
 
     @classmethod
@@ -915,7 +932,9 @@ class Bar:
         :rtype: :class:`Bar`
         '''
         config = BarConfig.from_file(file)
-        return cls.from_config(config, overrides=overrides)
+        bar = cls.from_config(config, overrides=overrides)
+        bar._file = config.file
+        return bar
 
     @classmethod
     def from_cli(cls) -> Self:
@@ -929,7 +948,7 @@ class Bar:
         return cls.from_config(config)
 
 ##    @classmethod
-##    def as_generator(cls, 
+##    def as_generator(cls,
 
     @property
     def clearline_char(self) -> str:
