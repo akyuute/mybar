@@ -846,12 +846,24 @@ class RecursiveDescentParser:
 
     :param lexer: The lexer used for feeding tokens
     :type lexer: :class:`Lexer`
+
+    :param string: A string to parse if `lexer` is not given
+    :type string: :class:`FileContents`
     '''
     def __init__(
         self,
-        lexer: Lexer,
+        lexer: Lexer = None,
+        string: FileContents = None
     ) -> None:
+        if lexer is None:
+            if string is None:
+                msg = (
+                    "A `string` argument is required when `lexer` is"
+                    " not given."
+                raise ValueError(msg)
+            lexer = Lexer(string)
         self._lexer = lexer
+        self._string = string
         self._tokens = self._lexer.lex()
         self._cursor = 0
         self._lookahead = self._tokens[self._cursor]
@@ -1006,7 +1018,7 @@ class RecursiveDescentParser:
         try:
             value = (yield self._parse_expr)
         except StopIteration as e:
-            value = e.args[0]
+            value = e.value
         if value in {TokKind.NEWLINE, TokKind.EOF}:
             if maybe_equals.kind is TokKind.ASSIGN:
                 value = Constant(None)
@@ -1060,7 +1072,7 @@ class RecursiveDescentParser:
         self._current_attr_base = None
         return outer
 
-    def _parse_expr(self, *args) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
+    def _parse_expr(self) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
         '''
         Parse an expression at the current token.
 
@@ -1110,7 +1122,7 @@ class RecursiveDescentParser:
         node._token = tok
         return node
 
-    def _parse_list(self, *args) -> List:
+    def _parse_list(self) -> List:
         '''
         Parse a list at the current token::
 
@@ -1137,7 +1149,7 @@ class RecursiveDescentParser:
             self._lookahead = self._next()
         return List(elems)
         
-    def _parse_object(self, *args) -> Dict:
+    def _parse_object(self) -> Dict:
         '''
         Parse a dict containing many mappings at the current token::
 
@@ -1174,6 +1186,7 @@ class RecursiveDescentParser:
                     key_tok = self._tokens[self._cursor]
                     key = Name(key_tok.value)
                     key._token = key_tok
+                    self._current_attr_base = key
 
                     maybe_attr = self._next()
                     if maybe_attr.kind is TokKind.ATTRIBUTE:
@@ -1233,7 +1246,7 @@ class RecursiveDescentParser:
         node._token = start
         return node
 
-    def _parse_key_val_pair(self, *args) -> Dict:
+    def _parse_key_val_pair(self) -> Dict:
         '''
         Parse a 1-to-1 mapping at the current token inside an object::
 
@@ -1265,14 +1278,23 @@ class RecursiveDescentParser:
             raise ParseError.hl_error(value._token, msg, self)
         node = Dict([target], [value])
         node._token = assign_tok
-        # yield node
         return node
 
-    def parse(self, string: str = None) -> Module:
+    def parse(self, string: FileContents = None) -> Module:
         '''
         Parse the lexer stream and return it as a :class:`Module`.
+
+        :param string: A new string to use for parsing, optional
+        :type string: :class:`FileContents`
         '''
-        #TODO: string param instead of making people pass Lexer() as an arg
+        if string is not None:
+            self._string = string
+            self._lexer = Lexer(string)
+            self._tokens = self._lexer.lex()
+            self._cursor = 0
+            self._lookahead = self._tokens[self._cursor]
+            self._current_attr_base = None
+
         self._reset()
         assignments = []
         while True:
@@ -1326,6 +1348,7 @@ class FileParser(RecursiveDescentParser):
         self._tokens = self._lexer.lex()
         self._cursor = 0
         self._lookahead = self._tokens[self._cursor]
+        self._current_attr_base = None
 
 
 class PyParser:
@@ -1406,8 +1429,7 @@ class PyParser:
 
     @staticmethod
     def _process_nested_dict(
-        # cls,
-        dct: dict | Any,
+        dct: Mapping | Any,
         roots: Sequence[str] = [],
         descended: int = 0
     ) -> tuple[list[list[str]], list[PythonData]]:
@@ -1585,8 +1607,8 @@ class Unparser(NodeVisitor):
             new_d = {attr: new_d}
         return new_d
 
+    @staticmethod
     def _nested_attr_to_dict(
-        self,
         node: Attribute | Name,
         attrs: Sequence[str] = []
     ) -> list[str]:
@@ -1609,7 +1631,6 @@ class Unparser(NodeVisitor):
 
         attrs.append(node.id)
         return attrs
-
 
     def visit_Constant(self, node: Constant) -> ConstantValue:
         return node.value
@@ -1886,7 +1907,8 @@ def text_to_data(contents: FileContents) -> PythonData:
     :param contents: The text to parse
     :type contents: :class:`FileContents`
     '''
-    return Unparser().unparse(RecursiveDescentParser(Lexer(contents)).parse())
+    module = RecursiveDescentParser(string=contents).parse()
+    return Unparser().unparse(module)
 
 
 def convert_file(file: PathLike = None) -> PythonData:
@@ -1899,5 +1921,6 @@ def convert_file(file: PathLike = None) -> PythonData:
     if file is None:
         file = CONFIG_FILE
     absolute = os.path.abspath(os.path.expanduser(file))
-    return Unparser().unparse(FileParser(absolute).parse())
+    module = FileParser(absolute).parse()
+    return Unparser().unparse(module)
 
