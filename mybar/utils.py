@@ -3,8 +3,9 @@
 #TODO Examples!
 
 from copy import deepcopy
+from ._types import PythonData
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 
@@ -208,4 +209,93 @@ def make_error_message(
 
     err = '\n' + ('\n').join(message)
     return cls(err)
+
+
+def process_nested_dict(
+    dct: dict | Any,
+    roots: Sequence[str] = [],
+    descended: int = 0
+) -> tuple[list[list[str]], list[PythonData]]:
+    '''
+    Unravel nested dicts into keys and assignment values.
+    For use with :meth:`_process_nested_attrs()`
+
+    :param dct: The nested dict to process, or an inner value of it
+    :type dct: :class:`dict` | :class:`Any`
+
+    :param roots: The keys which surround the current `dct`
+    :type roots: :class:`Sequence`[:class:`str`], defaults to ``[]``
+
+    :param descended: How far `dct` is from the outermost key
+    :type descended: :class:`int`, defaults to ``0``
+
+    :returns: Attribute names and assignment values
+    '''
+    nodes = []
+    vals = []
+    if not isinstance(dct, dict):
+        # An assignment.
+        return ([roots], [dct])
+
+    if len(dct) == 1:
+        # An attribute.
+        for a, v in dct.items():
+            roots.append(a)
+            result = (yield (v, roots, descended))
+            return result
+
+    descended = 0  # Start of a tree.
+    for attr, v in dct.items():
+        roots.append(attr)
+        if isinstance(v, dict):
+            if descended < len(roots):
+                descended = -len(roots)
+            # Descend into lower tree.
+            inner = (yield (v, roots, descended))
+            if isinstance(inner, GeneratorType):
+                inner = (yield from inner)
+            inner_nodes, inner_vals = inner
+            nodes.extend(inner_nodes)
+            vals.extend(inner_vals)
+        else:
+            nodes.append(roots)
+            vals.append(v)
+        roots = roots[:-descended - 1]  # Reached end of tree.
+    return nodes, vals
+
+
+_EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
+def nested_update(
+    orig: dict | Any,
+    upd: dict,
+    assign: Any = {}
+) -> dict:
+    '''
+    Merge two dicts and properly give them their innermost values.
+
+    :param orig: The original dict
+    :type orig: :class:`dict` | :class:`Any`
+
+    :param upd: A dict that updates `orig`
+    :type upd: :class:`dict`
+
+    :param assign: A value that will be stored in the innermost dict,
+        defaults to ``{}`` for continued attribute parsing.
+    :type assign: :class:`Any`
+    '''
+    # We cannot use Mapping because its instance check is recursive.
+    if not isinstance(orig, dict):
+        # Replace the old value with the new:
+        return upd
+
+    for k, v in upd.items():
+        if v is _EXPR_PLACEHOLDER:
+            v = assign
+        if isinstance(v, dict):
+            # Give parameters to the generator runner:
+            updated = nested_update(orig.get(k, {}), v, assign)
+            orig[k] = updated
+        else:
+            orig[k] = v
+    return orig
 
