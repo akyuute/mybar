@@ -148,12 +148,11 @@ class TokKind(Enum):
 
     UNKNOWN = 'UNKNOWN'
 
-# T_AssignEvalNone = tuple((*Newline, *TokKind))
 T_AssignEvalNone = {TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA}
-'''These tokens eval to None after a "="'''
+'''These tokens eval to None after a "=".'''
 
 T_Ignore = {TokKind.SPACE, TokKind.COMMENT}
-'''These tokens are ignored by the parser'''
+'''These tokens are ignored by the parser.'''
 
 T_Invisible = {*T_Ignore, TokKind.NEWLINE}
 
@@ -259,7 +258,7 @@ class TokenError(ConfigError):
             line_bridge = " "
             line = lexer.get_line(first_tok)
             if first_tok.kind is TokKind.STRING:
-                text = first_tok.match_repr()
+                text = first_tok.match_repr
             else:
                 text = first_tok.value
             between = tokens
@@ -292,8 +291,8 @@ class TokenError(ConfigError):
                     if t is between[-1]:
                         token_length = 0
                 case TokKind.STRING:
-                    # match_repr() contains the quotation marks:
-                    token_length = len(t.match_repr())
+                    # match_repr contains the quotation marks:
+                    token_length = len(t.match_repr)
                 case TokKind.UNKNOWN:
                     token_length = 1
                 case _:
@@ -432,6 +431,7 @@ class Token:
         msg = f"{file}Line {self.lineno}{column}: "
         return msg
 
+    @property
     def match_repr(self) -> str | None:
         '''
         Return the token's value in quotes, if parsed as a string,
@@ -443,6 +443,7 @@ class Token:
         val = self.value
         return f"{quote}{val}{quote}"
 
+    @property
     def coords(self) -> Location:
         '''
         Return the token's current coordinates as (line, column).
@@ -557,6 +558,7 @@ class Lexer:
         self.eof = TokKind.EOF
         self._file = file
 
+    @property
     def lineno(self) -> int:
         '''
         Return the current line number.
@@ -584,6 +586,7 @@ class Lexer:
             lineno = lookup
         return self._lines[lineno - 1]
 
+    @property
     def coords(self) -> Location:
         '''
         Return the lexer's current coordinates as (line, column).
@@ -811,7 +814,7 @@ class Lexer:
                 # Two quotes of each kind:
                 pairs = (s*2 for s in self.SPEECH_CHARS[:3])
                 maybe_first_two = self._string_debug
-                if maybe_first_two.match_repr() in pairs:
+                if maybe_first_two.match_repr in pairs:
                     # The current token is part of a multiline speech
                     # char begun by the previous token.
                     bad_toks = (maybe_first_two, bad_token)
@@ -844,6 +847,7 @@ class Lexer:
 class RecursiveDescentParser:
     '''
     Parse strings, converting them to abstract syntax trees.
+    Use generators and stacks to overcome Python's recursion limit.
 
     :param lexer: The lexer used for feeding tokens
     :type lexer: :class:`Lexer`
@@ -976,7 +980,7 @@ class RecursiveDescentParser:
         Use generators and a stack to bypass the Python recursion limit.
         Credit to Dave Beazley (2014).
         Run `callback` outside the Python call stack by sending it to
-        `_parse`
+        `_parse`.
 
         :param callback: The generator to send
         :type callback: :class:`Callable`
@@ -1005,40 +1009,39 @@ class RecursiveDescentParser:
         target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
         target = Name(target_tok.value)
 
-        maybe_attr = self._next()
+        self._lookahead = maybe_attr = maybe_equals = self._next()
+        # Check if `target` is actually an attribute:
         if maybe_attr.kind is TokKind.ATTRIBUTE:
             self._current_attr_base = target
             target = (yield self._parse_attribute)
-            self._lookahead = maybe_equals = self._skip_all_whitespace()
-        else:
-            self._lookahead = maybe_equals = maybe_attr
-        target._token = assigner = target_tok
+            target._token = target_tok
 
         if maybe_equals.kind is TokKind.ASSIGN:
+            # `target = ...`
+            #         ^
             self._lookahead = self._next()
 
-        try:
+        if self._lookahead.kind in (TokKind.NEWLINE, TokKind.EOF):
+            # `target [=] (\n|EOF)`
+            #              ^^^^^^
+            value = Constant(None)
+
+        else:
+            # `target [=] (value)`
+            #              ^^^^^
             value = (yield self._parse_expr)
-        except StopIteration as e:
-            value = e.value
-        if value in {TokKind.NEWLINE, TokKind.EOF}:
-            if maybe_equals.kind is TokKind.ASSIGN:
-                value = Constant(None)
-            else:
-                msg = "Invalid syntax (missing assignment):"
-                raise ParseError.hl_error(
-                    (target_tok, self._lookahead), msg, self
-                )
+        if value in (TokKind.NEWLINE, TokKind.EOF):
+            value = Constant(None)
 
         if isinstance(value, Name):
             msg = f"Invalid syntax: Cannot use variable names as expressions"
             raise ParseError.hl_error(value._token, msg, self)
 
         node = Assign([target], value)
-        node._token = assigner
+        node._token = target_tok
 
         self._next()
-        return (yield node)
+        return node
 
     def _parse_attribute(self) -> Attribute:
         '''
@@ -1051,7 +1054,6 @@ class RecursiveDescentParser:
         :type outer: :class:`Name` | :class:`Attribute`
         :rtype: :class:`Attribute`
         '''
-        self._lookahead = self._skip_all_whitespace()
         msg = (
             "_parse_attribute() called at the wrong time",
             "Invalid syntax (expected an identifier):",
@@ -1063,14 +1065,16 @@ class RecursiveDescentParser:
         while True:
             # This may be the base of another attr, or it may be the
             # terminal attr:
-            maybe_base = self._expect_curr(TokKind.IDENTIFIER, msg[1])
-            attr = maybe_base.value
+            maybe_base_tok = self._expect_curr(TokKind.IDENTIFIER, msg[1])
+            attr = maybe_base_tok.value
             outer = Attribute(outer, attr)
-            outer._token = maybe_base
+            outer._token = maybe_base_tok
             # Any more dots?
-            if self._next().kind is not TokKind.ATTRIBUTE:
+            self._lookahead = self._next()
+            if self._lookahead.kind is not TokKind.ATTRIBUTE:
                 break
             self._lookahead = self._next()
+
         self._current_attr_base = None
         return outer
 
@@ -1695,6 +1699,10 @@ class Unparser(NodeVisitor):
             if v is self._EXPR_PLACEHOLDER:
                 v = assign
             # We cannot use Mapping because its instance check is recursive.
+            if not isinstance(orig, dict):
+                # Replace the old value with the new:
+                return upd
+
             if isinstance(v, dict):
                 # Give parameters to the generator runner:
                 updated = (yield (orig.get(k, {}), v, assign))
