@@ -258,12 +258,12 @@ class ArgParser(ArgumentParser):
                 "Set arbitrary options for discrete Fields using"
                 " dot-attribute syntax."
             ),
-            metavar=("'FIELD1.OPTION=VAL'", "'FIELD2.OPTION=VAL'"),
+            metavar=("FIELD1.OPTION='VAL'", "FIELD2.OPTION='VAL'"),
             nargs='+',
         )
 
         self.add_argument(
-            '-r', '--refresh',
+            '--refresh', '-r',
             dest='refresh',
             help=(
                 "The bar's refresh rate in seconds per cycle."
@@ -282,7 +282,7 @@ class ArgParser(ArgumentParser):
         )
 
         self.add_argument(
-            '--break-lines',
+            '--break-lines', '-b',
             action='store_true',
             dest='break_lines',
             help="Use a newline character at the end of every bar line.",
@@ -326,22 +326,22 @@ class ArgParser(ArgumentParser):
             const=4,
             dest='dump_config',
             help=(
-                "Instead of running the Bar, print a config file using"
+                "Instead of running mybar, print a config file using"
                 " options specified in the command."
-                " Optionally pass a number of spaces by which to indent."
+                # " Optionally pass a number of spaces by which to indent."
             ),
         )
 
-        self.add_argument(
-            '--dump-raw', '-D',
-            action='store_const',
-            const=None,
-            dest='dump_config',
-            help=(
-                "Instead of running the Bar, print a config file using"
-                " options specified in the command."
-            ),
-        )
+##        self.add_argument(
+##            '--dump-raw', '-D',
+##            action='store_const',
+##            const=None,
+##            dest='dump_config',
+##            help=(
+##                "Instead of running the Bar, print a config file using"
+##                " options specified in the command."
+##            ),
+##        )
 
         self.add_argument(
             '--debug',
@@ -507,7 +507,8 @@ class FileManager:
         '''
         question = f"Would you like to write a new config file at {file!r}?"
 
-        if not os.path.exists(file):
+        absolute = os.path.abspath(os.path.expanduser(CONFIG_FILE))
+        if not os.path.exists(absolute):
             maybe_default = ' '
             if file == CONFIG_FILE:
                 welcome_new_users()
@@ -531,7 +532,8 @@ class FileManager:
         '''
         Make a '.config' directory if nonexistent.
         '''
-        directory = os.path.dirname(CONFIG_FILE)
+        absolute = os.path.abspath(os.path.expanduser(CONFIG_FILE))
+        directory = os.path.dirname(absolute)
         if not os.path.exists(directory):
             os.mkdir(directory)
 
