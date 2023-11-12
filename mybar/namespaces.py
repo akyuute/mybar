@@ -62,13 +62,16 @@ class BarSpec(TypedDict, total=False):
     A dict specifying the structure of :class:`mybar.Bar` constructor
     parameters.
     '''
-    refresh: float
-    run_once: bool
-    count: int
+    break_lines: bool
     clock_align: bool
+    count: int
+    debug: bool
     join_empty_fields: bool
     override_cooldown: float
+    refresh: float
+    run_once: bool
     thread_cooldown: float
+    unicode: bool
 
     '''
     The following field params are mutually exclusive with `template`:
@@ -92,7 +95,6 @@ class BarConfigSpec(BarSpec, total=False):
     field_definitions: Mapping[FieldName, FieldSpec]
     field_icons: Mapping[FieldName, Sequence[ASCII_Icon, Unicode_Icon] | Icon]
     field_order: Iterable[FieldName]
-    unicode: bool
 
 
 class _CmdOptionSpec(TypedDict, total=False):
