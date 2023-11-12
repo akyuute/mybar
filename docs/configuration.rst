@@ -32,7 +32,7 @@ Data Types
 - Numbers
     Numbers can be positive integers or floats::
 
-        1 1.2 1_000 0.123 .123
+        1 1.2 1_000 0.123 .123_4
 
 - Booleans
     The boolean values ``True`` and ``False`` are given using these variants::
@@ -60,7 +60,8 @@ Data Types
         concatenated = "ABCDEF"
                     
 - Lists
-    Lists are enclosed by square brackets (``[]``). Elements inside lists are separated by spaces, commas or line breaks::
+    Lists are enclosed by square brackets (``[]``).
+    Elements inside lists are separated by spaces, commas or line breaks::
 
         groceries [
             bread,
@@ -78,7 +79,7 @@ Data Types
             Sharknado yes
             Jaws = false
             Sharknado2 {
-                just_for_example =
+                just_for_example '...'
                 here_is_a_nested_object 3.14
             }
         }
@@ -170,6 +171,7 @@ Here is an example config file::
     ]
 
     field_icons {
+        # Unicode codepoints in the second slot are for Fontawesome icons
         uptime ["Up ", "\uf2f2 "]
         cpu_usage ["CPU ", "\uf3fd "]
         cpu_temp ["", "\uf06d "]
