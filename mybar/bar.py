@@ -135,19 +135,18 @@ class BarConfig(dict):
         if file is None:
             file = overrides.pop('config_file', CONFIG_FILE)
         absolute = os.path.abspath(os.path.expanduser(file))
-        file_spec = {}
         try:
             from_file, text = cls._read_file(absolute)
         except OSError as e:
             raise e.with_traceback(None)
 
         from_file = cls._unify_field_defs(from_file)
-        options = from_file | overrides
+        options = utils.nested_update(from_file, overrides)
 
-        # Don't clobber a file's field definitions:
-        for opt in ('field_definitions',):
-            if opt in options:
-                options[opt] = from_file[opt] | overrides.get(opt, {})
+        # Do not mix overrides and defaults for these;
+        # get one or the other:
+        for opt in ('field_order', 'field_icons'):
+            options[opt] = overrides.get(opt, from_file.get(opt))
 
         config = cls(options, defaults)
         config.file = absolute
@@ -229,7 +228,6 @@ class BarConfig(dict):
 
         try:
             config = cls.from_file(absolute, overrides=bar_options)
-
         except FileNotFoundError as e:
             write_ok = cls.write_with_approval(absolute, overrides=bar_options)
             if not write_ok:
@@ -581,7 +579,6 @@ class Bar:
         self._check_stream(stream)
         self._stream = stream
 
-
         # Check all the required parameters.
         if fields is None:
 
@@ -774,18 +771,22 @@ class Bar:
 ##            data = deepcopy(config)
 ##        else:
 ##            data = utils.scrub_comments(config, ignore_with)
-        data.update(overrides)
+        data = utils.nested_update(data, overrides)
+        bar_params = utils.nested_update(cls._default_params, data)
 
-        bar_params = cls._default_params | data
         field_order = bar_params.pop('field_order', None)
         field_icons = bar_params.pop('field_icons', {})
         field_defs = bar_params.pop('field_definitions', {})
+        template = bar_params.get('template')
 
-        if (template := bar_params.get('template')) is None:
-            if field_order is None:
+        if template is None:
+            # if not field_order:
+                # field_order = list(field_icons)
+            if not field_order:
                 raise IncompatibleArgsError(
-                    "A bar format string `template` is required "
-                    "when field order list `field_order` is undefined."
+                    "A bar format string `template` is required"
+                    " when field order list `field_order` is undefined"
+                    " or empty."
                 )
         else:
             parsed = FmtStrStructure.from_str(template)
@@ -818,17 +819,6 @@ class Bar:
 
         for name in field_order:
             field_params = field_defs.get(name)
-
-            # Convert values from strings:
-            if field_params is not None:
-                conversions = {
-                    'custom': utils.str_to_bool,
-                }
-                for key, conv in conversions.items():
-                    try:
-                        field_params[key] = conv(field_params[key])
-                    except KeyError:
-                        continue
 
             cust_icons = field_icons.get(name, None)
             if cust_icons is not None:
@@ -876,13 +866,13 @@ class Bar:
                     except DefaultFieldNotFoundError:
                         exc = utils.make_error_message(
                             UndefinedFieldError,
-                            # doing_what="parsing 'field_order'",
+                            doing_what=f"parsing {name!r} definition",
                             blame=f"{name!r}",
                             expected=expctd_name,
                             epilogue=(
-                                f"(In config files, remember to set "
-                                f"`custom=true` "
-                                f"for custom field definitions.)"
+                                f"(In config files, remember to set"
+                                f" `custom=true`"
+                                f" for custom field definitions.)"
                             ),
                         )
                         raise exc from None
@@ -891,7 +881,6 @@ class Bar:
                     # Edge cases.
                     exc = utils.make_error_message(
                         InvalidFieldSpecError,
-                        # doing_what="parsing 'field_definitions'",
                         doing_what=f"parsing {name!r} definition",
                         details=(
                             f"Invalid Field specification: {field_params!r}",
@@ -908,7 +897,8 @@ class Bar:
             **bar_params
         )
         bar._config = config
-        bar._file = config.file
+        if isinstance(config, BarConfig):
+            bar._file = config.file
         return bar
 
     @classmethod
