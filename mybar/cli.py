@@ -55,6 +55,7 @@ class ArgParser(ArgumentParser):
     '''
     assignment_arg_map = {
         'icon_pairs': 'field_icons',
+        'from_icons': ('field_icons', 'field_order'),
     }
 
     def __init__(self) -> None:
@@ -97,23 +98,37 @@ class ArgParser(ArgumentParser):
     def process_assignment_args(
         self,
         opts: BarConfigSpec,
-        assignments: dict[FieldName, str] = None
+        dest_map: dict[OptName, OptName | tuple[OptName]] = None
     ) -> BarConfigSpec:
         '''
         Make dicts from key-value pairs in assignment args.
-        How does it work?
-        I don't remember!
-        '''
-        if assignments is None:
-            assignments = self.assignment_arg_map
+        Split strings on '=' and convert the resultant keys and values to dicts.
+        ['foo=bar', 'baz=grok'] -> {'foo': 'bar', 'baz': 'grok'}
 
-        for src, new_dest in assignments.items():
+        :param opts: The Bar options dict
+        :type opts: :class:`BarConfigSpec`
+
+        :param dest_map: A dict mapping `dest` names to names of new dict
+            items in which to save key-value pairs, defaults
+            to :attr:`Parser.assignment_arg_map`
+        :type dest_map: dict[:class:`OptName`,
+            :class:`OptName` | tuple[:class:`OptName`]]
+        '''
+        if dest_map is None:
+            dest_map = self.assignment_arg_map
+
+        for src, new_dest in dest_map.items():
             if (vals := opts.pop(src, None)):
-                opts[new_dest] = dict(
+                assignments = dict(
                     pair for item in vals
                     # Only use items that are pairs:
                     if len(pair := item.split('=', 1)) == 2
                 )
+                if isinstance(new_dest, str):
+                    opts[new_dest] = assignments
+                else:
+                    for place in new_dest:
+                        opts[place] = assignments
         return opts
 
     @staticmethod
@@ -141,8 +156,7 @@ class ArgParser(ArgumentParser):
         for opt in options:
             match (pair := opt.split('=', 1)):
 
-                case [positional]:
-                    # Looks like '--opt'
+                case [positional]:  # Looks like '--opt'
                     # Skip command options.
                     continue
 
@@ -292,7 +306,19 @@ class ArgParser(ArgumentParser):
             '--icons',
             action='extend',
             dest='icon_pairs',
-            help="A mapping of field names to icons.",
+            help="A mapping of Field names to icons.",
+            metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
+            nargs='+',
+        )
+
+        self.add_argument(
+            '--from-icons',
+            action='extend',
+            dest='from_icons',
+            help=(
+                "A mapping of Field names to icons."
+                " Use for the Field order as well."
+            ),
             metavar=("FIELDNAME1='ICON1'", "FIELDNAME2='ICON2'"),
             nargs='+',
         )

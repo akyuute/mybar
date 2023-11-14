@@ -95,6 +95,7 @@ class BarConfigSpec(BarSpec, total=False):
     field_definitions: Mapping[FieldName, FieldSpec]
     field_icons: Mapping[FieldName, Sequence[ASCII_Icon, Unicode_Icon] | Icon]
     field_order: Iterable[FieldName]
+    from_icons: Mapping[FieldName, Icon]
 
 
 class _CmdOptionSpec(TypedDict, total=False):
