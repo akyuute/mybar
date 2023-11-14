@@ -265,7 +265,7 @@ _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
 def nested_update(
     orig: Mapping | Any,
     upd: Mapping,
-    assign: Any = {}
+    # assign: Any = {}
 ) -> dict:
     '''
     Merge two dicts and properly give them their innermost values.
@@ -285,12 +285,10 @@ def nested_update(
         return upd
 
     for k, v in upd.items():
-        if v is _EXPR_PLACEHOLDER:
-            v = assign
+        # if v is _EXPR_PLACEHOLDER:
+            # v = assign
         if isinstance(v, Mapping):
-            updated = nested_update(orig.get(k, {}), v, assign)
-            orig[k] = updated
-        else:
-            orig[k] = v
+            v = nested_update(orig.get(k, {}), v)
+        orig[k] = v
     return orig
 
