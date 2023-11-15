@@ -458,10 +458,17 @@ class Bar:
         defaults to ``None``
     :type template: :class:`_types.FormatStr`
 
-    :param separator: The field separator when `fields` is given,
-        defaults to ``'|'``
-    :type separator: :class:`_types.ASCII_Separator` |
-        :class:`_types.Unicode_Separator`
+    :param separator: The field separator string when `fields` is given,
+        or a sequence of 2 of these, defaults to ``'|'``
+        The first string is used in terminal environments where
+        only ASCII is supported.
+        The second string is used in graphical environments where
+        support for Unicode is more likely.
+        This enables the same :class:`Bar` instance to use the most
+        optimal separator automatically.
+    :type separator: :class:`_types.Separator` |
+        Sequence[:class:`_types.ASCII_Separator`,
+        :class:`_types.Unicode_Separator`], optional
 
     :param refresh: How often in seconds the bar automatically redraws
         itself, defaults to ``1.0``
@@ -469,15 +476,11 @@ class Bar:
 
     :param count: Only print the bar this many times, or never stop
         when ``None``, defaults to ``None``
-    :type count: :class:`int`
+    :type count: :class:`int` | ``None``
 
     :param break_lines: Print each refresh after a newline character
         (``'\\n'``), defaults to False
     :type break_lines: :class:`bool`
-
-    :param run_once: Whether the bar should print once and return,
-        defaults to ``False``
-    :type run_once: :class:`bool`
 
     :param clock_align: Whether to synchronize redraws at the start of
         each new second (updates to the clock are shown accurately),
@@ -503,25 +506,13 @@ class Bar:
         stopped and a faster exit time.
     :type thread_cooldown: :class:`float`
 
-    :param unicode: Use Unicode variants of `separators` and Field
+    :param unicode: Use Unicode variants of `separator` and Field
         icons, if given; optional
     :type unicode: :class:`bool`
-
-    :param separators: A tuple of 2 strings that separate fields when
-        `fields` is given.
-        Note: The `separator` parameter sets both of these automatically.
-        The first string is used in terminal environments where
-        only ASCII is supported.
-        The second string is used in graphical environments where
-        support for Unicode is more likely.
-        This enables the same :class:`Bar` instance to use the most
-        optimal separator automatically.
-    :type separators: tuple[:class:`_types.ASCII_Separator`, :class:`_types.Unicode_Separator` ], optional
 
     :param stream: The bar's output stream,
         defaults to :attr:`sys.stdout`
     :type stream: :class:`IO`
-
 
     :raises: :exc:`errors.InvalidOutputStreamError` when `stream` does
         not implement the IO protocol
@@ -558,20 +549,16 @@ class Bar:
         fields: Iterable[FieldPrecursor] = None,
         *,
         field_order: Iterable[FieldName] = None,
-        separator: str = '|',
+        separator: Separator | Sequence[ASCII_Separator,
+                                        Unicode_Separator] = '|',
         refresh: float = 1.0,
-        count: int = None,
+        count: int | None = None,
         break_lines: bool = False,
-        run_once: bool = False,
         clock_align: bool = True,
         join_empty_fields: bool = False,
         override_cooldown: float = 1/8,
         thread_cooldown: float = 1/8,
         unicode: bool = True,
-
-        # Set this to use different seps for different output streams:
-        separators: Sequence[ASCII_Separator, Unicode_Separator] = None,
-
         stream: IO = sys.stdout,
         debug: bool = DEBUG,  # Not yet implemented!
     ) -> None:
@@ -602,26 +589,28 @@ class Bar:
                 fields = parsed
 
         # Fall back to using fields.
-        elif not hasattr(fields, '__iter__'):
+        elif not isinstance(separator, Iterable):
             raise TypeError("The `fields` argument must be iterable.")
 
         if unicode is None:
             unicode = not self.stream.isatty()
         self._unicode = unicode
 
-        if separators is None:
-            if separator is None:
-                msg = "A separator is required when `template` is None."
-                raise IncompatibleArgsError(msg)
-            separators = (separator, separator)
-        self._separators = separators
+##        if separator is None:
+##            if template is None:
+##                msg = "A separator is required when `template` is None."
+##                raise IncompatibleArgsError(msg)
+        if isinstance(separator, str):
+            separator = (separator, separator)
+        elif not isinstance(separator, Sequence):
+            raise TypeError("`separator` must be a sequence")
+        self._separators = separator
 
         field_names, fields = self._normalize_fields(fields)
 
         # Preserve custom field order, enabling duplicates:
         if field_order is None:
             field_order = field_names
-
         self._fields = fields
         self._field_order = field_order
         self._buffers = dict.fromkeys(self._fields, '')
@@ -634,9 +623,6 @@ class Bar:
 
         self.count = count
         self._print_countdown = count
-        if count == 0 or count == 1:
-            run_once = True
-        self.run_once = run_once
 
         self.clock_align = clock_align
         self._override_queue = asyncio.Queue(maxsize=1)
@@ -644,7 +630,7 @@ class Bar:
         self._thread_cooldown = thread_cooldown
 
         # The dict mapping Field names to the threads running them.
-        # The bar must join each before printing a line with `run_once`:
+        # The bar must join each before printing a line with ``count=1``:
         self._threads = {}
         self._printer_thread = None
         self._printer_loop = None
@@ -791,24 +777,24 @@ class Bar:
         else:
             parsed = FmtStrStructure.from_str(template)
             parsed.validate_fields(Field._default_fields, True, True)
-            if field_order is None:
-                field_order = parsed.get_names()
+            # if field_order is None:
+            field_order = parsed.get_names()
 
-        # Ensure icon assignments correspond to valid fields:
-        for name in field_icons:
-            if name not in field_order:
-                deduped = dict.fromkeys(field_order)  # Preserve order
-                expctd_from_icons = utils.join_options(deduped)
-                exc = utils.make_error_message(
-                    InvalidFieldError,
-                    doing_what="parsing custom Field icons",
-                    blame=f"{name!r}",
-                    expected=f"a Field name from among {expctd_from_icons}",
-                    epilogue=(
-                        "Only assign icons to Fields that will be in the Bar."
-                    )
-                )
-                raise exc from None
+##        # Ensure icon assignments correspond to valid fields:
+##        for name in field_icons:
+##            if name not in field_order:
+##                deduped = dict.fromkeys(field_order)  # Preserve order
+##                expctd_from_icons = utils.join_options(deduped)
+##                exc = utils.make_error_message(
+##                    InvalidFieldError,
+##                    doing_what="parsing custom Field icons",
+##                    blame=f"{name!r}",
+##                    expected=f"a Field name from among {expctd_from_icons}",
+##                    epilogue=(
+##                        "Only assign icons to Fields that will be in the Bar."
+##                    )
+##                )
+##                raise exc from None
 
         # Gather Field parameters and instantiate new Fields:
         fields = {}
@@ -1148,7 +1134,7 @@ class Bar:
         :type stream: :class:`IO`
 
         :param once: Run the bar only once,
-            defaults to :attr:`Bar.run_once`
+            defaults to internal state
         :type once: :class:`bool`
 
         :param bg: (Not fully implemented)
@@ -1169,9 +1155,9 @@ class Bar:
             if stream is not None:
                 self._stream = stream
             if once is None:
-                once = self.run_once
-            else:
-                self.run_once = once
+                once = False if self.count is None else (self.count <= 1)
+            elif once:
+                self.count = 1
 
             # Allow the bar to run repeatedly in the same interpreter:
             if self._loop.is_closed():
@@ -1207,20 +1193,19 @@ class Bar:
             self._shutdown()
 
     def _prepare_fields(self) -> None:
+        once = False if self.count is None else (self.count <= 1)
         overriding = False
         for field in self:
             if field.overrides_refresh:
                 overriding = True
 
             if field.threaded:
-                thread = field.make_thread(bar=self, run_once=self.run_once)
+                thread = field.make_thread(bar=self, run_once=once)
                 self._threads[thread.name] = thread
             elif field.timely:
                 self._timely_fields.append(field)
             else:
-                self._coros[field.name] = field.run(
-                    bar=self, once=self.run_once
-                )
+                self._coros[field.name] = field.run(bar=self, once=once)
 
 ##        if overriding:  # Currently disabled!
 ##            self._coros.append(self._handle_overrides())
@@ -1288,7 +1273,7 @@ class Bar:
 
         # Print something right away just so that the bar is not empty,
         # but not if the print count matters:
-        if not self.count:
+        if self.count is None:
             line = self._make_one_line()
             self._stream.write(beginning + line + self._endline)
             self._stream.flush()
