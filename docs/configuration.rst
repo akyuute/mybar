@@ -99,27 +99,54 @@ Data Types
 Configuring **mybar**
 ----------------------
 
-- Bar parameters
+- Bar options
     The following options are used to control how the bar runs:
 
     - `refresh`
-        `(float)` The bar's refresh rate in seconds per cycle
+        `(float)` The bar's refresh rate in seconds per cycle.
+
     - `separator`
-        `(string)` A string or list of strings (one for ASCII
-        terminals, one for Unicode terminals) used to separate each Field
+        `(string)` A string or list of strings (one for ASCII terminals, one
+        for Unicode terminals) used to separate each Field.
+
     - `count`
-        `(integer)` How many times to print the bar before the program quits
+        `(integer)` Print the bar this many times before the program quits.
+
     - `template`
-        `(string)` A template string to use instead of `field_order`
+        `(string)` A template string to use instead of `field_order`.
+
+    - `break_lines`
+        `(bool)` Write each Bar on a new line every refresh cycle.
+
+    - `clock_align`
+        `(bool)` Print the bar at the top of each second.
+
+    - `join_empty_fields`
+        `(bool)` Show separators around Fields, even when they are empty.
+
+    - `thread_cooldown`
+        `(float)` How long a field thread loop sleeps after checking if
+        the bar is still running.
+        Between executions, unlike async fields, a threaded field sleeps
+        for several iterations of `thread_cooldown` seconds that always
+        add up to :attr:`Field.interval` seconds.
+        Between sleeps, it checks if the bar has stopped.
+        A shorter cooldown means more chances to check if the bar has
+        stopped and a faster exit time.
+
+    - `unicode`
+        `(bool)` Use Unicode Field icons and separator, if given.
 
     - `field_order`
-        `(list)` A list of Fields to display if `template` is unset::
+        `(list)` A list of Fields to display if `template` is unset.
+        For example::
 
             field_order [uptime cpu_usage cpu_temp net_stats datetime]
 
     - `field_icons`
         `(object)` An object mapping Field names to icons or lists of icons
-        (one for ASCII terminals, one for Unicode terminals) for each Field::
+        (one for ASCII terminals, one for Unicode terminals) for each Field.
+        For example::
 
             field_icons {
                 uptime "Up "
@@ -128,22 +155,45 @@ Configuring **mybar**
             }
 
 
-- Field definitions
-    Field definitions are objects with Field options used to override
-    defaults. See `Field options`_ for a complete reference. You may use the
-    rest of the file to customize specific Fields in the `field_order` list::
+    - Field definitions
+        Field definitions are objects with Field options used to override
+        defaults. See `Field options`_ for a complete reference. You may use the
+        rest of the file to customize specific Fields in the `field_order` list.
+        For example::
 
-        datetime {
-            interval 3
-            fmt "{} o'clock"
-        }
+            datetime {
+                interval 3
+                fmt "{} o'clock"
+            }
 
-        cpu_usage {threaded=False}
+            cpu_usage {threaded=False}
+
+            
+
+- Field options
+
+  ..
+        name: FieldName = None,
+        func: Callable[P, str] = None,
+        icon: str = '',
+        template: FormatStr = None,
+        interval: float = 1.0,
+        clock_align: bool = False,
+        timely: bool = False,
+        overrides_refresh: bool = False,
+        threaded: bool = False,
+        always_show_icon: bool = False,
+        run_once: bool = False,
+        constant_output: str = None,
+        bar: Bar_T = None,
+        args: Args = None,
+        kwargs: Kwargs = None,
+        setup: Callable[P, P.kwargs] = None,
 
 
 - Custom Fields
-    Positionable Fields with custom values are specified with the `custom`
-    option::
+    Positionable Fields with custom values are specified with the `custom` option.
+    For example::
 
         my_custom_field = {
             custom true
@@ -154,8 +204,8 @@ Configuring **mybar**
 
 Here is an example config file::
 
-    separators ["|", " )( "]
     refresh 0.5
+    separator ["|", "∦"]
     unicode yes
 
     field_order [
