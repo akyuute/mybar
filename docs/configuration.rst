@@ -23,7 +23,7 @@ specified using object attributes::
 
     uptime.kwargs.dynamic = no  # Display uptime without special formatting.
 
-Learn more about Field options in particular `here`_
+Learn more about Field options in particular: `Field options`_
 
 
 Data Types
@@ -96,10 +96,13 @@ Data Types
          #   ignore = "Comment out any lines of code you want to skip."
 
 
+
 Configuring **mybar**
 ----------------------
 
-- Bar options
+
+_`Bar options`
+~~~~~~~~~~~~~~
     The following options are used to control how the bar runs:
 
     - `refresh`
@@ -170,7 +173,8 @@ Configuring **mybar**
 
             
 
-- Field options
+_`Field options`
+~~~~~~~~~~~~~~~~~
 
   ..
         name: FieldName = None,
