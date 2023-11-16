@@ -321,16 +321,16 @@ class Field:
 
         self._bar = bar
 
-        self.timely = utils.str_to_bool(timely)
-        self.clock_align = utils.str_to_bool(clock_align)
-        self.always_show_icon = utils.str_to_bool(always_show_icon)
+        self.timely = timely
+        self.clock_align = clock_align
+        self.always_show_icon = always_show_icon
         self._buffer = None
         self.constant_output = constant_output
-        self.interval = float(interval)
-        self.overrides_refresh = utils.str_to_bool(overrides_refresh)
-        self.run_once = utils.str_to_bool(run_once)
+        self.interval = interval
+        self.overrides_refresh = overrides_refresh
+        self.run_once = run_once
 
-        self.threaded = utils.str_to_bool(threaded)
+        self.threaded = threaded
         self._do_setup()
 
     def __repr__(self) -> str:
