@@ -48,9 +48,10 @@ class Field:
     Continuously generate and format one bit of information in a
     :class:`Bar`.
 
-    Pre-defined default Fields can be looked up by name.
+    Pre-defined default Fields can be looked up by name using
+    :meth:`Field.from_default`.
 
-    :param name: A unique identifier for the new field,
+    :param name: A unique identifier for the new Field,
         defaults to `func.`:attr:`__name__`
     :type name: :class:`str`
 
@@ -58,41 +59,40 @@ class Field:
         `constant_output` is set
     :type func: :class:`Callable[[*Args, **Kwargs], str]`
 
-    :param icon: The field icon, defaults to ``''``.
-        Placed before field contents or in place
-        of ``{icon}`` in `template`, if provided
+    :param icon: The Field icon, defaults to ``''``.
+        Positioned in front of Field contents or in place of ``{icon}``
+        in `template`, if provided
     :type icon: :class:`str`
 
     :param template: A curly-brace format string.
         This parameter is **required** if `icon` is ``None``.
         Valid placeholders:
             - ``{icon}`` references `icon`
-            - ``{}`` references field contents
+            - ``{}`` references Field contents
 
         Example:
-            When the field's current contents are ``'69F'`` and its icon
-            is ``'TEMP'``,
-            ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
+            | When the Field's current contents are ``'69F'`` and its\
+            icon is ``'TEMP'``,
+            | ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
     :type template: :class:`_types.FormatStr`
 
-    :param interval: How often in seconds field contents are updated,
-        defaults to ``1.0``
+    :param interval: How often in seconds per update Field contents are
+        updated, defaults to ``1.0``
     :type interval: :class:`float`
 
     :param clock_align: Update contents at the start of each second,
         defaults to ``False``
     :type clock_align: :class:`bool`
 
-    :param timely: Run the field as soon as possible after every refresh,
+    :param timely: Run `func` as soon as possible after every refresh,
         defaults to ``False``
     :type timely: :class:`bool`
 
-    :param overrides_refresh: Updates to this field re-print the bar
-        between refreshes,
-        defaults to ``False``
+    :param overrides_refresh: Ensure updates to this Field re-print the
+        Bar between refreshes, defaults to ``False``
     :type overrides_refresh: :class:`bool`
 
-    :param threaded: Run this field in a separate thread,
+    :param threaded: Run this Field in a separate thread,
         defaults to ``False``
     :type threaded: :class:`bool`
 
@@ -121,17 +121,6 @@ class Field:
         data that `func` would otherwise have to evaluate every time it
         runs
     :type setup: :class:`Callable[P, Kwargs]`, optional
-
-    :param icons: A pair of icons used in different cases.
-        Note: The `icon` parameter sets both of these automatically.
-        The first string is intended for terminal environments where
-        only ASCII is supported.
-        The second string is intended for graphical environments where
-        support for Unicode is more likely available.
-        This enables the same :class:`Field` instance to use the most
-        optimal icon automatically.
-    :type icons: tuple[:class:`_types.ASCII_Icon`, :class:`_types.Unicode_Icon`], optional
-
 
     :raises: :exc:`errors.IncompatibleArgsError` when
         neither `func` nor `constant_output` are given

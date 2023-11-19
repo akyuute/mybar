@@ -172,31 +172,64 @@ _`Bar options`
             cpu_usage {threaded=False}
 
             
+.. note::
+    See :doc:`fields` for a description of default fields.
+
+
 
 _`Field options`
 ~~~~~~~~~~~~~~~~~
 
-  ..
-        name: FieldName = None,
-        func: Callable[P, str] = None,
-        icon: str = '',
-        template: FormatStr = None,
-        interval: float = 1.0,
-        clock_align: bool = False,
-        timely: bool = False,
-        overrides_refresh: bool = False,
-        threaded: bool = False,
-        always_show_icon: bool = False,
-        run_once: bool = False,
-        constant_output: str = None,
-        bar: Bar_T = None,
-        args: Args = None,
-        kwargs: Kwargs = None,
-        setup: Callable[P, P.kwargs] = None,
+    - `icon`
+        `(string)` Positioned in front of Field contents or in place of ``{icon}`` in `template`, if provided
+
+    - `template`
+        `(string)` A curly-brace format string.
+        This parameter is **required** if `icon` is ``None``.
+
+        Valid placeholders:
+            - ``{icon}`` references `icon`
+            - ``{}`` references Field contents
+
+        Example:
+            | When the Field's current contents are ``'69F'`` and its icon is ``'TEMP'``,
+            | ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
+
+    - `interval`
+        `(float)` How often in seconds per update Field contents are updated, defaults to ``1.0``
+
+    - `clock_align`
+        `(bool)` Update contents at the start of each second, defaults to ``False``
+
+    - `timely`
+        `(bool)` Run the Field function as soon as possible after every refresh,
+        defaults to ``False``
+
+    - `overrides_refresh`
+        `(bool)` Ensure updates to this Field re-print the Bar between refreshes,
+        defaults to ``False``
+
+    - `threaded`
+        `(bool)` Run this Field in a separate thread, defaults to ``False``
+
+    - `always_show_icon`
+        `(bool)` Show icons even when contents are empty, defaults to ``False``
+
+    - `run_once`
+        `(bool)` Permanently set contents by running the `func` only once, defaults to ``False``
+
+    - `constant_output`
+        `(string)` Permanently set contents instead of running a function
+
+    - `args`
+        `(list)` Positional args passed to `func`
+
+    - `kwargs`
+        `(object)` Keyword args passed to `func`
 
 
 - Custom Fields
-    Positionable Fields with custom values are specified with the `custom` option.
+    New positionable Fields with custom values are specified with the `custom` option.
     For example::
 
         my_custom_field = {
