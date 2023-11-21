@@ -308,18 +308,17 @@ class Field:
             # Wrap synchronous functions if they aren't special:
             self._callback = self._asyncify
 
-        self._bar = bar
-
-        self.timely = timely
-        self.clock_align = clock_align
         self.always_show_icon = always_show_icon
+        self._bar = bar
         self._buffer = None
+        self.clock_align = clock_align
         self.constant_output = constant_output
         self.interval = interval
         self.overrides_refresh = overrides_refresh
         self.run_once = run_once
-
         self.threaded = threaded
+        self.timely = timely
+
         self._do_setup()
 
     def __repr__(self) -> str:

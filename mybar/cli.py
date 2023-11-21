@@ -13,6 +13,7 @@ from . import __version__
 from .constants import CONFIG_FILE
 from .errors import CLIUsageError
 from .namespaces import BarConfigSpec, _CmdOptionSpec, FieldSpec
+from .utils import str_to_bool
 from ._types import (
     AssignmentOption,
     FieldName,
@@ -179,28 +180,22 @@ class ArgParser(ArgumentParser):
                         field_definitions[field_name] = {}
 
                     maybe_kwargs = field_opt.split('.', 1)
-
                     match maybe_kwargs:
-
                         case ['kwargs']:
                             # Looks like 'field.kwargs={"k": "v", ...}'
                             val = {} if val is None else eval(val)
                             # Yes, I know, it's eval.
-
                         case ['kwargs', nested]:
                             if nested.isidentifier():
                                 # Looks like 'field.kwargs.k=v'
                                 kwarg = {nested: val}
                                 val = kwarg
                                 field_opt = 'kwargs'
-
                             else:
                                 pass
-
                         case [not_kwargs]:
-                            # field_opt is valid.
+                            # `field_opt` is valid.
                             pass
-
                         case _:
                             # Nonsense
                             msg = (
@@ -210,6 +205,16 @@ class ArgParser(ArgumentParser):
 
                     field_definitions[field_name].update({field_opt: val})
 
+        # Convert values:
+        type_map = {
+            k: str_to_bool if v is bool
+            else v for k, v
+            in FieldSpec.__annotations__.items()
+        }
+        for field, params in field_definitions.items():
+            for k, v in params.items():
+                if k in type_map:
+                    field_definitions[field][k] = type_map[k](v)
         return field_definitions
 
     def add_arguments(self) -> None:
