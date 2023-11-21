@@ -780,6 +780,9 @@ class Bar:
             # if field_order is None:
             field_order = parsed.get_names()
 
+        if field_icons is None:
+            field_icons = {}
+
 ##        # Ensure icon assignments correspond to valid fields:
 ##        for name in field_icons:
 ##            if name not in field_order:
