@@ -764,11 +764,12 @@ class Bar:
         field_icons = bar_params.pop('field_icons', {})
         field_defs = bar_params.pop('field_definitions', {})
         template = bar_params.get('template')
+        if field_icons is None:
+            field_icons = {}
 
         if template is None:
-            # if not field_order:
-                # field_order = list(field_icons)
             if not field_order:
+                # field_order = list(field_icons)
                 raise IncompatibleArgsError(
                     "A bar format string `template` is required"
                     " when field order list `field_order` is undefined"
@@ -777,27 +778,7 @@ class Bar:
         else:
             parsed = FmtStrStructure.from_str(template)
             parsed.validate_fields(Field._default_fields, True, True)
-            # if field_order is None:
             field_order = parsed.get_names()
-
-        if field_icons is None:
-            field_icons = {}
-
-##        # Ensure icon assignments correspond to valid fields:
-##        for name in field_icons:
-##            if name not in field_order:
-##                deduped = dict.fromkeys(field_order)  # Preserve order
-##                expctd_from_icons = utils.join_options(deduped)
-##                exc = utils.make_error_message(
-##                    InvalidFieldError,
-##                    doing_what="parsing custom Field icons",
-##                    blame=f"{name!r}",
-##                    expected=f"a Field name from among {expctd_from_icons}",
-##                    epilogue=(
-##                        "Only assign icons to Fields that will be in the Bar."
-##                    )
-##                )
-##                raise exc from None
 
         # Gather Field parameters and instantiate new Fields:
         fields = {}
