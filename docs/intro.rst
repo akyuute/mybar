@@ -6,13 +6,16 @@ mybar
 
 
 About mybar
-============
+------------
+
+Introduction
+=============
 
 **mybar** is a code library and command line tool written in Python for making
 status bars.
 
 It aims to aid users in creating custom status bars with intuitive
-controls that allow every element to be customized.
+controls that allow for the customization of every element.
 
 ::
 
@@ -22,7 +25,7 @@ controls that allow every element to be customized.
 
 
 Install mybar
-==============
+--------------
 
 **mybar** supports Python 3.11+.
 
@@ -33,7 +36,7 @@ It can be installed from the `Python Package Index`::
 
 
 Use mybar in the command line
-==============================
+------------------------------
 
 By default, **mybar** looks at config files to load its options.
 
@@ -134,7 +137,7 @@ See the `manual` for details on all the command line arguments **mybar** accepts
 
 
 Use mybar in a Python project
-==============================
+------------------------------
 
 >>> import mybar
 
@@ -193,7 +196,7 @@ Append new Fields to your Bar, as if it were a list:
 
 
 Concepts
-=========
+---------
 
 This section introduces the core concepts that aid in customizing **mybar**.
 
@@ -236,7 +239,7 @@ or `command line arguments`.
 
 
 Default Fields
-===============
+---------------
 
 These are the default fields in mybar.
 

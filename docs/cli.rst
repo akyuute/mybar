@@ -41,7 +41,7 @@ Options
 
 .. option:: --count TIMES, -n TIMES
 
-    Print mybar this many times, then exit.
+    Print the bar this many times, then exit.
 
 .. option:: --break-lines, -b
 
