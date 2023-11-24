@@ -12,7 +12,7 @@ import sphinx_rtd_theme
 project = 'mybar'
 copyright = '2021-present akyuute'
 author = 'akyuute'
-release = '0.9'
+release = '0.9.1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
