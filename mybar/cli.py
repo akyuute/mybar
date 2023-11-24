@@ -308,7 +308,7 @@ class ArgParser(ArgumentParser):
         )
 
         self.add_argument(
-            '--icons',
+            '--icons', '-i',
             action='extend',
             dest='icon_pairs',
             help="A mapping of Field names to icons.",
