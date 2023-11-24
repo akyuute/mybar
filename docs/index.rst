@@ -10,9 +10,6 @@ mybar
 *Craft highly customizable status bars with ease.*
 
 
-About mybar
-------------
-
 Introduction
 =============
 
@@ -30,7 +27,7 @@ controls that allow for the customization of every element.
 
 
 Install mybar
---------------
+==============
 
 **mybar** supports Python 3.11+.
 
@@ -41,7 +38,7 @@ It can be installed from the `Python Package Index`::
 
 
 Use mybar in the command line
-------------------------------
+==============================
 
 By default, **mybar** looks at config files to load its options.
 
@@ -67,89 +64,96 @@ Note that any options passed to the command on the first run will be written to 
 
 
 Command line examples
-**********************
+~~~~~~~~~~~~~~~~~~~~~~
 
 Let's see some examples of how to use **mybar** from the command line.
 
 
-``--fields`` Specify which fields to show:
+``--fields/-f`` Specify which fields to show:
 
 .. code:: bash
 
-   $ python -m mybar --fields hostname disk_usage cpu_temp datetime
+   $ python -m mybar -f hostname disk_usage cpu_temp datetime
    mymachine|/:88.3G|43C|2023-08-01 23:18:22
 
 
-``--template`` Use a custom format template:
+``--template/-t`` Use a custom format template:
 
 .. code:: bash
 
-   $ python -m mybar --template '@{hostname}: ( {uptime} | {cpu_usage}, {cpu_temp} )  [{datetime}]'
-   @mymachine: ( Up 1d:12h:17m | CPU 02%, 44C )  [2023-08-01 23:31:26]
+   $ python -m mybar -t '@{hostname}: ({uptime} | {cpu_usage}, {cpu_temp})  [{datetime}]'
+   @mymachine: (Up 1d:12h:17m | CPU 02%, 44C)  [2023-08-01 23:31:26]
 
 
-``--separator`` Change the field separator:
+``--separator/-s`` Change the field separator:
 
 .. code:: bash
 
-   $ python -m mybar -f hostname uptime cpu_usage --separator ' ][ '
+   $ python -m mybar -f hostname uptime cpu_usage -s ' ][ '
    mymachine ][ Up 1d:12h:11m ][ CPU 00%
 
 
-``--refresh`` Set the bar's refresh rate:
+``--count/-n`` Run the bar a specific number of times:
 
 .. code:: bash
 
-   $ python -m mybar --refresh 5
-
-
-``--count`` Run the bar a specific number of times:
-
-.. code:: bash
-
-   $ python -m mybar -f hostname cpu_usage datetime --count 3 --endline
+   $ python -m mybar -f hostname cpu_usage datetime -n 3 --break-lines
    mymachine|CPU 00%|2023-08-01 23:40:26
    mymachine|CPU 00%|2023-08-01 23:40:27
    mymachine|CPU 00%|2023-08-01 23:40:28
    $
 
 
-``--icons`` Set new icons for each field:
+``--refresh/-r`` Set the bar's refresh rate:
 
 .. code:: bash
 
-   $ python -m mybar -f hostname cpu_usage datetime --icons cpu_usage='@' datetime='Time: '
-   mymachine|@03%|Time: 2023-08-02 01:01:56
+   $ python -m mybar -f hostname cpu_usage datetime -n 3 -r 10 --break-lines
+   mymachine|CPU 00%|2023-11-24 04:25:31
+   mymachine|CPU 00%|2023-11-24 04:25:41
+   mymachine|CPU 00%|2023-11-24 04:25:51
+   $
 
 
-``--options`` Set arbitrary options for the bar or any field:
-
-.. code:: bash
-
-   $ python -m mybar -t '@{hostname} {cpu_usage} Time: {datetime}' --options datetime.kwargs.fmt='%H:%M:%S.%f'
-   @mymachine CPU 00% Time: 01:19:55.000229
-
-
-``--config`` Use a specific config file:
+``--icons/-i`` Set new icons for each field:
 
 .. code:: bash
 
-   $ python -m mybar --config ~/.config/mybar/my_other_config_file.conf
+   $ python -m mybar -i uptime='⏱️' cpu_temp='🔥' mem_usage='🧠' battery='🔋'
+   mymachine|⏱️4d:15h:7m|CPU 00%|🔥50C|🧠8.7G|/:80.7G|🔋100CHG|wifi|2023-11-10 17:19:20
 
 
-See the `manual` for details on all the command line arguments **mybar** accepts.
+``--options/-o`` Set arbitrary options for the bar or any field:
+
+.. code:: bash
+
+   $ python -m mybar -t 'Time: {datetime}' -o datetime.kwargs.fmt='%H:%M:%S.%f'
+   Time: 01:19:55.000229
+
+
+``--config/-c`` Use a specific config file:
+
+.. code:: bash
+
+   $ python -m mybar -c ~/.config/mybar/my_other_config_file.conf
+
+
+See :doc:`cli` for details on all the command line arguments **mybar** accepts.
 
 
 
 Use mybar in a Python project
-------------------------------
+==============================
 
->>> import mybar
+See :doc:`api` for in-depth Python API usage.
 
-See `docs.api.rst` for in-depth Python API usage.
+.. code:: python
+
+    >>> import mybar
+
 
 Python API examples
-********************
+~~~~~~~~~~~~~~~~~~~~
 
 Let's see some examples of how to use **mybar** using the Python API.
 
@@ -201,54 +205,49 @@ Append new Fields to your Bar, as if it were a list:
 
 
 Concepts
----------
+=========
 
 This section introduces the core concepts that aid in customizing **mybar**.
 
-- Bar
+- *Bar*
       The status bar.
-- Field
-      A part of the `Bar` containing information, sometimes called a "module"
+- *Field*
+      A part of the `Bar` containing information, often called a "module"
       by other status bar frameworks.
-- field function
+- *field function*
       The function a `Field` runs to determine what it should contain.
-- refresh cycle
+- *refresh cycle*
       The time it takes the `Bar` to run all its fields and update its contents once.
-- refresh rate
+- *refresh rate*
       How often the `Bar` updates what it says, in seconds per refresh.
-- interval
+- *interval*
       How often a `Field` runs its field function, in seconds per cycle.
-- separator
+- *separator*
       A string that separates one `Field` from another
-- format string
+- *format string*
       A special string that controls how `Fields` and their contents are displayed.
-- icon
+- *icon*
       A string appearing with each `Field`, usually unique to each.
 
 
-To customize **mybar** to your liking without using the `Python API`, you can use `config files`
-or `command line arguments`.
+To customize **mybar** to your liking without using the `Python API`,
+you can use :doc:`config files <configuration>` or :doc:`command line arguments <cli>`.
 
-
-.. Configuration Files
-.. ====================
-
-
-.. Advanced Usage // Field Funcs
-.. ============
 
 .. `Field funcs` are Python functions that return the contents of a `Field`.
-
-.. Read more about them in `docs.api.rst`.
-
+.. Read more about them in :doc:`api`
 
 
-Default Fields
----------------
+.. Default Fields
+.. ---------------
+.. 
+.. These are the default fields in mybar.
 
-These are the default fields in mybar.
 
 
+###################
+More Documentation
+###################
 
 .. toctree::
    :maxdepth: 2
@@ -264,7 +263,7 @@ These are the default fields in mybar.
 
 
 Indices and tables
-==================
+===================
 
 * :ref:`genindex`
 * :ref:`modindex`
