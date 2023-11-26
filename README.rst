@@ -64,7 +64,7 @@ Command line examples
 Let's see some examples of how to use **mybar** from the command line.
 
 
-``--fields/-f`` Specify which fields to show:
+``--fields/-f`` Specify which Fields to show:
 
 .. code:: bash
 
@@ -80,7 +80,7 @@ Let's see some examples of how to use **mybar** from the command line.
    @mymachine: (Up 1d:12h:17m | CPU 02%, 44C)  [2023-08-01 23:31:26]
 
 
-``--separator/-s`` Change the field separator:
+``--separator/-s`` Change the Field separator:
 
 .. code:: bash
 
@@ -88,7 +88,7 @@ Let's see some examples of how to use **mybar** from the command line.
    mymachine ][ Up 1d:12h:11m ][ CPU 00%
 
 
-``--count/-n`` Run the bar a specific number of times:
+``--count/-n`` Run the Bar a specific number of times:
 
 .. code:: bash
 
@@ -99,7 +99,7 @@ Let's see some examples of how to use **mybar** from the command line.
    $
 
 
-``--refresh/-r`` Set the bar's refresh rate:
+``--refresh/-r`` Set the Bar's refresh rate:
 
 .. code:: bash
 
@@ -110,7 +110,7 @@ Let's see some examples of how to use **mybar** from the command line.
    $
 
 
-``--icons/-i`` Set new icons for each field:
+``--icons/-i`` Set new icons for each Field:
 
 .. code:: bash
 
@@ -118,7 +118,7 @@ Let's see some examples of how to use **mybar** from the command line.
    mymachine|⏱️4d:15h:7m|CPU 00%|🔥50C|🧠8.7G|/:80.7G|🔋100CHG|wifi|2023-11-10 17:19:20
 
 
-``--options/-o`` Set arbitrary options for the bar or any field:
+``--options/-o`` Set arbitrary options for the bar or any Field:
 
 .. code:: bash
 
@@ -132,15 +132,11 @@ Let's see some examples of how to use **mybar** from the command line.
 
    $ python -m mybar -c ~/.config/mybar/my_other_config_file.conf
 
-
-See :doc:`cli` for details on all the command line arguments **mybar** accepts.
-
+See the documentation for details on all the command line arguments **mybar** accepts.
 
 
 Use mybar in a Python project
 ==============================
-
-See :doc:`api` for in-depth Python API usage.
 
 .. code:: python
 
@@ -149,6 +145,8 @@ See :doc:`api` for in-depth Python API usage.
 
 Python API examples
 ~~~~~~~~~~~~~~~~~~~~
+
+See the documentation for in-depth Python API usage.
 
 Let's see some examples of how to use **mybar** using the Python API.
 
@@ -198,6 +196,10 @@ Append new Fields to your Bar, as if it were a list:
    (Field(name='database_reader'), Field(name='hostname'), Field(name='datetime'), Field(name='uptime'))
 
 
+To customize **mybar** to your liking without using the `Python API`,
+you can use config files or command line arguments.
+
+
 
 Concepts
 =========
@@ -209,32 +211,18 @@ This section introduces the core concepts that aid in customizing **mybar**.
 - *Field*
       A part of the `Bar` containing information, often called a "module"
       by other status bar frameworks.
-- *field function*
+- *Field function*
       The function a `Field` runs to determine what it should contain.
-- *refresh cycle*
-      The time it takes the `Bar` to run all its fields and update its contents once.
-- *refresh rate*
+- *Refresh cycle*
+      The time it takes the `Bar` to run all its Fields and update its contents once.
+- *Refresh rate*
       How often the `Bar` updates what it says, in seconds per refresh.
-- *interval*
-      How often a `Field` runs its field function, in seconds per cycle.
-- *separator*
+- *Interval*
+      How often a `Field` runs its Field function, in seconds per cycle.
+- *Separator*
       A string that separates one `Field` from another
-- *format string*
+- *Format string*
       A special string that controls how `Fields` and their contents are displayed.
-- *icon*
+- *Icon*
       A string appearing with each `Field`, usually unique to each.
-
-
-To customize **mybar** to your liking without using the `Python API`,
-you can use :doc:`config files <configuration>` or :doc:`command line arguments <cli>`.
-
-
-.. `Field funcs` are Python functions that return the contents of a `Field`.
-.. Read more about them in :doc:`api`
-
-
-.. Default Fields
-.. ---------------
-.. 
-.. These are the default fields in mybar.
 
