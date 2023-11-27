@@ -414,7 +414,7 @@ class Field:
     @property
     def icon(self) -> str:
         '''The field icon as determined by the output stream of its bar.
-        It defaults to the TTY icon (:attr:`self._icons[1]`) if no bar is set.
+        It defaults to the TTY icon (:attr:`self._icon[1]`) if no bar is set.
         '''
         if self._bar is None:
             # Default to using the ASCII icon:

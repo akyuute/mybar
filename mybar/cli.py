@@ -250,13 +250,13 @@ class ArgParser(ArgumentParser):
 
         fields_group.add_argument(
             '--separator', '-s',
-            dest='separators',
+            dest='separator',
             help=(
                 "The character used for joining fields."
                 " Only valid with --field/-f options."
             ),
             metavar="'FIELD_SEPARATOR'",
-            type=ArgFormatter.ToTuple(length=2),
+            # type=ArgFormatter.ToTuple(length=2),
         )
 
         fields_group.add_argument(

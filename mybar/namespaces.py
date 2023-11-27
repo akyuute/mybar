@@ -31,6 +31,7 @@ from typing import ParamSpec, Required, TypedDict, TypeVar
 Bar = TypeVar('Bar')
 P = ParamSpec('P')
 
+
 class FieldSpec(TypedDict, total=False):
     '''
     A dict specifying the structure of :class:`mybar.Field` constructor
@@ -38,7 +39,7 @@ class FieldSpec(TypedDict, total=False):
     '''
     name: FieldName
     func: Callable[P, str]
-    icon: Icon
+    icon: Icon | Sequence[ASCII_Icon, Unicode_Icon]
     template: FormatStr
     interval: float
     clock_align: bool
@@ -51,10 +52,6 @@ class FieldSpec(TypedDict, total=False):
     args: Args
     kwargs: Kwargs
     setup: Callable[P, P.kwargs]
-    '''
-    Set `icons` to use different icons for different output streams:
-    '''
-    icons: Sequence[ASCII_Icon, Unicode_Icon]
 
 
 class BarSpec(TypedDict, total=False):
@@ -78,8 +75,7 @@ class BarSpec(TypedDict, total=False):
     '''
     fields: Iterable[Field | FieldName]
     field_order: Sequence[FieldName]
-    separator: Separator
-    separators: Sequence[ASCII_Separator, Unicode_Separator]
+    separator: Separator | Sequence[ASCII_Separator, Unicode_Separator]
 
     '''
     The `template` param is mutually exclusive with all field params:

@@ -520,7 +520,7 @@ class Bar:
         neither `template` nor `fields` are given
     :raises: :exc:`errors.IncompatibleArgsError` when
         `template` is ``None``
-        but no `separator` or `separators` are given
+        but no `separator` given
     :raises: :exc:`TypeError` when `fields` is not iterable, or when
         `template` is not a string
     '''
@@ -803,7 +803,7 @@ class Bar:
                         continue
 
                     if cust_icons is not None:
-                        overrides = {'icons': cust_icons}
+                        overrides = {'icon': cust_icons}
                     else:
                         overrides = {}
 
@@ -822,12 +822,13 @@ class Bar:
                     # 'field_definitions' and will not be found as a default.
                     name = field_params.pop('name', name)
                     del field_params['custom']
-                    field_params['icons'] = cust_icons
+                    field_params['icon'] = cust_icons
                     field = Field(**field_params, name=name)
 
                 case {}:
                     # The field is a default overridden by the user.
-                    field_params['icons'] = cust_icons
+                    if cust_icons is not None:
+                        field_params['icon'] = cust_icons
                     try:
                         field = Field.from_default(
                             name,
