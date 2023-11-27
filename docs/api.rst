@@ -11,7 +11,7 @@ If you're using Python and just want a continuous status bar printed to your
 screen, this function does the trick. It reads the default config file to
 determine its options.
 
-.. autofunction:: run
+.. autofunction:: mybar.run
 
 
 Fields
@@ -29,7 +29,7 @@ Bars
 Bars control how **mybar** renders text and orchestrate all the parts that make
 that happen.
 
-.. autoclass:: Bar
+.. autoclass:: mybar.Bar
    :members:
    :undoc-members:
    :exclude-members: __init__

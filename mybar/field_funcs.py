@@ -119,7 +119,7 @@ async def get_battery_info(
     '''
     Battery capacity as a percent and whether or not it is charging.
 
-    :param fmt: A curly-brace format string with
+    :param fmt: A curly-brace format string with\
         two optional named fields:
             - ``pct``: Current battery percent as a :class:`float`
             - ``state``: Whether or not the battery is charging
@@ -143,7 +143,7 @@ def get_cpu_temp(
     '''
     Current CPU temperature in Celcius or Fahrenheit.
 
-    :param fmt: A curly-brace format string with
+    :param fmt: A curly-brace format string with\
         two optional named fields:
             - ``temp``: Current CPU temperature as a :class:`float`
             - ``scale``: ``'C'`` or ``'F'``, depending on `in_fahrenheit`
@@ -151,8 +151,8 @@ def get_cpu_temp(
         Defaults to ``"{temp:02.0f}{scale}"``
     :type fmt: :class:`_types.FormatStr`
 
-    :param in_fahrenheit: Display the temperature in Fahrenheit instead of Celcius,
-        defaults to ``False``
+    :param in_fahrenheit: Display the temperature in Fahrenheit instead
+        of Celcius, defaults to ``False``
     :type in_fahrenheit: :class:`bool`
     '''
     scales = ('C', 'F')
@@ -197,7 +197,9 @@ def get_datetime(
         ``datetime.strftime()``, defaults to ``"%Y-%m-%d %H:%M:%S"``
     :type fmt: :class:`str`
 
-    .. seealso:: `strftime() format codes <https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes>`_
+    .. seealso:: `Datetime strftime() format codes\
+    <https://docs.python.org/3/library/datetime.html#strftime-and-strptime\
+    -format-codes>`_
 
     '''
     return datetime.now().strftime(fmt)
@@ -212,13 +214,14 @@ async def get_disk_usage(
     '''
     Disk usage of a partition at a given path.
 
-    :param fmt: A curly-brace format string with
+    :param fmt: A curly-brace format string with\
         five optional named fields:
             - ``unit``: The same value as `unit`
             - ``total``: Total disk partition size
             - ``used``: Used disk space
             - ``free``: Free disk space (``total - used``)
-            - ``percent``: Percent of total disk space that is used (``used / total``, a :class:`float`)
+            - ``percent``: Percent of total disk space that is used\
+                (``used / total``, a :class:`float`)
 
         Defaults to ``"{free:.1f}{unit}"``
     :type fmt: :class:`_types.FormatStr`
@@ -255,7 +258,7 @@ def get_host(
     '''
     System host information using :func:`os.uname()`.
 
-    :param fmt: A curly-brace format string with
+    :param fmt: A curly-brace format string with\
         five optional named fields:
             - ``nodename``: System hostname
             - ``sysname``: Operating system kernel name
@@ -284,7 +287,7 @@ def get_mem_usage(
     '''
     Disk usage of a partition at a given path.
 
-    :param fmt: A curly-brace format string with
+    :param fmt: A curly-brace format string with\
         five optional named fields:
             - ``unit``: The same value as `unit`
             - ``total``: Total disk partition size
@@ -325,7 +328,7 @@ async def get_net_stats(
     '''
     Active network info from either `NetworkManager` or `iwconfig`.
 
-    :param fmt: A curly-brace format string with
+    :param fmt: A curly-brace format string with\
         five optional named fields:
             - ``name``: The connection name
             - ``uuid``: The connection uuid
@@ -429,25 +432,24 @@ async def get_uptime(
     Using only one unit, like ``"{hours}"``, will round `hours` to an
     integer by default. If floating point values are desired, a format
     spec must be used:
-        ``"{hours:.4f}"``
+    ``"{hours:.4f}"``
 
-    Format specs can be used to great effect, like in all other field
+    Format specs can be used to great effect, like in all other Field
     functions which accept `fmt`:
-        ``"{hours:_^10.4f}"``
+    ``"{hours:_^10.4f}"``
 
     .. seealso:: The Python `format spec mini language documentation
         <https://docs.python.org/3/library/string.html#format-\
         specification-mini-language>`_
 
-    :param fmt: A curly-brace format string with seven optional named\
-    fields:
-        ``secs``, ``mins``, ``hours``, ``days``, ``weeks``, ``months``,
-        and ``years``
+    :param fmt: A curly-brace format string with seven optional named
+        fields: ``secs``, ``mins``, ``hours``, ``days``, ``weeks``,
+        ``months``, and ``years``
 
     :type fmt: :class:`_types.FormatStr`
 
     :param dynamic: Given `sep`, automatically hide groups of units when
-        they are ``0``.
+        they are ``0``, defaults to ``True``
     :type dynamic: :class:`bool`
 
     :param sep: Delimits groups of format fields to be hidden/shown

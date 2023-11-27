@@ -1,3 +1,4 @@
+#TODO: Shell scripts
 #TODO: Implement dynamic icons!
 #TODO: Finish Mocp line!
 
@@ -59,13 +60,14 @@ class Field:
         `constant_output` is set
     :type func: :class:`Callable[[*Args, **Kwargs], str]`
 
-    :param icon: The Field icon, defaults to ``''``.
-        Positioned in front of Field contents or in place of ``{icon}``
-        in `template`, if provided
+    :param icon: The Field icon, positioned in front of Field contents
+        or in place of ``{icon}`` in `template`, if provided,
+        defaults to ``''``
     :type icon: :class:`str`
 
-    :param template: A curly-brace format string.
-        This parameter is **required** if `icon` is ``None``.
+    :param template: A curly-brace format string. This parameter is
+        **required** if `icon` is ``None``.
+
         Valid placeholders:
             - ``{icon}`` references `icon`
             - ``{}`` references Field contents
@@ -74,6 +76,7 @@ class Field:
             | When the Field's current contents are ``'69F'`` and its\
             icon is ``'TEMP'``,
             | ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
+
     :type template: :class:`_types.FormatStr`
 
     :param interval: How often in seconds per update Field contents are
@@ -244,7 +247,7 @@ class Field:
         *,
         name: FieldName = None,
         func: Callable[P, str] = None,
-        icon: str = '',
+        icon: Icon | Sequence[ASCII_Icon, Unicode_Icon] = '',
         template: FormatStr = None,
         interval: float = 1.0,
         clock_align: bool = False,
@@ -258,9 +261,6 @@ class Field:
         args: Args = None,
         kwargs: Kwargs = None,
         setup: Callable[P, P.kwargs] = None,
-
-        # Set this to use different icons for different output streams:
-        icons: Sequence[ASCII_Icon, Unicode_Icon] = None,
     ) -> None:
 
         if constant_output is None:
@@ -290,11 +290,13 @@ class Field:
             )
         self._setupfunc = setup
 
-        if icons is None:
-            icons = (icon, icon)
-        self._icons = icons
+        if isinstance(icon, str):
+            icon = (icon, icon)
+        elif not isinstance(icon, Sequence):
+            raise TypeError("`icon` must be a sequence")
+        self._icons = icon
 
-        if template is None and icons is None:
+        if template is None and icon is None:
             raise IncompatibleArgsError(
                 "An icon is required when `template` is None."
             )
