@@ -1,4 +1,4 @@
-.. module:: mybar
+.. currentmodule:: mybar
 
 API Reference
 ===============
