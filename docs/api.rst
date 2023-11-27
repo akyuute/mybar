@@ -11,7 +11,7 @@ If you're using Python and just want a continuous status bar printed to your
 screen, this function does the trick. It reads the default config file to
 determine its options.
 
-.. autofunction:: mybar.run
+.. autofunction:: run
 
 
 Fields
@@ -19,7 +19,7 @@ Fields
 Fields are at the core of **mybar**. They are responsible for generating
 specific, meaningful, dynamic text at every iteration of a bar's lifespan.
 
-.. autoclass:: mybar.Field
+.. autoclass:: Field
    :members:
    :exclude-members: __init__
 
@@ -29,7 +29,7 @@ Bars
 Bars control how **mybar** renders text and orchestrate all the parts that make
 that happen.
 
-.. autoclass:: mybar.Bar
+.. autoclass:: Bar
    :members:
    :undoc-members:
    :exclude-members: __init__
