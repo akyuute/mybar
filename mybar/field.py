@@ -1,4 +1,3 @@
-#TODO: Shell scripts
 #TODO: Implement dynamic icons!
 #TODO: Finish Mocp line!
 
@@ -9,8 +8,12 @@ __all__ = (
 
 
 import asyncio
+import asyncio.subprocess as aiosp
+import os.path
+import shlex
 import threading
 import time
+from os import PathLike
 
 from . import field_funcs
 from . import _setups
@@ -22,6 +25,7 @@ from .namespaces import FieldSpec
 from ._types import (
     Args,
     ASCII_Icon,
+    Contents,
     FieldName,
     FormatStr,
     Icon,
@@ -124,6 +128,16 @@ class Field:
         data that `func` would otherwise have to evaluate every time it
         runs
     :type setup: :class:`Callable[P, Kwargs]`, optional
+
+    :param command: A shell command to run
+    :type command: :class:`str`
+
+    :param script: The path to a shell script to run
+    :type script: :class:`PathLike`
+
+    :param allow_multiline: Don't join the output of a command or script
+        if it spans multiple lines, defaults to ``False``
+    :type allow_multiline: :class:`bool`
 
     :raises: :exc:`errors.IncompatibleArgsError` when
         neither `func` nor `constant_output` are given
@@ -261,7 +275,20 @@ class Field:
         args: Args = None,
         kwargs: Kwargs = None,
         setup: Callable[P, P.kwargs] = None,
+        command: str = None,
+        script: PathLike = None,
+        allow_multiline: bool = False,
     ) -> None:
+
+        if script is not None:
+            script = os.path.abspath(script)
+            command = self._fetch_script(script)
+        if command is not None:
+            func = self._run_command
+            if script is not None:
+                name = os.path.basename(script)
+            else:
+                name = command.split(None, 1)[0]
 
         if constant_output is None:
             #NOTE: This will change when dynamic icons and templates are implemented.
@@ -310,14 +337,17 @@ class Field:
             # Wrap synchronous functions if they aren't special:
             self._callback = self._asyncify
 
+        self.allow_multiline = allow_multiline
         self.always_show_icon = always_show_icon
         self._bar = bar
         self._buffer = None
         self.clock_align = clock_align
+        self.command = command
         self.constant_output = constant_output
         self.interval = interval
         self.overrides_refresh = overrides_refresh
         self.run_once = run_once
+        self.script = script
         self.threaded = threaded
         self.timely = timely
 
@@ -422,9 +452,27 @@ class Field:
         unicode = self._bar._unicode or not self._bar._stream.isatty()
         return self._icons[unicode]
 
-    async def _asyncify(self, *args, **kwargs) -> str:
+    async def _asyncify(self, *args, **kwargs) -> Contents:
         '''Wrap a synchronous function in a coroutine for simplicity.'''
         return self._func(*args, **kwargs)
+
+    def _fetch_script(self, script: PathLike) -> str:
+        with open(script, 'r') as f:
+            script = f.read()
+        return script
+
+    async def _run_command(self, *args, **kwargs) -> Contents:
+        cmd = shlex.join(shlex.split(self.command))
+        proc = await aiosp.create_subprocess_shell(
+            cmd,
+            stdout=aiosp.PIPE,
+            stderr=aiosp.PIPE
+        )
+        out, err = await proc.communicate()
+        result = out.decode()
+        if not self.allow_multiline:
+            result = ' '.join(result.splitlines())
+        return result
 
     @staticmethod
     def _format_contents(

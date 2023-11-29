@@ -52,6 +52,9 @@ class FieldSpec(TypedDict, total=False):
     args: Args
     kwargs: Kwargs
     setup: Callable[P, P.kwargs]
+    command: str
+    script: PathLike
+    allow_multiline: bool
 
 
 class BarSpec(TypedDict, total=False):
