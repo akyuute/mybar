@@ -62,14 +62,9 @@ Location: TypeAlias = tuple[LineNo, ColNo]
 ConstantValue: TypeAlias = str | int | float | bool | Literal[None]
 
 
-class KeyValuePair(Dict):
-    '''
-    One key-value pair in a dictionary.
-    '''
-
 EOF = ''
 NEWLINE = '\n'
-NOT_IN_IDS = string.punctuation.replace('_', '\s')
+NOT_IN_IDS = string.punctuation.replace('_', r'\s')
 KEYWORDS = ()
 
 
@@ -82,10 +77,12 @@ class Grammar:
 
     Assignment : Identifier MaybeEQ Expr
 
-    Identifier : Attribute
-    Attribute : Dotted Attribute
-              | ID
-    Dotted : ID PERIOD
+    Identifier : Dotted Identifier
+               | IDENTIFIER
+
+    Dotted : IDENTIFIER ATTRIBUTE
+
+    MaybeEQ : ASSIGN | None
 
     Expr : LITERAL
          | List
@@ -95,17 +92,15 @@ class Grammar:
 
     List : L_BRACKET RepeatedExpr R_BRACKET
 
-    Dict : L_CURLY_BRACE RepeatedKVP R_CURLY_BRACE
-
     RepeatedExpr : Expr Delimiter RepeatedExpr
                  | None
+
+    Dict : L_CURLY_BRACE RepeatedKVP R_CURLY_BRACE
 
     RepeatedKVP : KVPair Delimiter RepeatedKVP
                 | None
 
     KVPair : Identifier MaybeEQ Expr
-
-    MaybeEQ : EQUALS | None
 
     Delimiter : NEWLINE | COMMA | None
     '''
@@ -148,6 +143,9 @@ class TokKind(Enum):
 
     UNKNOWN = 'UNKNOWN'
 
+    def __or__(self, other: Any) -> str:
+        return type(self).__name__ + ' | ' + type(other).__name__
+
 T_AssignEvalNone = {TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA}
 '''These tokens eval to None after a "=".'''
 
@@ -169,10 +167,21 @@ T_Syntax = {
     TokKind.COMMA,
     TokKind.L_BRACKET,
     TokKind.L_CURLY_BRACE,
+    TokKind.L_PAREN,
     TokKind.R_BRACKET,
     TokKind.R_CURLY_BRACE,
-    TokKind.L_PAREN,
     TokKind.R_PAREN,
+}
+
+T_StartOfExpr = {
+    *T_Literal,
+    TokKind.L_BRACKET,
+    TokKind.L_CURLY_BRACE,
+    TokKind.L_PAREN,
+    TokKind.NEWLINE,
+    TokKind.IDENTIFIER,
+    TokKind.COMMA,
+    TokKind.NEWLINE,
 }
 
 T_EndOfExpr = {
@@ -183,6 +192,17 @@ T_EndOfExpr = {
     TokKind.R_CURLY_BRACE,
 }
 '''These tokens mark the end of an expression.'''
+
+
+Delimiter: TypeAlias = Literal[TokKind.NEWLINE | TokKind.COMMA] | None
+Expr: TypeAlias = ConstantValue | List | Dict | Delimiter | None
+Identifier: TypeAlias = Literal[TokKind.IDENTIFIER | Attribute]
+ID_ = TypeVar(TokKind.IDENTIFIER.name)
+Dotted: TypeAlias = tuple[TokKind.IDENTIFIER, TokKind.ATTRIBUTE] | ID_
+MaybeEQ: TypeAlias = TokKind.ASSIGN | None
+RepeatedExpr: TypeAlias = list[Expr]
+KVPair: TypeAlias = tuple[Identifier, MaybeEQ, Expr]
+RepeatedKVP: TypeAlias = list[KVPair]
 
 
 class ConfigError(SyntaxError):
@@ -873,7 +893,7 @@ class RecursiveDescentParser:
         self._tokens = self._lexer.lex()
         self._cursor = 0
         self._lookahead = self._tokens[self._cursor]
-        self._current_attr_base = None
+        self._expr_stack = []
 
     End = TokKind.EOF
 
@@ -921,10 +941,11 @@ class RecursiveDescentParser:
             if not (tok := self._advance()).kind in T_Ignore:
                 return tok
 
-    def _expect_curr(
+    def _match(
         self,
         kind: TokKind | tuple[TokKind],
-        errmsg: str = None
+        errmsg: str = None,
+        eager: bool = True
     ) -> Token | NoReturn | bool:
         '''
         Test if the current token matches a certain kind given by `kind`.
@@ -938,13 +959,17 @@ class RecursiveDescentParser:
         :param errmsg: The error message to display, optional
         :type errmsg: :class:`str`
         '''
-        if not isinstance(kind, tuple):
+        if not isinstance(kind, Iterable):
             kind = (kind,)
         tok = self._lookahead
         if tok.kind not in kind:
             if errmsg is None:
                 return False
             raise ParseError.hl_error(tok, errmsg, self)
+        if eager:
+            self._lookahead = self._next()
+        else:
+            self._lookahead = self._advance()
         return tok
 
     def _reset(self) -> None:
@@ -992,99 +1017,95 @@ class RecursiveDescentParser:
             result = (yield from result)
         return result
 
-    def _parse_assign(self) -> Assign:
-        '''
-        Parse an assignment at the current token::
-
-            a 42  # -> Assign([Name('a')], Constant(42))
-
-        :rtype: :class:`Assign`
-        '''
-        # Advance to the next assignment:
+    def _parse_Assignment(self) -> Assign:
+        print('_parse_Assignment')
         self._lookahead = self._skip_all_whitespace()
         if self._lookahead.kind in (TokKind.EOF, TokKind.NEWLINE):
             return TokKind.EOF
-
-        msg = "Invalid syntax (expected an identifier):"
-        target_tok = self._expect_curr(TokKind.IDENTIFIER, msg)
-        target = Name(target_tok.value)
-
-        self._lookahead = maybe_attr = maybe_equals = self._next()
-        # Check if `target` is actually an attribute:
-        if maybe_attr.kind is TokKind.ATTRIBUTE:
-            self._current_attr_base = target
-            target = (yield self._parse_attribute)
-            target._token = target_tok
-
-        if maybe_equals.kind is TokKind.ASSIGN:
-            # `target = ...`
-            #         ^
-            self._lookahead = self._next()
+        target = (yield self._parse_Identifier)
 
         if self._lookahead.kind in (TokKind.NEWLINE, TokKind.EOF):
             # `target [=] (\n|EOF)`
             #              ^^^^^^
             value = Constant(None)
 
-        else:
-            # `target [=] (value)`
-            #              ^^^^^
-            value = (yield self._parse_expr)
-        if value in (TokKind.NEWLINE, TokKind.EOF):
-            value = Constant(None)
+##        else:
+##            # `target [=] (value)`
+##            #              ^^^^^
+##            value = (yield self._parse_expr)
+##        if value in (TokKind.NEWLINE, TokKind.EOF):
+##            value = Constant(None)
 
-        if isinstance(value, Name):
-            msg = f"Invalid syntax: Cannot use variable names as expressions"
-            raise ParseError.hl_error(value._token, msg, self)
+        # print(ast.dump(target))
+        # self._lookahead = self._next()
+        self._parse_MaybeEQ()
+        # self._lookahead = self._next()
+        value = (yield self._parse_Expr)
+        # print(value)
+        # print(ast.dump(value))
+        # self._lookahead = self._next()
+        return Assign([target], value)
 
-        node = Assign([target], value)
-        node._token = target_tok
+    def _parse_Identifier(self) -> Name | Attribute:
+        print('_parse_Identifier')
+        target_tok = self._lookahead
+        # print(target_tok)
+        kind = target_tok.kind
+        note = ""
+        if kind is not TokKind.IDENTIFIER:
+            print(target_tok)
+            if kind in T_Syntax and self._expr_stack:
+                curr_expr = self._expr_stack[-1]
+                alternative = {
+                    Dict: '}',
+                    List: ']',
+                }[kind]
+                note = f"\n(Did you mean {alternative!r}?)"
 
-        self._next()
-        return node
+        msg = f"Invalid syntax (expected an identifier){note}:"
+        self._match(TokKind.IDENTIFIER, msg, False)
+        target = Name(target_tok.value)
+        target._token = target_tok
+        maybe_attr = self._lookahead
+        # maybe_attr = self._advance()
 
-    def _parse_attribute(self) -> Attribute:
-        '''
-        Parse an attribute at the current token inside an object::
+        if maybe_attr.kind is not TokKind.ATTRIBUTE:
+            # print(ast.dump(target))
+            return target
 
-            a.b.c  # -> Attribute(Attribute(Name('a'), 'b'), 'c')
-
-        :param outer: The base of the attribute to come, either a single
-            variable name or a whole attribute expression.
-        :type outer: :class:`Name` | :class:`Attribute`
-        :rtype: :class:`Attribute`
-        '''
-        msg = (
-            "_parse_attribute() called at the wrong time",
-            "Invalid syntax (expected an identifier):",
-        )
-        self._expect_curr(TokKind.ATTRIBUTE, msg[0])
-        self._lookahead = self._next()
-
-        outer = self._current_attr_base
+        outer = target
         while True:
             # This may be the base of another attr, or it may be the
             # terminal attr:
-            maybe_base_tok = self._expect_curr(TokKind.IDENTIFIER, msg[1])
+            maybe_base_tok = self._match(TokKind.IDENTIFIER, msg, False)
             attr = maybe_base_tok.value
             outer = Attribute(outer, attr)
             outer._token = maybe_base_tok
             # Any more dots?
-            self._lookahead = self._next()
+            # self._lookahead = self._advance()
             if self._lookahead.kind is not TokKind.ATTRIBUTE:
                 break
-            self._lookahead = self._next()
+            # self._lookahead = self._advance()
 
-        self._current_attr_base = None
         return outer
 
-    def _parse_expr(self) -> AST | Token[TokKind.EOF] | Token[TokKind.NEWLINE]:
-        '''
-        Parse an expression at the current token.
+##    def _parse_Dotted(self) -> Dotted:
+##        pass
 
-        :rtype: :class:`AST` | :class:`Token`[TokKind.EOF | TokKind.NEWLINE]
-        '''
+    def _parse_MaybeEQ(self) -> MaybeEQ:
+        print('_parse_MaybeEQ')
+        # maybe_equals = self._next()
+        self._match(TokKind.ASSIGN)
+        # self._lookahead = self._next()
+        # if maybe_equals.kind is TokKind.ASSIGN:
+            # self._lookahead = self._next()
+
+    def _parse_Expr(self) -> Expr:
+        print('_parse_Expr')
+        msg = f"Invalid syntax: Expected an expression:"
+        # tok = self._match(T_StartOfExpr, msg)
         tok = self._lookahead
+        print(tok)
         kind = tok.kind
         match kind:
             case kind if kind in T_EndOfExpr:
@@ -1110,13 +1131,14 @@ class RecursiveDescentParser:
                             raise ParseError.hl_error(tok, msg, self)
                     node = Constant(value)
                 except ValueError:
+                    # Floats with underscores sometimes fail.
                     msg = f"Invalid {kind.value.lower()} value: {tok.value!r}"
                     raise ParseError.hl_error(tok, msg, self)
 
             case TokKind.L_BRACKET:
-                node = (yield self._parse_list)
+                node = (yield self._parse_List)
             case TokKind.L_CURLY_BRACE:
-                node = (yield self._parse_object)
+                node = (yield self._parse_Dict)
 
             case TokKind.IDENTIFIER:
                 node = Name(tok.value)
@@ -1126,165 +1148,117 @@ class RecursiveDescentParser:
                 raise ParseError.hl_error(tok, msg, self)
 
         node._token = tok
+        print(ast.dump(node))
         return node
 
-    def _parse_list(self) -> List:
-        '''
-        Parse a list at the current token::
+    def _parse_List(self) -> List:
+        print('_parse_List')
+        self._expr_stack.append(List)
+        msg = "_parse_List() called at the wrong time"
+        start = self._match(TokKind.L_BRACKET, msg)
+        elems = (yield self._parse_RepeatedExpr)
+        self._match(TokKind.R_BRACKET)
+        node = List(elems)
+        node._token = start
+        self._expr_stack.pop()
+        print(ast.dump(node))
+        return node
 
-            ['a', 'b']  # -> List([Constant('a'), Constant('b')])
-
-        :rtype: :class:`List`
-        '''
-        msg = "_parse_list() called at the wrong time"
-        elems = []
-        self._lookahead = self._next()
+    def _parse_RepeatedExpr(self) -> RepeatedExpr:
+        print('_parse_RepeatedExpr')
+        exprs = []
         while True:
-            elem = (yield self._parse_expr)
-
-            if elem is TokKind.EOF:
-                msg = "Invalid syntax: Unmatched '[':"
-                raise ParseError.hl_error(self._lookahead, msg, self)
-            if elem is TokKind.R_BRACKET:
-                self._lookahead = self._next()
+            expr = (yield self._parse_Expr)
+            if expr is TokKind.R_BRACKET:
                 break
-            if elem in {TokKind.COMMA, TokKind.NEWLINE}:
+            if expr in (TokKind.COMMA, TokKind.NEWLINE):
                 self._lookahead = self._next()
                 continue
-            elems.append(elem)
+            if expr is TokKind.EOF:
+                msg = "Invalid syntax: Unmatched '[':"
+                raise ParseError.hl_error(self._lookahead, msg, self)
+            exprs.append(expr)
             self._lookahead = self._next()
-        return List(elems)
-        
-    def _parse_object(self) -> Dict:
-        '''
-        Parse a dict containing many mappings at the current token::
+        return exprs
 
-            {
-                foo 'bar'
-                baz = 42
-            }
-
-            # -> Dict(
-                [Name('foo'), Name('baz')],
-                [Constant('bar'), Constant(42)]
-            )
-
-        :rtype: :class:`Dict`
-        '''
-        msg = (
-            "_parse_object() called at the wrong time",
-        )
-        start = self._expect_curr(TokKind.L_CURLY_BRACE, msg[0])
-        keys = []
-        vals = []
-
-        while True:
-            tok = self._next()
-            kind = tok.kind
-            match kind:
-                case TokKind.IDENTIFIER:
-                    # Parse a new key-value pair:
-
-                    msg = (
-                        "Invalid syntax (expected an identifier):",
-                        "Invalid syntax:"
-                    )
-                    key_tok = self._tokens[self._cursor]
-                    key = Name(key_tok.value)
-                    key._token = key_tok
-                    self._current_attr_base = key
-
-                    maybe_attr = self._next()
-                    if maybe_attr.kind is TokKind.ATTRIBUTE:
-                        key = (yield self._parse_attribute)
-                        self._lookahead = maybe_equals = self._next()
-                    else:
-                        self._lookahead = maybe_equals = maybe_attr
-
-                    if maybe_equals.kind is TokKind.ASSIGN:
-                        self._lookahead = self._next()
-                    oldval = val = (yield self._parse_expr)
-                    if val in (TokKind.NEWLINE, TokKind.R_CURLY_BRACE):
-                        val = Constant(None)
-
-                    # Disallow assigning identifiers:
-                    if isinstance(val, (Name, Attribute)):
-                        typ = value._token.kind.value.lower()
-                        val = repr(val._token.value)
-                        note = f"expected expression, got {typ} {val}"
-                        msg = f"Invalid assignment: {note}:"
-                        raise ParseError.hl_error(val._token, msg, self)
-
-                    if key not in keys:
-                        keys.append(key)
-                        vals.append(val)
-                    else:
-                        # Make nested dicts.
-                        idx = keys.index(key)
-                        # Equivalent to dict.update():
-                        vals[idx].keys = val.keys
-                        vals[idx].values = val.values
-
-                    if oldval is TokKind.R_CURLY_BRACE:
-                        # In case a blank map is at the end of a dict:
-                        break
-
-                case kind if kind in (TokKind.COMMA, TokKind.NEWLINE):
-                    continue
-
-                case TokKind.R_CURLY_BRACE:
-                    break
-
-                case TokKind.EOF:
-                    msg = "Invalid syntax: Unmatched '{':"
-                    raise ParseError.hl_error(start, msg, self)
-
-                case _:
-                    typ = kind.value.lower()
-                    val = repr(tok.value)
-                    note = f"expected variable name, got {typ} {val}"
-                    note2 = "\n(Did you mean '}'?)" if kind in T_Syntax else ""
-                    msg = f"Invalid target for assignment: {note}{note2}:"
-                    raise ParseError.hl_error(tok, msg, self)
-
-        # Put all the assignments together:
+    def _parse_Dict(self) -> Dict:
+        print('_parse_Dict')
+        self._expr_stack.append(Dict)
+        msg = "_parse_Dict() called at the wrong time",
+        start = self._match(TokKind.L_CURLY_BRACE, msg)
+        print(start)
+        # start = self._lookahead
+        keys, vals = (yield self._parse_RepeatedKVP)
+        self._match(TokKind.R_CURLY_BRACE)
         node = Dict(keys, vals)
         node._token = start
+        self._expr_stack.pop()
         return node
 
-    def _parse_key_val_pair(self) -> Dict:
-        '''
-        Parse a 1-to-1 mapping at the current token inside an object::
+    def _parse_RepeatedKVP(self) -> RepeatedKVP:
+        print('_parse_RepeatedKVP')
+        keys = []
+        vals = []
+        # self._lookahead = self._next()
+        print(self._lookahead)
+        while True:
+            if self._lookahead.kind in (TokKind.COMMA, TokKind.NEWLINE):
+                self._lookahead = self._next()
+                continue
+            pair = (yield self._parse_KVPair)
+            print(f"{pair = }")
+            if pair is TokKind.R_CURLY_BRACE:
+                # In case a blank map is at the end of a dict:
+                break
+            if pair is TokKind.EOF:
+                # Uh, what?
+                break
 
-            {key = 'val'}  # -> Dict([Name('key')], [Constant('val')])
+            key, val = pair
 
-        :rtype: :class:`Dict`
-        '''
-        msg = (
-            "Invalid syntax (expected an identifier):",
-            "Invalid syntax (expected '=' or '.'):"
-        )
-        target_tok = self._expect_curr(TokKind.IDENTIFIER, msg[0])
-        target = Name(target_tok.value)
-        target._token = target_tok
+            if val is TokKind.EOF:
+                msg = "Invalid syntax: Unmatched '{':"
+                raise ParseError.hl_error(start, msg, self)
 
-        maybe_attr = self._next()
-        if maybe_attr.kind is TokKind.ATTRIBUTE:
-            self._current_attr_base = target
-            target = self._parse_attribute()
+            if key not in keys:
+                keys.append(key)
+                vals.append(val)
+            else:
+                # Make nested dicts.
+                idx = keys.index(key)
+                # Equivalent to dict.update():
+                vals[idx].keys = key
+                vals[idx].values = val
+#                vals[idx].keys = val.keys
+#                vals[idx].values = val.values
+            self._lookahead = self._next()
 
-        assign_tok = self._expect_curr(TokKind.ASSIGN, msg[1])
-        value = (yield from self._parse_expr())
+        # self._lookahead = self._next()
+        return keys, vals
+
+    def _parse_KVPair(self) -> KVPair:
+        print('_parse_KVPair')
+        if self._lookahead.kind is TokKind.R_CURLY_BRACE:
+            return TokKind.R_CURLY_BRACE
+        if self._lookahead.kind is TokKind.EOF:
+            return TokKind.EOF
+        target = (yield self._parse_Identifier)
+        print(ast.dump(target))
+        # if target is TokKind.R_CURLY_BRACE:
+            # return None
+        # self._lookahead = self._next()
+        self._parse_MaybeEQ()
+        value = (yield self._parse_Expr)
         # Disallow assigning identifiers:
-        if isinstance(value, Name):
-            typ = value._token.kind.value
+        if isinstance(value, (Name, Attribute)):
+            typ = value._token.kind.value.lower()
             val = repr(value._token.value)
             note = f"expected expression, got {typ} {val}"
             msg = f"Invalid assignment: {note}:"
             raise ParseError.hl_error(value._token, msg, self)
-        node = Dict([target], [value])
-        node._token = assign_tok
-        return node
+        if value in (TokKind.NEWLINE, TokKind.R_CURLY_BRACE):
+            value = Constant(None)
+        return target, value
 
     def parse(self, string: FileContents = None) -> Module:
         '''
@@ -1299,12 +1273,11 @@ class RecursiveDescentParser:
             self._tokens = self._lexer.lex()
             self._cursor = 0
             self._lookahead = self._tokens[self._cursor]
-            self._current_attr_base = None
 
         self._reset()
         assignments = []
         while True:
-            assign = self._parse(self._parse_assign)
+            assign = self._parse(self._parse_Assignment)
             if assign is TokKind.EOF:
                 break
             if assign is None:
@@ -1320,7 +1293,7 @@ class RecursiveDescentParser:
         '''
         tree = self.parse()
         unparsed = Unparser().unparse(tree)
-        # print(unparsed)
+        print(unparsed)
         return unparsed
 
 
@@ -1354,7 +1327,7 @@ class FileParser(RecursiveDescentParser):
         self._tokens = self._lexer.lex()
         self._cursor = 0
         self._lookahead = self._tokens[self._cursor]
-        self._current_attr_base = None
+        self._expr_stack = []
 
 
 class PyParser:
