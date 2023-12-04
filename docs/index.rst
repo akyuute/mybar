@@ -66,6 +66,8 @@ Note that any options passed to the command on the first run will be written to 
 Command line examples
 ~~~~~~~~~~~~~~~~~~~~~~
 
+See :doc:`cli` for details on all the command line arguments **mybar** accepts.
+
 Let's see some examples of how to use **mybar** from the command line.
 
 
@@ -136,10 +138,6 @@ Let's see some examples of how to use **mybar** from the command line.
 .. code:: bash
 
    $ python -m mybar -c ~/.config/mybar/my_other_config_file.conf
-
-
-See :doc:`cli` for details on all the command line arguments **mybar** accepts.
-
 
 
 Use mybar in a Python project

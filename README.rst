@@ -5,6 +5,10 @@ mybar
 *Craft highly customizable status bars with ease.*
 
 
+`mybar Documentation <https://mybar.readthedocs.io>`_
+
+
+
 Introduction
 =============
 
@@ -60,6 +64,9 @@ Note that any options passed to the command on the first run will be written to 
 
 Command line examples
 ~~~~~~~~~~~~~~~~~~~~~~
+
+See the `Documentation <https://mybar.readthedocs.io/en/latest/cli.html>`_
+for details on all the command line arguments **mybar** accepts.
 
 Let's see some examples of how to use **mybar** from the command line.
 
@@ -131,8 +138,6 @@ Let's see some examples of how to use **mybar** from the command line.
 .. code:: bash
 
    $ python -m mybar -c ~/.config/mybar/my_other_config_file.conf
-
-See the documentation for details on all the command line arguments **mybar** accepts.
 
 
 Use mybar in a Python project
