@@ -82,7 +82,7 @@ class Grammar:
 
     Dotted : IDENTIFIER ATTRIBUTE
 
-    MaybeEQ : ASSIGN | None
+    MaybeEQ : EQUALS | None
 
     Expr : LITERAL
          | List
@@ -127,7 +127,7 @@ class TokKind(Enum):
     KEYWORD = 'KEYWORD'
 
     # Binary operators:
-    ASSIGN = '='
+    EQUALS = '='
     ATTRIBUTE = '.'
     ADD = '+'
     SUBTRACT = '-'
@@ -146,13 +146,6 @@ class TokKind(Enum):
     def __or__(self, other: Any) -> str:
         return type(self).__name__ + ' | ' + type(other).__name__
 
-T_AssignEvalNone = {TokKind.NEWLINE, TokKind.EOF, TokKind.COMMA}
-'''These tokens eval to None after a "=".'''
-
-T_Ignore = {TokKind.SPACE, TokKind.COMMENT}
-'''These tokens are ignored by the parser.'''
-
-T_Invisible = {*T_Ignore, TokKind.NEWLINE}
 
 T_Literal = {
     TokKind.STRING,
@@ -160,11 +153,37 @@ T_Literal = {
     TokKind.FLOAT,
     TokKind.TRUE,
     TokKind.FALSE,
-    TokKind.NONE
+    TokKind.NONE,
+    None
 }
 
-T_Syntax = {
+FIRST: TypeAlias = set
+MatchesDotted: FIRST = {TokKind.IDENTIFIER}
+MatchesMaybeEQ: FIRST = {TokKind.EQUALS, None}
+MatchesExpr: FIRST = {
+    *T_Literal,
+    TokKind.L_BRACKET,
+    TokKind.L_CURLY_BRACE,
+    TokKind.NEWLINE,
     TokKind.COMMA,
+    None
+}
+MatchesList: FIRST = {TokKind.L_BRACKET}
+MatchesRepeatedExpr: FIRST = {*MatchesExpr, None}
+MatchesDict: FIRST = {TokKind.L_CURLY_BRACE}
+MatchesRepeatedKVP: FIRST = {TokKind.IDENTIFIER, None}
+MatchesKVPair: FIRST = {TokKind.IDENTIFIER}
+MatchesDelimiter: FIRST = {TokKind.NEWLINE, TokKind.COMMA, None}
+
+T_AssignEvalNone = {*MatchesDelimiter, TokKind.EOF}
+'''These tokens eval to None after a "=".'''
+
+T_Ignore = {TokKind.SPACE, TokKind.COMMENT}
+'''These tokens are ignored by the parser.'''
+
+T_Invisible = {*T_Ignore, TokKind.NEWLINE}
+
+T_Syntax = {
     TokKind.L_BRACKET,
     TokKind.L_CURLY_BRACE,
     TokKind.L_PAREN,
@@ -193,15 +212,14 @@ T_EndOfExpr = {
 }
 '''These tokens mark the end of an expression.'''
 
-
-Delimiter: TypeAlias = Literal[TokKind.NEWLINE | TokKind.COMMA] | None
-Expr: TypeAlias = ConstantValue | List | Dict | Delimiter | None
-Identifier: TypeAlias = Literal[TokKind.IDENTIFIER | Attribute]
-ID_ = TypeVar(TokKind.IDENTIFIER.name)
-Dotted: TypeAlias = tuple[TokKind.IDENTIFIER, TokKind.ATTRIBUTE] | ID_
-MaybeEQ: TypeAlias = TokKind.ASSIGN | None
+# Return types
+Expr: TypeAlias = Constant | List | Dict | Name | Literal[None]
+Identifier: TypeAlias = Name | Attribute
+Delimiter: TypeAlias = Literal[None]
+Dotted: TypeAlias = tuple[Name, bool]
+MaybeEQ: TypeAlias = Literal[None]
 RepeatedExpr: TypeAlias = list[Expr]
-KVPair: TypeAlias = tuple[Identifier, MaybeEQ, Expr]
+KVPair: TypeAlias = tuple[Identifier, Expr]
 RepeatedKVP: TypeAlias = list[KVPair]
 
 
@@ -544,7 +562,7 @@ class Lexer:
         (re.compile(r'^[^' + NEWLINE + r'\S]+'), TokKind.SPACE),
 
         # Operators
-        (re.compile(r'^='), TokKind.ASSIGN),
+        (re.compile(r'^='), TokKind.EQUALS),
         (re.compile(r'^\.'), TokKind.ATTRIBUTE),
 
         # Syntax
@@ -892,10 +910,14 @@ class RecursiveDescentParser:
         self._string = string
         self._tokens = self._lexer.lex()
         self._cursor = 0
-        self._lookahead = self._tokens[self._cursor]
+        # self._lookahead = self._tokens[self._cursor]
         self._expr_stack = []
 
     End = TokKind.EOF
+
+    @property
+    def lookahead(self) -> Token:
+        return self._tokens[self._cursor]
 
     def tokens(self) -> list[Token]:
         '''
@@ -945,7 +967,7 @@ class RecursiveDescentParser:
         self,
         kind: TokKind | tuple[TokKind],
         errmsg: str = None,
-        eager: bool = True
+        greedy: bool = False
     ) -> Token | NoReturn | bool:
         '''
         Test if the current token matches a certain kind given by `kind`.
@@ -961,16 +983,21 @@ class RecursiveDescentParser:
         '''
         if not isinstance(kind, Iterable):
             kind = (kind,)
-        tok = self._lookahead
-        if tok.kind not in kind:
-            if errmsg is None:
-                return False
-            raise ParseError.hl_error(tok, errmsg, self)
-        if eager:
-            self._lookahead = self._next()
-        else:
-            self._lookahead = self._advance()
-        return tok
+        tok = self.lookahead
+        if not greedy:
+            if tok.kind not in kind:
+                if errmsg is None:
+                    return False
+                raise ParseError.hl_error(tok, errmsg, self)
+            self._advance()
+            return tok
+        while tok.kind in kind:
+            # print(tok)
+            tok = self._advance()
+
+    @property
+    def prev_tok(self) -> Token:
+        return self._tokens[self._cursor - 1]
 
     def _reset(self) -> None:
         '''
@@ -1017,14 +1044,14 @@ class RecursiveDescentParser:
             result = (yield from result)
         return result
 
-    def _parse_Assignment(self) -> Assign:
+    def _parse_Assignment(self) -> Assign | None:
         print('_parse_Assignment')
-        self._lookahead = self._skip_all_whitespace()
-        if self._lookahead.kind in (TokKind.EOF, TokKind.NEWLINE):
+        self._skip_all_whitespace()
+        if self.lookahead.kind in (TokKind.EOF, TokKind.NEWLINE):
             return TokKind.EOF
         target = (yield self._parse_Identifier)
 
-        if self._lookahead.kind in (TokKind.NEWLINE, TokKind.EOF):
+        if self.lookahead.kind in (TokKind.NEWLINE, TokKind.EOF):
             # `target [=] (\n|EOF)`
             #              ^^^^^^
             value = Constant(None)
@@ -1036,7 +1063,7 @@ class RecursiveDescentParser:
 ##        if value in (TokKind.NEWLINE, TokKind.EOF):
 ##            value = Constant(None)
 
-        # print(ast.dump(target))
+        print(ast.dump(target))
         # self._lookahead = self._next()
         self._parse_MaybeEQ()
         # self._lookahead = self._next()
@@ -1044,67 +1071,75 @@ class RecursiveDescentParser:
         # print(value)
         # print(ast.dump(value))
         # self._lookahead = self._next()
+        yield self._parse_Delimiter
+        self._match(TokKind.EOF)
         return Assign([target], value)
 
     def _parse_Identifier(self) -> Name | Attribute:
         print('_parse_Identifier')
-        target_tok = self._lookahead
-        # print(target_tok)
-        kind = target_tok.kind
+        base = self.lookahead
+        # print(base)
+        kind = base.kind
+        node = Name(base.value)
+        node._token = base
+
         note = ""
         if kind is not TokKind.IDENTIFIER:
-            print(target_tok)
+            print(base)
             if kind in T_Syntax and self._expr_stack:
                 curr_expr = self._expr_stack[-1]
-                alternative = {
+                suggestion = {
                     Dict: '}',
                     List: ']',
                 }[kind]
-                note = f"\n(Did you mean {alternative!r}?)"
+                note = f"\n(Did you mean {suggestion!r}?)"
 
         msg = f"Invalid syntax (expected an identifier){note}:"
         self._match(TokKind.IDENTIFIER, msg, False)
-        target = Name(target_tok.value)
-        target._token = target_tok
-        maybe_attr = self._lookahead
-        # maybe_attr = self._advance()
 
-        if maybe_attr.kind is not TokKind.ATTRIBUTE:
-            # print(ast.dump(target))
-            return target
-
-        outer = target
-        while True:
-            # This may be the base of another attr, or it may be the
-            # terminal attr:
+        # This may be the base of another attr, or it may be the
+        # terminal attr:
+        while self._match(TokKind.ATTRIBUTE):
             maybe_base_tok = self._match(TokKind.IDENTIFIER, msg, False)
             attr = maybe_base_tok.value
-            outer = Attribute(outer, attr)
-            outer._token = maybe_base_tok
-            # Any more dots?
-            # self._lookahead = self._advance()
-            if self._lookahead.kind is not TokKind.ATTRIBUTE:
-                break
-            # self._lookahead = self._advance()
-
-        return outer
+            node = Attribute(node, attr)
+            node._token = maybe_base_tok
+        return node
 
 ##    def _parse_Dotted(self) -> Dotted:
-##        pass
+##        print('_parse_Dotted')
+##        maybe_base_tok = self._match(MatchesDotted, msg, False)
+##        kind = maybe_base_tok.kind
+##        note = ""
+##        if kind is not TokKind.IDENTIFIER:
+##            print(target_tok)
+##            if kind in T_Syntax and self._expr_stack:
+##                curr_expr = self._expr_stack[-1]
+##                alternative = {
+##                    Dict: '}',
+##                    List: ']',
+##                }[kind]
+##                note = f"\n(Did you mean {alternative!r}?)"
+##
+##        msg = f"Invalid syntax (expected an identifier){note}:"
+##        node = Name(maybe_base_tok)
+##        node._token = maybe_base_tok
+##        with_attr = bool(self._match(TokKind.ATTRIBUTE))
+##        return node, with_attr
 
     def _parse_MaybeEQ(self) -> MaybeEQ:
         print('_parse_MaybeEQ')
-        # maybe_equals = self._next()
-        self._match(TokKind.ASSIGN)
-        # self._lookahead = self._next()
-        # if maybe_equals.kind is TokKind.ASSIGN:
-            # self._lookahead = self._next()
+        self._match(MatchesMaybeEQ)
+
+    def _parse_Delimiter(self) -> Delimiter:
+        print('_parse_Delimiter')
+        self._match(MatchesDelimiter, greedy=True)
 
     def _parse_Expr(self) -> Expr:
         print('_parse_Expr')
         msg = f"Invalid syntax: Expected an expression:"
         # tok = self._match(T_StartOfExpr, msg)
-        tok = self._lookahead
+        tok = self.lookahead
         print(tok)
         kind = tok.kind
         match kind:
@@ -1149,6 +1184,7 @@ class RecursiveDescentParser:
 
         node._token = tok
         print(ast.dump(node))
+        self._skip_all_whitespace()
         return node
 
     def _parse_List(self) -> List:
@@ -1161,24 +1197,24 @@ class RecursiveDescentParser:
         node = List(elems)
         node._token = start
         self._expr_stack.pop()
-        print(ast.dump(node))
         return node
 
     def _parse_RepeatedExpr(self) -> RepeatedExpr:
         print('_parse_RepeatedExpr')
+        start = self.prev_tok
         exprs = []
         while True:
-            expr = (yield self._parse_Expr)
-            if expr is TokKind.R_BRACKET:
-                break
-            if expr in (TokKind.COMMA, TokKind.NEWLINE):
-                self._lookahead = self._next()
-                continue
-            if expr is TokKind.EOF:
+            self._skip_all_whitespace()
+            if self.lookahead.kind is TokKind.EOF:
                 msg = "Invalid syntax: Unmatched '[':"
-                raise ParseError.hl_error(self._lookahead, msg, self)
+                raise ParseError.hl_error(start, msg, self)
+            if self.lookahead.kind is TokKind.R_BRACKET:
+                break
+            expr = (yield self._parse_Expr)
+            self._advance()
+            # Match commas and newlines:
+            yield self._parse_Delimiter
             exprs.append(expr)
-            self._lookahead = self._next()
         return exprs
 
     def _parse_Dict(self) -> Dict:
@@ -1187,7 +1223,6 @@ class RecursiveDescentParser:
         msg = "_parse_Dict() called at the wrong time",
         start = self._match(TokKind.L_CURLY_BRACE, msg)
         print(start)
-        # start = self._lookahead
         keys, vals = (yield self._parse_RepeatedKVP)
         self._match(TokKind.R_CURLY_BRACE)
         node = Dict(keys, vals)
@@ -1197,28 +1232,22 @@ class RecursiveDescentParser:
 
     def _parse_RepeatedKVP(self) -> RepeatedKVP:
         print('_parse_RepeatedKVP')
+        start = self.prev_tok
         keys = []
         vals = []
-        # self._lookahead = self._next()
-        print(self._lookahead)
+        print(self.lookahead)
         while True:
-            if self._lookahead.kind in (TokKind.COMMA, TokKind.NEWLINE):
-                self._lookahead = self._next()
-                continue
-            pair = (yield self._parse_KVPair)
-            print(f"{pair = }")
-            if pair is TokKind.R_CURLY_BRACE:
-                # In case a blank map is at the end of a dict:
-                break
-            if pair is TokKind.EOF:
-                # Uh, what?
-                break
-
-            key, val = pair
-
-            if val is TokKind.EOF:
+            self._skip_all_whitespace()
+            if self.lookahead.kind is TokKind.EOF:
                 msg = "Invalid syntax: Unmatched '{':"
                 raise ParseError.hl_error(start, msg, self)
+            if self.lookahead.kind is TokKind.R_CURLY_BRACE:
+                break
+            pair = (yield self._parse_KVPair)
+            print(f"{pair = }")
+            yield self._parse_Delimiter
+            key, val = pair
+            print(ast.dump(val))
 
             if key not in keys:
                 keys.append(key)
@@ -1231,24 +1260,16 @@ class RecursiveDescentParser:
                 vals[idx].values = val
 #                vals[idx].keys = val.keys
 #                vals[idx].values = val.values
-            self._lookahead = self._next()
-
-        # self._lookahead = self._next()
         return keys, vals
 
     def _parse_KVPair(self) -> KVPair:
         print('_parse_KVPair')
-        if self._lookahead.kind is TokKind.R_CURLY_BRACE:
-            return TokKind.R_CURLY_BRACE
-        if self._lookahead.kind is TokKind.EOF:
-            return TokKind.EOF
         target = (yield self._parse_Identifier)
         print(ast.dump(target))
-        # if target is TokKind.R_CURLY_BRACE:
-            # return None
-        # self._lookahead = self._next()
         self._parse_MaybeEQ()
         value = (yield self._parse_Expr)
+        if value is TokKind.EOF:
+            return TokKind.EOF
         # Disallow assigning identifiers:
         if isinstance(value, (Name, Attribute)):
             typ = value._token.kind.value.lower()
@@ -1256,7 +1277,7 @@ class RecursiveDescentParser:
             note = f"expected expression, got {typ} {val}"
             msg = f"Invalid assignment: {note}:"
             raise ParseError.hl_error(value._token, msg, self)
-        if value in (TokKind.NEWLINE, TokKind.R_CURLY_BRACE):
+        if value is TokKind.NEWLINE:
             value = Constant(None)
         return target, value
 
@@ -1272,7 +1293,6 @@ class RecursiveDescentParser:
             self._lexer = Lexer(string)
             self._tokens = self._lexer.lex()
             self._cursor = 0
-            self._lookahead = self._tokens[self._cursor]
 
         self._reset()
         assignments = []
@@ -1326,7 +1346,7 @@ class FileParser(RecursiveDescentParser):
         self._lexer = lexer
         self._tokens = self._lexer.lex()
         self._cursor = 0
-        self._lookahead = self._tokens[self._cursor]
+        # self._lookahead = self._tokens[self._cursor]
         self._expr_stack = []
 
 
