@@ -1053,7 +1053,6 @@ class RecursiveDescentParser:
     def _parse_Assignment(self) -> Assign | None:
         '''
         '''
-        print('_parse_Assignment')
         self._skip_all_whitespace()
         if self.at_eof():
             return TokKind.EOF
@@ -1065,22 +1064,18 @@ class RecursiveDescentParser:
         self._parse_Delimiter()
         node = Assign([target], value)
         node._token = target._token
-        print(ast.dump(node))
         return node
 
     def _parse_Identifier(self) -> Name | Attribute:
         '''
         '''
-        print('_parse_Identifier')
         base = self.lookahead
-        # print(base)
         kind = base.kind
         node = Name(base.value)
         node._token = base
 
         note = ""
         if kind is not TokKind.IDENTIFIER:
-            print(base)
             if kind in T_Syntax:
                 if self._expr_stack:
                     curr_expr = self._expr_stack[-1]
@@ -1093,7 +1088,7 @@ class RecursiveDescentParser:
                     note = f"Unmatched {kind.value!r} "
 
         msg = f"Invalid syntax: {note}(Expected an identifier):"
-        print(self._match(TokKind.IDENTIFIER, msg))
+        self._match(TokKind.IDENTIFIER, msg)
 
         # This may be the base of another attr, or it may be the
         # terminal attr:
@@ -1107,19 +1102,16 @@ class RecursiveDescentParser:
     def _parse_MaybeEQ(self) -> MaybeEQ:
         '''
         '''
-        print('_parse_MaybeEQ')
         self._match(MatchesMaybeEQ)
 
     def _parse_Delimiter(self) -> Delimiter:
         '''
         '''
-        print('_parse_Delimiter')
         self._match(MatchesDelimiter, greedy=True)
 
     def _parse_Expr(self) -> Expr:
         '''
         '''
-        print('_parse_Expr')
         if self._match(T_AssignEvalNone):
             return Constant(None)
 
@@ -1151,7 +1143,6 @@ class RecursiveDescentParser:
         else:
             # Complex expressions
             tok = self.lookahead
-            print(tok)
             kind = tok.kind
             if kind is TokKind.IDENTIFIER:
                 node = (yield self._parse_Identifier)
@@ -1165,14 +1156,12 @@ class RecursiveDescentParser:
                 raise ParseError.hl_error(tok, msg, self)
 
         node._token = tok
-        print(ast.dump(node))
         self._skip_all_whitespace()
         return node
 
     def _parse_List(self) -> List:
         '''
         '''
-        print('_parse_List')
         self._expr_stack.append(List)
         msg = "_parse_List() called at the wrong time"
         start = self._match(TokKind.L_BRACKET, msg)
@@ -1186,7 +1175,6 @@ class RecursiveDescentParser:
     def _parse_RepeatedExpr(self) -> RepeatedExpr:
         '''
         '''
-        print('_parse_RepeatedExpr')
         start = self.prev_tok
         exprs = []
         while True:
@@ -1205,11 +1193,9 @@ class RecursiveDescentParser:
     def _parse_Dict(self) -> Dict:
         '''
         '''
-        print('_parse_Dict')
         self._expr_stack.append(Dict)
         msg = "_parse_Dict() called at the wrong time",
         start = self._match(TokKind.L_CURLY_BRACE, msg)
-        print(start)
         keys, vals = (yield self._parse_RepeatedKVP)
         self._match(TokKind.R_CURLY_BRACE)
         node = Dict(keys, vals)
@@ -1220,11 +1206,9 @@ class RecursiveDescentParser:
     def _parse_RepeatedKVP(self) -> RepeatedKVP:
         '''
         '''
-        print('_parse_RepeatedKVP')
         start = self.prev_tok
         keys = []
         vals = []
-        print(self.lookahead)
         while True:
             self._skip_all_whitespace()
             if self.lookahead.kind is TokKind.EOF:
@@ -1233,10 +1217,8 @@ class RecursiveDescentParser:
             if self.lookahead.kind is TokKind.R_CURLY_BRACE:
                 break
             pair = (yield self._parse_KVPair)
-            print(f"{pair = }")
             self._parse_Delimiter()
             key, val = pair
-            print(ast.dump(val))
 
             if key not in keys:
                 keys.append(key)
@@ -1252,9 +1234,7 @@ class RecursiveDescentParser:
     def _parse_KVPair(self) -> KVPair:
         '''
         '''
-        print('_parse_KVPair')
         target = (yield self._parse_Identifier)
-        print(ast.dump(target))
         self._parse_MaybeEQ()
         value = (yield self._parse_Expr)
         # Disallow assigning identifiers:
@@ -1298,7 +1278,7 @@ class RecursiveDescentParser:
         '''
         tree = self.parse()
         unparsed = Unparser().unparse(tree)
-        print(unparsed)
+        # print(unparsed)
         return unparsed
 
 
