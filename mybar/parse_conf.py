@@ -1248,7 +1248,7 @@ class RecursiveDescentParser:
         Parse a config file and return its data as a :class:`dict`.
         '''
         tree = self.parse()
-        unparsed = Unparser().unparse(tree)
+        unparsed = Compiler().unparse(tree)
         # print(unparsed)
         return unparsed
 
@@ -1288,14 +1288,16 @@ class FileParser(RecursiveDescentParser):
 class PyParser:
     '''
     Convert Python config data to ASTs.
+    Effectively do the job of `ast.unparse()`.
     '''
 
     ELEMS_ARE_FIELD_NAMES = ('field_order',)
 
     @classmethod
-    def parse(cls, data: Mapping | list[dict[str]]) -> Module:
+    def parse(cls, data: Mapping) -> Module:
         '''
         Convert a root-level config dict to a Module AST.
+        Effectively do the job of `ast.unparse()`.
 
         :param data: The dict to convert
         :type data: :class:`Mapping`
@@ -1324,7 +1326,7 @@ class PyParser:
         :type data: :class:`Mapping`
         '''
         tree = cls.parse(data)
-        text = ConfigFileMaker().stringify(tree)
+        text = Unparser().stringify(tree)
         return text
 
     @classmethod
@@ -1485,22 +1487,22 @@ class PyParser:
             return node
 
 
-class Unparser(NodeVisitor):
+class Compiler(NodeVisitor):
     '''
-    Convert ASTs to Python data structures.
+    Compile ASTs to Python data structures.
     '''
     _EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
 
-    def unparse(self, node: AST) -> PythonData:
+    def compile(self, node: AST) -> PythonData:
         '''
-        Unparse an AST, converting it to an equivalent Python data
+        Compile an AST, converting it to an equivalent Python data
         structure.
         '''
         return self.visit(node)
 
-    def visit(self, node: AST):
+    def visit(self, node: AST) -> PythonData:
         '''
-        Use a stack to overcome the Python recursion limit.
+        Use a stack and generators to overcome Python's recursion limit.
         Credit to Dave Beazley (2014).
         '''
         stack = [self.genvisit(node)]
@@ -1515,9 +1517,9 @@ class Unparser(NodeVisitor):
                 result = e.value
         return result
 
-    def genvisit(self, node: AST):
+    def genvisit(self, node: AST) -> PythonData:
         '''
-        Use generators to overcome the Python recursion limit.
+        Use generators to overcome Python's recursion limit.
         Credit to Dave Beazley (2014).
         '''
         name = 'visit_' + type(node).__name__
@@ -1680,9 +1682,9 @@ class Unparser(NodeVisitor):
         return node.id
 
 
-class ConfigFileMaker(NodeVisitor):
+class Unparser(NodeVisitor):
     '''
-    Convert ASTs to string representations with config file syntax.
+    Convert ASTs to string representations using config file syntax.
     '''
     def __init__(self) -> None:
         self._indent = 4 * ' '
@@ -1702,8 +1704,9 @@ class ConfigFileMaker(NodeVisitor):
         :param tree: The ASTs to be converted to strings
         :type tree: :class:`Iterable`[:class:`AST`] | :class:`Module`
 
-        :param sep: The separator to use between tree nodes,
-            defaults to ``'\n\n'``
+        :param sep: The separator to use between tree nodes, defaults to
+            ``'\\n\\n'``
+
         :type sep: :class:`str`
         '''
         if isinstance(tree, Module):
@@ -1713,7 +1716,7 @@ class ConfigFileMaker(NodeVisitor):
 
     def visit(self, node: AST):
         '''
-        Use a stack to overcome the Python recursion limit.
+        Use a stack and generators to overcome Python's recursion limit.
         Credit to Dave Beazley (2014).
         '''
         stack = [self.genvisit(node)]
@@ -1730,7 +1733,7 @@ class ConfigFileMaker(NodeVisitor):
 
     def genvisit(self, node: AST):
         '''
-        Use generators to overcome the Python recursion limit.
+        Use generators to overcome Python's recursion limit.
         Credit to Dave Beazley (2014).
         '''
         name = 'visit_' + type(node).__name__
@@ -1825,7 +1828,7 @@ def ast_to_data(node: AST) -> PythonData:
     :param node: The AST to convert
     :type node: :class:`AST`
     '''
-    return Unparser().unparse(node)
+    return Compiler().unparse(node)
 
 
 def data_to_text(data: PythonData) -> FileContents:
@@ -1846,7 +1849,7 @@ def text_to_data(contents: FileContents) -> PythonData:
     :type contents: :class:`FileContents`
     '''
     module = RecursiveDescentParser(string=contents).parse()
-    return Unparser().unparse(module)
+    return Compiler().unparse(module)
 
 
 def convert_file(file: PathLike = None) -> PythonData:
@@ -1860,5 +1863,5 @@ def convert_file(file: PathLike = None) -> PythonData:
         file = CONFIG_FILE
     absolute = os.path.abspath(os.path.expanduser(file))
     module = FileParser(absolute).parse()
-    return Unparser().unparse(module)
+    return Compiler().unparse(module)
 
