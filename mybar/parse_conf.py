@@ -1248,9 +1248,9 @@ class RecursiveDescentParser:
         Parse a config file and return its data as a :class:`dict`.
         '''
         tree = self.parse()
-        unparsed = Compiler().unparse(tree)
-        # print(unparsed)
-        return unparsed
+        compiled = Compiler().compile(tree)
+        # print(compiled)
+        return compiled
 
 
 class FileParser(RecursiveDescentParser):
@@ -1828,7 +1828,7 @@ def ast_to_data(node: AST) -> PythonData:
     :param node: The AST to convert
     :type node: :class:`AST`
     '''
-    return Compiler().unparse(node)
+    return Compiler().compile(node)
 
 
 def data_to_text(data: PythonData) -> FileContents:
@@ -1849,7 +1849,7 @@ def text_to_data(contents: FileContents) -> PythonData:
     :type contents: :class:`FileContents`
     '''
     module = RecursiveDescentParser(string=contents).parse()
-    return Compiler().unparse(module)
+    return Compiler().compile(module)
 
 
 def convert_file(file: PathLike = None) -> PythonData:
@@ -1863,5 +1863,5 @@ def convert_file(file: PathLike = None) -> PythonData:
         file = CONFIG_FILE
     absolute = os.path.abspath(os.path.expanduser(file))
     module = FileParser(absolute).parse()
-    return Compiler().unparse(module)
+    return Compiler().compile(module)
 
