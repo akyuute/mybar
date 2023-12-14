@@ -13,6 +13,8 @@ import threading
 import time
 from copy import deepcopy
 
+import scuff
+
 from .constants import (
     CLEAR_LINE,
     CONFIG_FILE,
@@ -24,7 +26,6 @@ from .constants import (
 
 from . import cli
 from . import field_funcs
-from . import parse_conf
 from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor
@@ -299,7 +300,7 @@ class BarConfig(dict):
             ]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
-        p = parse_conf.FileParser(file=absolute)
+        p = scuff.FileParser(file=absolute)
         data = p.to_dict()
         text = p._string
         return data, text
@@ -334,7 +335,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = parse_conf.data_to_text(unpythoned)
+        text = scuff.data_to_text(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 
