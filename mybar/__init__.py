@@ -9,14 +9,14 @@ mybar
 written in Python.
 
 
-:copyright: (c) 2021-present by akyuute.
+:copyright: (c) 2021-present akyuute.
 :license: MIT, see LICENSE for more details.
 """
 
 __title__ = 'mybar'
 __description__ = "Craft highly customizable status bars with ease."
 __url__ = "https://github.com/akyuute/mybar"
-__version__ = '0.10.1'
+__version__ = '0.10.2'
 __author__ = "akyuute"
 __license__ = 'MIT'
 __copyright__ = "Copyright (c) 2021-present akyuute"
