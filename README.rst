@@ -33,7 +33,7 @@ Install mybar
 
 **mybar** supports Python 3.12+.
 
-It can be installed from the `Python Package Index`:
+It can be installed from the `Python Package Index <https://pypi.org/project/mybar/>`_:
 
 .. code:: bash
 
