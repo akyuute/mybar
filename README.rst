@@ -5,7 +5,10 @@ mybar
 *Craft highly customizable status bars with ease.*
 
 
-`mybar Documentation <https://mybar.readthedocs.io>`_
+Documentation
+==============
+
+Find all of **mybar**'s documentation `here <https://mybar.readthedocs.io>`_.
 
 
 
@@ -18,7 +21,7 @@ status bars.
 It aims to aid users in creating custom status bars with intuitive
 controls that allow for the customization of every element.
 
-::
+.. code:: bash
 
    $ python -m mybar --template '{uptime} [{cpu_usage}/{cpu_temp}] | {battery}'
    Up 4d:14h:19m [CPU 03%/36C] | Bat 100CHG
@@ -28,9 +31,11 @@ controls that allow for the customization of every element.
 Install mybar
 ==============
 
-**mybar** supports Python 3.11+.
+**mybar** supports Python 3.12+.
 
-It can be installed from the `Python Package Index`::
+It can be installed from the `Python Package Index`:
+
+.. code:: bash
 
    $ python -m pip install mybar
 
@@ -40,11 +45,16 @@ Use mybar in the command line
 ==============================
 
 By default, **mybar** looks at config files to load its options.
+**mybar** uses the `Scuff <https://github.com/akyuute/scuff>`_
+language to process data from and write config files.
 
-Running the **mybar** command line tool using your default config file is as simple as::
+The default config file location is ``~/.config/mybar/mybar.conf``
+
+Running the **mybar** command line tool using your default config file is as simple as:
+
+.. code:: bash
 
    $ python -m mybar
-
 
 The first time you run **mybar**, it will check if you have a config file in the default location::
 
@@ -140,6 +150,7 @@ Let's see some examples of how to use **mybar** from the command line.
    $ python -m mybar -c ~/.config/mybar/my_other_config_file.conf
 
 
+
 Use mybar in a Python project
 ==============================
 
@@ -202,7 +213,8 @@ Append new Fields to your Bar, as if it were a list:
 
 
 To customize **mybar** to your liking without using the `Python API`,
-you can use config files or command line arguments.
+you can use `config file options <https://mybar.readthedocs.io/en/latest/configuration.html>`_
+or `command line arguments <https://mybar.readthedocs.io/en/latest/cli.html>`_.
 
 
 

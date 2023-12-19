@@ -84,18 +84,6 @@ Classes for parsing, structuring and manipulating text.
    :exclude-members: __init__, conversions_to_secs
 
 
-Config File Parsing
---------------------
-**mybar** uses a custom lexer and syntax parser to gather, manipulate and
-interpret data from config files.
-
-.. automodule:: mybar.parse_conf
-   :show-inheritance:
-   :members:
-   :undoc-members:
-   :exclude-members: __init__
-
-
 Utilities
 ----------
 A miscellany of utility functions.
