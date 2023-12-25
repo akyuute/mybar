@@ -301,7 +301,7 @@ class BarConfig(dict):
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         p = scuff.FileParser(file=absolute)
-        data = p.to_dict()
+        data = p.to_py()
         text = p._string
         return data, text
 
@@ -335,7 +335,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = scuff.data_to_text(unpythoned)
+        text = scuff.py_to_scuff(unpythoned)
         with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 
