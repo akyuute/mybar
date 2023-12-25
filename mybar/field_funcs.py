@@ -21,9 +21,6 @@ from asyncio import subprocess as aiosp
 from datetime import datetime
 from string import Formatter
 
-# if not embedded system:
-import psutil
-
 from .errors import *
 from .formatting import ElapsedTime, ConditionalFormatStr, format_uptime
 from .utils import join_options
@@ -36,6 +33,18 @@ from ._types import (
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias, NamedTuple, Any
 from enum import Enum
+
+
+# Check if all field functions will work:
+try:
+    os.stat('/proc/stat')
+except PermissionError:
+    raise CompatibilityWarning(
+        "Field functions which require access to procfs will break"
+        " on this system."
+    )
+else:
+    import psutil
 
 
 POWERS_OF_1024 = {
