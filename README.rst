@@ -1,5 +1,11 @@
 .. image:: ./logo.png
    :align: center
+   :alt: Logo
+
+.. image:: https://readthedocs.org/projects/mybar/badge/?version=latest
+    :target: https://mybar.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
+
 
 
 ######
