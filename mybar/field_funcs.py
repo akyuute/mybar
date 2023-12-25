@@ -268,6 +268,14 @@ async def get_disk_usage(
     return usage
 
 
+HostOption = Literal[
+    'nodename',
+    'sysname',
+    'release',
+    'version',
+    'machine',
+]
+
 def get_host(
     fmt: FormatStr = "{nodename}",
     *args, **kwargs
@@ -286,7 +294,7 @@ def get_host(
         Defaults to ``"{nodename}"``
     :type fmt: :class:`_types.FormatStr`
     '''
-    keys = ('sysname', 'nodename', 'release', 'version', 'machine')
+    keys = HostOption.__args__
     host = fmt.format_map(dict(zip(keys, os.uname())))
     return host
 
