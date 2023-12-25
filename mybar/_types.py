@@ -4,31 +4,42 @@ __all__ = (
     'ASCII_Separator',
     'Args',
     'AssignmentOption',
-    'ColorEscaping',
+    'Bar',
+    'BarConfig',
+    # 'BatteryStates',
+    # 'ColorEscaping',
     'ConsoleControlCode',
     'Contents',
+    # 'Context',
     'Duration',
     'Field',
+    'FieldFuncSetup[**P]',
+    'FieldFunc[**P]',
+    'FieldName',
     'FieldName',
     'FieldOrder',
     'FieldPrecursor',
     'FileContents',
     'FormatStr',
+    'FormatterFieldSig',
     'FormatterConversion',
     'FormatterFname',
     'FormatterFormatSpec',
     'FormatterLiteral',
+    'HostOption',
     'Icon',
     'JSONText',
     'Kwargs',
     'Line',
-    'NmConnFilterSpec',
+    'MetricSymbol',
     'NmConnIDSpecifier',
+    'NmConnFilterSpec',
     'OptName',
     'OptSpec',
     'Pattern',
     'PythonData',
     'Separator',
+    'StorageMeasure',
     'Unicode_Icon',
     'Unicode_Separator',
 
@@ -41,87 +52,13 @@ from os import PathLike
 from re import Pattern as re_Pattern
 from typing import (
     Any,
+    Callable,
     Literal,
     NamedTuple,
-    ParamSpec,
     Required,
-    Self,
-    TypeAlias,
     TypedDict,
-    TypeVar
 )
 
-
-Field = TypeVar('Field')
-FieldPrecursor = TypeVar('FieldPrecursor')
-Bar = TypeVar('Bar')
-P = ParamSpec('P')
-
-
-Args: TypeAlias = list
-Kwargs: TypeAlias = dict
-
-# Used by Bar and BarConfigSpec:
-Separator: TypeAlias = str
-Unicode_Separator: TypeAlias = str
-ASCII_Separator: TypeAlias = str
-Line: TypeAlias = str
-ConsoleControlCode: TypeAlias = str
-JSONText: TypeAlias = str
-FileContents: TypeAlias = str
-PythonData: TypeAlias = object
-
-# Used by Field and Bar:
-Contents: TypeAlias = str
-FieldName: TypeAlias = str
-FieldOrder: TypeAlias = tuple[FieldName]
-FormatStr: TypeAlias = str
-Icon: TypeAlias = str
-Pattern: TypeAlias = str
-Unicode_Icon: TypeAlias = str
-ASCII_Icon: TypeAlias = str
-
-FormatterLiteral: TypeAlias = str | None
-'''The `literal_text` part of one tuple in the iterable returned
-by :func:`string.Formatter.parse()`.
-'''
-
-FormatterFname: TypeAlias = str | None
-'''The `field_name` part of one tuple in the iterable returned
-by :func:`string.Formatter.parse()`.
-'''
-
-FormatterFormatSpec: TypeAlias = str | None
-'''The `format_spec` part of one tuple in the iterable returned
-by :func:`string.Formatter.parse()`.
-'''
-
-FormatterConversion: TypeAlias = str | None
-'''The `conversion` part of one tuple in the iterable returned
-by :func:`string.Formatter.parse()`.
-'''
-
-
-# Used by cli.OptionsAsker:
-OptName: TypeAlias = str
-OptSpec: TypeAlias = dict[OptName, Any]
-AssignmentOption: TypeAlias = re_Pattern[r'(?P<key>\w+)=(?P<val>.*)']
-
-
-# Used by field_funcs:
-class Context(NamedTuple):
-    contents: str = None
-    state: Any = None
-
-class BatteryStates(Enum):
-    CHARGING = 'charging'
-    DISCHARGING = 'discharging'
-    # Progressive/dynamic battery icons!
-        # 
-        # 
-        # 
-        # 
-        # 
 
 POWERS_OF_1024 = {
     'K': 1024**1,
@@ -131,9 +68,17 @@ POWERS_OF_1024 = {
     'P': 1024**5,
 }
 
-MetricSymbol = Literal[*POWERS_OF_1024.keys()]
-DiskMeasure = Literal['total', 'used', 'free', 'percent']
-Duration: TypeAlias = Literal[
+
+type ASCII_Icon = str
+type ASCII_Separator = str
+type Args = list
+type AssignmentOption = re_Pattern[r'(?P<key>\w+)=(?P<val>.*)']
+type Bar = 'Bar'
+type BarConfig = 'BarConfig'
+type ConsoleControlCode = str
+type Contents = str
+
+type Duration = Literal[
     'secs',
     'mins',
     'hours',
@@ -144,7 +89,56 @@ Duration: TypeAlias = Literal[
 ]
 '''Possible names for units of elapsed time.'''
 
-NmConnIDSpecifier: TypeAlias = Literal['id', 'uuid', 'path', 'apath']
+type Field = 'Field'
+type FieldFuncSetup[**P] = Callable[P, P.kwargs]
+type FieldFunc[**P] = Callable[P, str]
+type FieldName = str
+type FieldName = str
+type FieldOrder = tuple[FieldName]
+type FieldPrecursor = FieldName | Field | FormatterFieldSig
+type FileContents = str
+type FormatStr = str
+type FormatterFieldSig = 'FormatterFieldSig'
+
+type FormatterConversion = str | None
+'''
+The `conversion` part of one tuple in the iterable returned
+by :func:`string.Formatter.parse()`.
+'''
+
+type FormatterFname = str | None
+'''
+The `field_name` part of one tuple in the iterable returned
+by :func:`string.Formatter.parse()`.
+'''
+
+type FormatterFormatSpec = str | None
+'''
+The `format_spec` part of one tuple in the iterable returned
+by :func:`string.Formatter.parse()`.
+'''
+
+type FormatterLiteral = str | None
+'''
+The `literal_text` part of one tuple in the iterable returned
+by :func:`string.Formatter.parse()`.
+'''
+
+type HostOption = Literal[
+    'nodename',
+    'sysname',
+    'release',
+    'version',
+    'machine',
+]
+
+type Icon = str
+type JSONText = str
+type Kwargs = dict
+type Line = str
+type MetricSymbol = Literal[*POWERS_OF_1024.keys()]
+
+type NmConnIDSpecifier = Literal['id', 'uuid', 'path', 'apath']
 '''
 One of several keywords NetworkManager provides to narrow down
 connection results. From the ``nmcli`` man page:
@@ -169,14 +163,49 @@ connection results. From the ``nmcli`` man page:
        /org/freedesktop/NetworkManager/ActiveConnection/num or just num.
 '''
 
-NmConnFilterSpec: TypeAlias = dict[NmConnIDSpecifier, str]
+type NmConnFilterSpec = Mapping[NmConnIDSpecifier, str]
 '''
-A dict passed to :func:`mybar.field_funcs.get_net_stats` to filter
+A mapping passed to :func:`mybar.field_funcs.get_net_stats` to filter
 multiple connections.
 '''
 
+type OptName = str
+type OptSpec = dict[OptName, Any]
+type Pattern = str
+type PythonData = object
+type Separator = str
+type StorageMeasure = Literal['total', 'used', 'free', 'percent']
+type Unicode_Icon = str
+type Unicode_Separator = str
+
+
+# Used in the future by field_funcs:
+class Context(NamedTuple):
+    '''
+    For future use.
+    '''
+    contents: str = None
+    state: Any = None
+
+
+class BatteryStates(Enum):
+    '''
+    For future use.
+    '''
+    CHARGING = 'charging'
+    DISCHARGING = 'discharging'
+    # Progressive/dynamic battery icons!
+        # 
+        # 
+        # 
+        # 
+        # 
+
 
 class ColorEscaping(Enum):
+    '''
+    For future use.
+    '''
     ANSI = 'ANSI'
     POLYBAR = 'POLYBAR'
 
