@@ -35,9 +35,12 @@ from ._types import (
     Args,
     ASCII_Icon,
     ASCII_Separator,
+    Bar,
+    BarConfig,
     ConsoleControlCode,
     FieldName,
     FieldOrder,
+    FileContents,
     Icon,
     JSONText,
     Kwargs,
@@ -48,18 +51,14 @@ from ._types import (
     Unicode_Separator,
 )
 
-from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from os import PathLike
 from typing import (
     IO,
     NoReturn,
     Required,
     Self,
-    TypeVar
 )
-
-Bar = TypeVar('Bar')
-BarConfig = TypeVar('BarConfig')
 
 
 class BarConfig(dict):
@@ -284,7 +283,7 @@ class BarConfig(dict):
         return False
 
     @staticmethod
-    def _read_file(file: PathLike) -> tuple[BarSpec, str]:
+    def _read_file(file: PathLike) -> tuple[BarSpec, FileContents]:
         '''
         Read a given config file.
         Parse and convert its contents to a dict.
@@ -597,10 +596,6 @@ class Bar:
             unicode = not self.stream.isatty()
         self._unicode = unicode
 
-##        if separator is None:
-##            if template is None:
-##                msg = "A separator is required when `template` is None."
-##                raise IncompatibleArgsError(msg)
         if isinstance(separator, str):
             separator = (separator, separator)
         elif not isinstance(separator, Sequence):
@@ -651,19 +646,17 @@ class Bar:
         self._file = None
         self._config = None
 
-    def __contains__(self, other: FieldPrecursor) -> bool:
+    def __contains__(self, field: FieldPrecursor) -> bool:
         if isinstance(other, str):
-            weak_test = (other in self._field_order)
+            weak_test = (field in self._field_order)
             return weak_test
-
-        elif isinstance(other, Field):
-            less_weak_test = (other.name in self._field_order)
+        elif isinstance(field, Field):
+            less_weak_test = (field.name in self._field_order)
             return less_weak_test
-
         else:
             return False
 
-    def __eq__(self, other: Bar) -> bool:
+    def __eq__(self, other: Self) -> bool:
         if not all(
             getattr(self, attr) == getattr(other, attr)
             for attr in (
@@ -674,15 +667,16 @@ class Bar:
             )
         ):
             return False
-
         if self.template == other.template:
             return True
         return False
 
     def __iter__(self) -> Iterator:
-        return iter(field for field in self._fields.values())
+        # Include duplicates.
+        return iter(self._fields[name] for name in self._field_order)
 
     def __len__(self) -> int:
+        # Include duplicates.
         return len(self._field_order)
 
     def __repr__(self) -> str:
@@ -712,7 +706,7 @@ class Bar:
         *,
         overrides: BarSpec = {},
         ignore_with: Pattern | tuple[Pattern] | None = '//'
-    ) -> Bar:
+    ) -> Self:
         '''
         Return a new :class:`Bar` from a :class:`BarConfig`
         or a dict of :class:`Bar` parameters.
@@ -749,15 +743,14 @@ class Bar:
             a field definition is not of the form
             :class:`namespaces.FieldSpec`
 
-        .. note:: `config` can be a regular :class:`dict`
+        .. note:: `config` can be a regular :class:`Mapping`
             as long as it matches the form of :class:`namespaces.BarSpec`.
 
         '''
-        data = deepcopy(config)
-##        if ignore_with is None:
-##            data = deepcopy(config)
-##        else:
-##            data = utils.scrub_comments(config, ignore_with)
+        if ignore_with is None:
+            data = deepcopy(config)
+        else:
+            data = utils.scrub_comments(config, ignore_with)
         data = utils.nested_update(data, overrides)
         bar_params = utils.nested_update(cls._default_params, data)
 
@@ -869,7 +862,7 @@ class Bar:
             **bar_params
         )
         bar._config = config
-        if isinstance(config, BarConfig):
+        if hasattr(config, 'file'):
             bar._file = config.file
         return bar
 
@@ -878,7 +871,7 @@ class Bar:
         cls,
         file: PathLike = None,
         overrides: BarSpec = {}
-    ) -> Bar:
+    ) -> Self:
         '''
         Generate a new :class:`Bar` by reading a config file.
 
@@ -908,9 +901,6 @@ class Bar:
         '''
         config = BarConfig.from_stdin()
         return cls.from_config(config)
-
-##    @classmethod
-##    def as_generator(cls,
 
     @property
     def clearline_char(self) -> str:
@@ -1017,14 +1007,15 @@ class Bar:
             defaults to ``True``
         :type raise_on_fail: :class:`bool`
 
-        :raises: :exc:`InvalidOutputStreamError` if the stream fails the
-            test and lacks required instance methods
+        :raises: :exc:`InvalidOutputStreamError` if `raise_on_fail` is
+            ``True`` and the stream fails the test and lacks required
+            instance methods
         '''
         io_methods = ('write', 'flush', 'isatty')
-        if not all(hasattr(stream, a) for a in io_methods):
+        if not all(hasattr(stream, m) for m in io_methods):
             if not raise_on_fail:
                 return False
-            io_method_calls = [a + '()' for a in io_methods]
+            io_method_calls = [m + '()' for m in io_methods]
             joined = utils.join_options(io_method_calls, final_sep='and')
             raise InvalidOutputStreamError(
                 f"Output stream {stream!r} needs {joined} methods."
@@ -1034,7 +1025,7 @@ class Bar:
     def _normalize_fields(
         self,
         fields: Iterable[FieldPrecursor],
-    ) -> tuple[FieldOrder, Mapping[FieldName, Field]]:
+    ) -> tuple[FieldOrder, dict[FieldName, Field]]:
         '''
         Convert :class:`Field` precursors to :class:`Field` instances.
 
@@ -1058,51 +1049,32 @@ class Bar:
         names = []
 
         for field in fields:
-            if isinstance(field, Field):
-                new_field = field
-                new_field._bar = self
-
-            elif isinstance(field, str):
-                new_field = Field.from_default(
-                    name=field,
-                    overrides={'bar': self},
-                )
-
-            elif isinstance(field, FormatterFieldSig):
-                if field.name is None:
-                    # Skip sigs that lack fields:
-                    continue
-                new_field = Field.from_default(
-                    name=field.name,
-                    overrides={'bar': self}
-                )
-                new_field._fmtsig = field.as_string()
-
-            else:
-                raise InvalidFieldError(f"Invalid field precursor: {field!r}")
+            match field:
+                case Field():
+                    new_field = field
+                    new_field._bar = self
+                case str(name):
+                    new_field = Field.from_default(
+                        name=field,
+                        overrides={'bar': self},
+                    )
+                case FormatterFieldSig(name=None):
+                        # Skip sigs that lack fields:
+                        continue
+                case FormatterFieldSig():
+                    new_field = Field.from_default(
+                        name=field.name,
+                        overrides={'bar': self}
+                    )
+                    new_field._fmtsig = field.as_string()
+                case _:
+                    msg = f"Invalid field precursor: {field!r}"
+                    raise InvalidFieldError(msg)
 
             normalized[new_field.name] = new_field
             names.append(new_field.name)
 
         return names, normalized
-
-    def line_generator(self) -> Iterator:
-        '''
-        Return a generator yielding status lines.
-        This requires running the Fields in a separate thread,
-        which has yet to be implemented.
-        '''
-        while self._running():
-            if self._timely_fields:
-                self._preload_timely_fields()
-            line = self._make_one_line()
-            yield line
-
-    def current_line(self) -> Line:
-        '''
-        Return the most recently printed line.
-        '''
-        return self._make_one_line()
 
     def run(
         self,
@@ -1423,4 +1395,22 @@ class Bar:
         self._stream.write(beginning + self._make_one_line() + self._endline)
 
         self._stream.flush()
+
+    def line_generator(self) -> Iterator:
+        '''
+        Return a generator yielding status lines.
+        This requires running the Fields in a separate thread,
+        which has yet to be implemented.
+        '''
+        while self._running():
+            if self._timely_fields:
+                self._preload_timely_fields()
+            line = self._make_one_line()
+            yield line
+
+    def current_line(self) -> Line:
+        '''
+        Return the most recently printed line.
+        '''
+        return self._make_one_line()
 
