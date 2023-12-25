@@ -25,9 +25,12 @@ from .errors import *
 from .formatting import ElapsedTime, ConditionalFormatStr, format_uptime
 from .utils import join_options
 from ._types import (
+    POWERS_OF_1024,
     Contents,
     FormatStr,
-    NmConnFilterSpec
+    MetricSymbol,
+    NmConnFilterSpec,
+    StorageMeasure,
 )
 
 from collections.abc import Callable, Iterable
@@ -45,17 +48,6 @@ except PermissionError:
     )
 else:
     import psutil
-
-
-POWERS_OF_1024 = {
-    'K': 1024**1,
-    'M': 1024**2,
-    'G': 1024**3,
-    'T': 1024**4,
-    'P': 1024**5,
-}
-type MetricSymbol = Literal[*POWERS_OF_1024.keys()]
-type StorageMeasure = Literal['total', 'used', 'free', 'percent']
 
 
 async def get_audio_volume(
@@ -267,14 +259,6 @@ async def get_disk_usage(
     usage = fmt.format_map(converted)
     return usage
 
-
-HostOption = Literal[
-    'nodename',
-    'sysname',
-    'release',
-    'version',
-    'machine',
-]
 
 def get_host(
     fmt: FormatStr = "{nodename}",
