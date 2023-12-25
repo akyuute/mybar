@@ -25,7 +25,11 @@ from .namespaces import FieldSpec
 from ._types import (
     Args,
     ASCII_Icon,
+    Bar,
     Contents,
+    Field,
+    FieldFunc,
+    FieldFuncSetup,
     FieldName,
     FormatStr,
     Icon,
@@ -36,16 +40,12 @@ from ._types import (
 from collections.abc import Callable, Sequence
 from typing import (
     NamedTuple,
-    NoReturn,
-    ParamSpec,
+    Never,
     Required,
+    Self,
     TypeAlias,
     TypeVar
 )
-
-Bar_T = TypeVar('Bar')
-Field = TypeVar('Field')
-P = ParamSpec('P')
 
 
 class Field:
@@ -260,7 +260,7 @@ class Field:
         self,
         *,
         name: FieldName = None,
-        func: Callable[P, str] = None,
+        func: FieldFunc = None,
         icon: Icon | Sequence[ASCII_Icon, Unicode_Icon] = '',
         template: FormatStr = None,
         interval: float = 1.0,
@@ -271,10 +271,10 @@ class Field:
         always_show_icon: bool = False,
         run_once: bool = False,
         constant_output: str = None,
-        bar: Bar_T = None,
+        bar: Bar = None,
         args: Args = None,
         kwargs: Kwargs = None,
-        setup: Callable[P, P.kwargs] = None,
+        setup: FieldFuncSetup = None,
         command: str = None,
         script: PathLike = None,
         allow_multiline: bool = False,
@@ -291,15 +291,16 @@ class Field:
                 name = command.split(None, 1)[0]
 
         if constant_output is None:
-            #NOTE: This will change when dynamic icons and templates are implemented.
+            #NOTE: This will change when dynamic icons and templates are
+            # implemented.
             if func is None:
                 raise IncompatibleArgsError(
-                    f"Either a function that returns a string or "
-                    f"a constant output string is required."
+                    f"Either a function `func` that returns a string or "
+                    f"a `constant_output` string is required."
                 )
             if not callable(func):
                 raise TypeError(
-                    f"Type of 'func' must be callable, not {type(func)}"
+                    f"Type of `func` must be callable, not {type(func)}"
                 )
 
         if name is None and callable(func):
@@ -359,7 +360,7 @@ class Field:
         # attrs = utils.join_options(...)
         return f"{cls}({name=})"
 
-    def __eq__(self, other: Field) -> bool:
+    def __eq__(self, other: Self) -> bool:
         if not all(
             getattr(self, attr) == getattr(other, attr)
             for attr in (
@@ -385,13 +386,13 @@ class Field:
 
     @classmethod
     def from_default(
-        cls: Field,
+        cls: Self,
         name: str,
         *,
         overrides: FieldSpec = {},
         source: dict[FieldName, FieldSpec] = None,
         fmt_sig: FormatStr = None
-    ) -> Field:
+    ) -> Self:
         '''Quickly get a default Field and customize its parameters.
 
         :param name: Name of the default :class:`Field` to access or customize
@@ -429,7 +430,7 @@ class Field:
         return field
 
     @classmethod
-    def from_format_string(cls, fmt: FormatStr) -> Field:
+    def from_format_string(cls, fmt: FormatStr) -> Self:
         '''
         Get a :class:`Field` from a curly-brace field in a format string.
 
@@ -480,7 +481,7 @@ class Field:
         icon: str,
         template: FormatStr = None,
         always_show_icon: bool = False
-    ) -> str:
+    ) -> Contents:
         '''A helper function that formats field contents.'''
         if template is None:
             if always_show_icon or text:
@@ -490,7 +491,7 @@ class Field:
         else:
             return template.format(text, icon=icon)
 
-    def _auto_format(self, text: str) -> 'Contents':
+    def _auto_format(self, text: str) -> Contents:
         '''Non-staticmethod _format_contents...'''
         if self.template is None:
             if self.always_show_icon or text:
@@ -500,12 +501,11 @@ class Field:
         else:
             return self.template.format(text, icon=self.icon)
 
-    def as_generator(self, once: bool = False) :
-        yield self._func
-
     def _do_setup(self, args: Args = None, kwargs: Kwargs = None) -> None:
-        # Use the pre-defined _setupfunc() to gather constant variables
-        # for func() which might only be evaluated at runtime:
+        '''
+        Use the pre-defined _setupfunc() to gather constant variables
+        for func() which might only be evaluated at runtime.
+        '''
         if self._setupfunc is None:
             return
 
@@ -533,39 +533,36 @@ class Field:
         # return setupvars
         kwargs['setupvars'] = setupvars
 
-
-##    # For threaded fields, still run continuously!!!
-
-    def sync_run(self, once: bool = None) -> 'Contents':
+    def sync_run(self, once: bool = None) -> Contents:
         # Do not run fields which have a constant output;
         # only set their bar buffer.
         if self.constant_output is not None:
             return self._auto_format(self.constant_output)
-
         if self.is_async:
-            result = asyncio.get_event_loop().run_until_complete(self._func(*self.args, **self.kwargs))
+            result = asyncio.get_event_loop().run_until_complete(
+                self._func(*self.args, **self.kwargs)
+            )
         else:
             result = self._func(*self.args, **self.kwargs)
         contents = self._auto_format(result)
-
         return contents
 
-    def gen_run(self, once: bool = None) -> 'Contents':
+    def gen_run(self, once: bool = None) -> Contents:
         # Do not run fields which have a constant output;
         # only set their bar buffer.
         if self.constant_output is not None:
             return self._auto_format(self.constant_output)
-
         while True:
             if self.is_async:
                 result = self._func(*self.args, **self.kwargs)
             else:
-                result = asyncio.get_event_loop().run_until_complete(self._func(*self.args, **self.kwargs))
+                result = asyncio.get_event_loop().run_until_complete(
+                    self._func(*self.args, **self.kwargs)
+                )
             contents = self._auto_format(result)
-
             yield contents
 
-    async def run(self, bar: Bar_T, once: bool) -> None:
+    async def run(self, bar: Bar, once: bool) -> None:
         '''
         Run an async :class:`Field` callback and send its output to a
         status bar.
@@ -684,20 +681,20 @@ class Field:
 
             bar._buffers[self.name] = contents
 
-            # Send new field contents to the bar's override queue and print a
-            # new line between refresh cycles.
+            # Send new field contents to the bar's override queue and
+            # print a new line between refresh cycles.
             if self.overrides_refresh:
                 try:
                     bar._override_queue.put_nowait((self.name, contents))
 
                 except asyncio.QueueFull:
-                    # Since the bar buffer was just updated, do nothing if the
-                    # queue is full. The update may still show while the queue
-                    # handles the current override.
-                    # If not, the line will update at the next refresh cycle.
+                    # Since the bar buffer was just updated, do nothing
+                    # if the queue is full. The update may still show
+                    # while the queue handles the current override. If
+                    # not, the line will update at the next refresh cycle.
                     pass
 
-    def run_threaded(self, bar: Bar_T, once: bool) -> None:
+    def run_threaded(self, bar: Bar, once: bool) -> None:
         '''
         Run a blocking :class:`Field` func and send its output to a
         status bar.
@@ -780,7 +777,7 @@ class Field:
         if self.run_once or once:
             local_loop.stop()
             local_loop.close()
-            bar._threads.pop(self.name)  # Eventually, id(self)
+            bar._threads.pop(self.name)  #NOTE: Eventually, id(self)
             return
 
         step = bar._thread_cooldown
@@ -864,12 +861,11 @@ class Field:
                     bar._override_queue._loop.call_soon_threadsafe(
                         bar._override_queue.put_nowait, (self.name, contents)
                     )
-
                 except asyncio.QueueFull:
-                    # Since the bar buffer was just updated, do nothing if the
-                    # queue is full. The update may still show while the queue
-                    # handles the current override.
-                    # If not, the line will update at the next refresh cycle.
+                    # Since the bar buffer was just updated, do nothing
+                    # if the queue is full. The update may still show
+                    # while the queue handles the current override. If
+                    # not, the line will update at the next refresh cycle.
                     pass
 
         local_loop.stop()
@@ -877,9 +873,9 @@ class Field:
 
     @staticmethod
     def _check_bar(
-        bar: Bar_T,
+        bar: Bar,
         raise_on_fail: bool = True
-    ) -> NoReturn | bool:
+    ) -> Never | bool:
         '''
         Check if a bar has the right attributes to use a run() function.
         If these attributes are missing,
@@ -912,7 +908,7 @@ class Field:
             ) from None
         return True
 
-    def make_thread(self, bar: Bar_T, run_once: bool) -> None:
+    def make_thread(self, bar: Bar, run_once: bool) -> None:
         '''
         Return a thread that runs the :class:`Field`'s callback.
 
@@ -930,7 +926,7 @@ class Field:
         return thread
 
 
-FieldPrecursor: TypeAlias = FieldName | Field | FormatterFieldSig
+type FieldPrecursor = FieldName | Field | FormatterFieldSig
 from . import _types
 _types.FieldPrecursor = FieldPrecursor
 
