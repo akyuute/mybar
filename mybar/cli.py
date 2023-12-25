@@ -21,7 +21,7 @@ from ._types import (
     OptSpec,
 )
 
-from typing import Any, Callable, Iterable, NoReturn
+from typing import Any, Callable, Iterable, Never
 
 
 PROG = __package__
@@ -104,7 +104,8 @@ class ArgParser(ArgumentParser):
         '''
         Make dicts from key-value pairs in assignment args.
         Split strings on '=' and convert the resultant keys and values to dicts.
-        ['foo=bar', 'baz=grok'] -> {'foo': 'bar', 'baz': 'grok'}
+
+        ``['foo=bar', 'baz=grok']`` -> ``{'foo': 'bar', 'baz': 'grok'}``
 
         :param opts: The Bar options dict
         :type opts: :class:`BarConfigSpec`
@@ -151,7 +152,7 @@ class ArgParser(ArgumentParser):
         :type options: Iterable[:class:`AssignmentOption`]
 
         :returns: a dict mapping Field names to dicts of options
-        :rtype: :class:`dict`[:class:`FieldName`, :class:`FieldSpec`]
+        :rtype: dict[:class:`FieldName`, :class:`FieldSpec`]
         '''
         field_definitions = {}
         for opt in options:
@@ -386,7 +387,7 @@ class ArgParser(ArgumentParser):
             version=f"{__package__} {__version__}",
         )
 
-    def quit(self, message: str = "Exiting...") -> NoReturn:
+    def quit(self, message: str = "Exiting...") -> Never:
         '''Print a message and exit the program.'''
         self.exit(1, message + '\n')
 
@@ -403,7 +404,7 @@ class OptionsAsker:
     A tool for presenting options and gathering user input.
 
     :param opts: A mapping of options
-    :type opts: :class:`OptSpec`
+    :type opts: :class:`_types.OptSpec`
 
     :param default: The default option name
     :type default: :class:`str`
@@ -456,7 +457,7 @@ class OptionsAsker:
         :type highlight_method: :class:`HighlightMethod`
 
         :returns: A tuple of option names
-        :rtype: :class:`tuple[OptName]`
+        :rtype: tuple[:class:`OptName`]
         '''
         match highlight_method:
             case HighlightMethod.CAPITALIZE:
