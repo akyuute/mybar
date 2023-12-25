@@ -29,16 +29,24 @@ from .formatting import ElapsedTime, ConditionalFormatStr, format_uptime
 from .utils import join_options
 from ._types import (
     Contents,
-    DiskMeasure,
     FormatStr,
-    POWERS_OF_1024,
-    MetricSymbol,
     NmConnFilterSpec
 )
 
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeAlias, NamedTuple, Any
 from enum import Enum
+
+
+POWERS_OF_1024 = {
+    'K': 1024**1,
+    'M': 1024**2,
+    'G': 1024**3,
+    'T': 1024**4,
+    'P': 1024**5,
+}
+type MetricSymbol = Literal[*POWERS_OF_1024.keys()]
+type StorageMeasure = Literal['total', 'used', 'free', 'percent']
 
 
 async def get_audio_volume(
