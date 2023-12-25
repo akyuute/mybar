@@ -116,7 +116,6 @@ class FormatterFieldSig(NamedTuple):
             raise MissingFieldnameError(err)
 
         sig = cls(*field)
-        sig._orig_str = fmt
         return sig
 
     def as_string(
