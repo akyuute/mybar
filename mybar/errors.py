@@ -2,6 +2,7 @@ __all__ = (
     'BrokenFormatStringError',
     'CLIFatalError',
     'CLIUsageError',
+    'CompatibilityWarning',
     'DefaultFieldNotFoundError',
     'FailedSetup',
     'FormatStringError',
@@ -118,3 +119,9 @@ class FailedSetup(Exception):
     def __init__(self, backup: Contents) -> None:
         self.backup = backup
 
+
+class CompatibilityWarning(Warning):
+    '''
+    Raised when certain application features will break if used in an
+    environment without proper support.
+    '''
