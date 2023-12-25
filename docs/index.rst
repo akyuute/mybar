@@ -1,7 +1,16 @@
-.. mybar documentation master file, created by
-   sphinx-quickstart on Mon Dec 26 22:54:57 2022.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+..
+    .. meta::
+       :title: mybar Documentation
+       :description: Documentation for mybar, the one tool for superb status bars.
+       :language: en-US
+       :keywords: mybar, python, status bar
+       :copyright: 2021-present akyuute
+
+
+.. image:: _static/logo.png
+   :align: center
+   :alt: Logo
+
 
 ######
 mybar
