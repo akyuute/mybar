@@ -2,14 +2,14 @@ __all__ = (
     'FormatterFieldSig',
     'FmtStrStructure',
     'ConditionalFormatStr',
-    'ElapsedTime'
+    'ElapsedTime',
+    'format_uptime',
 )
 
 
 from string import Formatter
 
 from .utils import join_options, make_error_message
-
 from ._types import (
     Duration,
     FormatStr,
@@ -20,7 +20,7 @@ from ._types import (
     Duration
 )
 
-from collections.abc import Callable, Container, Hashable, Iterable
+from collections.abc import Callable, Container, Hashable, Iterable, Iterator
 from typing import Any, NamedTuple, NoReturn, Self, TypeAlias
 
 
@@ -40,14 +40,14 @@ class BrokenFormatStringError(FormatStringError):
 class InvalidFormatStringFieldNameError(FormatStringError):
     '''
     Raised when a format string has a field name not allowed or
-    not defined by kwargs in a :meth:`str.format()` call.
+    not defined by kwargs in a :meth:`str.format` call.
     '''
     pass
 
 class InvalidFormatStringFormatSpecError(FormatStringError):
     '''
     Raised when a format string has a field with a format spec
-    incompatible with string values in a :meth:`str.format()` call.
+    incompatible with string values in a :meth:`str.format` call.
     '''
     pass
 
@@ -60,16 +60,16 @@ class FormatterFieldSig(NamedTuple):
     by Formatter().parse().
 
     :param lit: Literal text preceding a replacement field
-    :type lit: :class:`_types.FormatterLiteral`
+    :type lit: :class:`FormatterLiteral`
 
     :param name: The name of such a field, found inside curly braces
-    :type name: :class:`_types.FormatterFname`
+    :type name: :class:`FormatterFname`
 
     :param spec: The field's format spec, found inside curly braces
-    :type spec: :class:`_types.FormatterFormatSpec`
+    :type spec: :class:`FormatterFormatSpec`
 
     :param conv: The field's conversion value, found inside curly braces
-    :type conv: :class:`_types.FormatterConversion`, optional
+    :type conv: :class:`FormatterConversion`, optional
     '''
 
     lit: FormatterLiteral
@@ -88,7 +88,7 @@ class FormatterFieldSig(NamedTuple):
         only process the first one.
 
         :param fmt: The format string to convert
-        :type fmt: :class:`_types.FormatStr`
+        :type fmt: :class:`FormatStr`
         '''
         try:
             parsed = tuple(Formatter().parse(fmt))
@@ -127,16 +127,16 @@ class FormatterFieldSig(NamedTuple):
         '''
         Recreate a format string field from a single field signature.
 
-        :param with_literal: Include the signature's :class:`_types.FormatterLiteral`,
+        :param with_literal: Include the signature's :class:`FormatterLiteral`,
             defaults to ``True``
         :type with_literal: :class:`bool`
 
-        :param with_conv: Include the signature's :class:`_types.FormatterConversion`,
+        :param with_conv: Include the signature's :class:`FormatterConversion`,
             defaults to ``True``
         :type with_conv: :class:`bool`
 
         :returns: The format string represented by the signature
-        :rtype: :class:`_types.FormatStr`
+        :rtype: :class:`FormatStr`
         '''
         if self.name is None:
             # This format string has no fields whatsoever.
@@ -159,7 +159,7 @@ class FormatterFieldSig(NamedTuple):
 class FmtStrStructure(tuple[FormatterFieldSig]):
     '''
     Represents the structure of a whole format string broken up by
-    :meth:`string.Formatter.parse()` into a tuple of
+    :meth:`string.Formatter.parse` into a tuple of
     :class:`FormatterFieldSig`, one for each replacement field.
     '''
     def __repr__(self) -> str:
@@ -202,7 +202,7 @@ class FmtStrStructure(tuple[FormatterFieldSig]):
             Raise :exc:`InvalidFormatStringFieldNameError` for any fields
             with names not in `valid_names`.
             When `valid_names` is ``None``, field names are not checked.
-        :type valid_names: Container[:class:`_types.FormatterFname`]
+        :type valid_names: Container[:class:`FormatterFname`]
 
         :param check_positionals: Ensure each field has a name,
             defaults to ``False``.
@@ -258,7 +258,6 @@ class FmtStrStructure(tuple[FormatterFieldSig]):
                             ,
                         ),
                     )
-
                     raise err from None
 
             if check_specs:
@@ -353,7 +352,7 @@ class ConditionalFormatStr:
     groupings shown blank when the mapping is formatted.
 
     :param fmt: The initial format string
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
 
     :param sep: Surrounds related fields and literal text that should be
         grouped together, defaults to ``":"``
@@ -524,9 +523,216 @@ class ConditionalFormatStr:
         return sep.join(''.join(g) for g in newgroups)
 
 
+class ElapsedTime:
+    '''
+    Represent elapsed time in seconds with a variety of larger units.
+    '''
+    YEARS = 12*4*7*24*60*60
+    MONTHS = 4*7*24*60*60
+    WEEKS = 7*24*60*60
+    DAYS = 24*60*60
+    HOURS = 60*60
+    MINS = 60
+    SECS = 1
 
-Icon: TypeAlias = str
-Contents: TypeAlias = str
+    conversions_to_secs = {
+        'years': YEARS,
+        'months': MONTHS,
+        'weeks': WEEKS,
+        'days': DAYS,
+        'hours': HOURS,
+        'mins': MINS,
+        'secs': SECS,
+        'femtofortnights': 2 * WEEKS * 10**-15  # You can't see this.
+    }
+    '''
+    A mapping of units of elapsed time to their equivalents in seconds.
+    '''
+    class dict(dict):
+        '''
+        Hide the silly unit.
+        '''
+        class SpecialStr(str):
+            def __lt__(self, other) -> bool:
+                '''
+                Intercept sorted() (used by Sphinx).
+                '''
+                return False
+
+        def __init__(self, *args, **kwargs) -> None:
+            if args:
+                args = ({self.SpecialStr(k): v for k, v in args[0].items()},)
+            super().__init__(*args, **kwargs)
+
+        def __iter__(self) -> Iterator:
+            '''
+            Intercept Sphinx.
+            '''
+            import inspect
+            frame = inspect.getouterframes(inspect.currentframe())[1]
+            if frame.function == 'object_description':
+                self.pop('femtofortnights', None)  # Shhh, it's a secret.
+            return super().__iter__()
+
+        def __repr__(self) -> str:
+            return repr(self._safe())
+
+        def _safe(self) -> Self:
+            hide_meme = self.copy()
+            hide_meme.pop('femtofortnights', None)  # Shhh, it's a secret.
+            return hide_meme
+
+    conversions_to_secs = dict(conversions_to_secs)
+
+    @classmethod
+    def in_desired_units(cls,
+        secs: int,
+        units: tuple[Duration]
+    ) -> dict[Duration, int]:
+        '''
+        Convert seconds to multiple units of time.
+
+        The resulting value of the smallest unit in `units` is kept as
+        a :class:`float`.
+        Smaller units overflow into larger units when they meet or exceed
+        the threshold given by
+        :obj:`ElapsedTime.conversions_to_secs[larger_unit]`,
+        but only if a larger unit is present in `units`.
+
+        For example...
+
+        Running ``in_desired_units(12345, ('mins', 'hours'))``
+             yields ``{'hours': 3, 'mins': 25.75}``,
+
+        but ``in_desired_units(12345, ('mins', 'days'))``
+             yields ``{'days': 0, 'mins': 205.75}``,
+
+        and ``in_desired_units(12345, ('hours',))``
+             yields ``{'hours': 3.4291666666666667}``.
+
+        :param secs: Seconds to be converted
+        :type secs: :class:`int`
+
+        :param units: Units to convert
+        :type units: :class:`tuple[Duration]`
+
+        :returns: A mapping of unit names to amount of time in those units
+        :rtype: :class:`dict[Duration, int]`
+        '''
+        if not all(u in cls.conversions_to_secs for u in units):
+            # At least one unit wasn't recognized. Raise an error:
+            valid = cls.conversions_to_secs._safe()
+            exptd = join_options(valid)
+            unrec = join_options(set(units) - set(valid))
+            exc = make_error_message(
+                LookupError,
+                blame=repr(units),
+                expected=f"a sequence of unit names from {exptd}",
+                details=[
+                    f"The following unit names are not recognized:",
+                    f"{unrec}",
+                ]
+            )
+            raise exc
+
+        # Get the units in order of largest first:
+        ordered = tuple(u for u in cls.conversions_to_secs if u in units)
+
+        table = {}
+        if len(ordered) == 1:
+            unit = ordered[0]
+            # Avoid robbing the only unit of its precision. Just divide:
+            table[unit] = secs / cls.conversions_to_secs[unit]
+            return table
+
+        for unit in ordered[:-1]:
+            table[unit], secs = divmod(secs, cls.conversions_to_secs[unit])
+        # Give the least significant unit a precise value:
+        last_u = ordered[-1]
+        table[last_u] = secs / cls.conversions_to_secs[last_u]
+        return table
+
+
+def format_uptime(
+    secs: int,
+    sep: str,
+    namespace: dict[Duration, int],
+    groups: tuple[tuple[FormatterFieldSig]],
+    *args,
+    **kwargs
+) -> str:
+    '''
+    Format a dict of numbers according to a format string by parsing
+    fields delineated by a separator.
+
+    :param secs: Total elapsed time in seconds (unused)
+    :type secs: :class:`int`
+
+    :param sep: A string that separates groups of text based on division
+        of time
+    :type sep: :class:`str`
+
+    :param namespace: A mapping of time unit names to :class:`int`
+    :type namespace: dict[:class:`Unit`, :class:`int`]
+
+    :param groups: A format string broken up by
+        :func:`_setups.setup_uptime` into tuples of
+        :class:`FormatterFieldSig` based on the locations of `separator`
+    :type groups: tuple[tuple[:class:`FormatterFieldSig`]]
+    '''
+    newgroups = []
+    for i, group in enumerate(groups):
+        if not group:
+            # Just an extraneous separator.
+            newgroups.append(())
+            continue
+
+        newgroup = []
+
+        for maybe_field in group:
+            # Skip groups that should appear blank:
+            if (val := namespace.get(maybe_field[1])) is not None and val < 1:
+                break
+
+            buf = ""
+
+            match maybe_field:
+                case [lit, None, None, None]:
+                    # A trailing literal.
+                    buf += lit
+
+                case [lit, field, spec, conv]:
+                    # A veritable format string field!
+                    # Add the text right before the field:
+                    if lit is not None:
+                        buf += lit
+
+                    # Format the value if necessary:
+                    if spec:
+                        buf += format(val, spec)
+                    else:
+                        try:
+                            # Round down by default:
+                            buf += str(int(val))
+                        except TypeError:
+                            buf += str(val)
+
+                case _:
+                    raise ValueError(
+                        f"\n"
+                        f"Invalid structure in tuple\n"
+                        f"  {i} {maybe_field}:\n"
+                        f"  {spam!r}"
+                    )
+
+            if buf:
+                newgroup.append(buf)
+        if newgroup:
+            newgroups.append(newgroup)
+
+    # Join everything.
+    return sep.join(''.join(g) for g in newgroups)
+
 
 ##from typing import NamedTuple
 ### class Context(NamedTuple):
@@ -688,179 +894,4 @@ Contents: TypeAlias = str
 ##                icon = icon_bank[i]
 ##                return icon + " "
 
-
-class ElapsedTime:
-    '''
-    Represent elapsed time in seconds with a variety of larger units.
-    '''
-    conversions_to_secs = {
-        'years': 12*4*7*24*60*60,
-        'months': 4*7*24*60*60,
-        'weeks': 7*24*60*60,
-        'days': 24*60*60,
-        'hours': 60*60,
-        'mins': 60,
-        'secs': 1,
-        'femtofortnights': 14*24*60*60 * 10**-15  # You can't see this.
-    }
-
-    @classmethod
-    def in_desired_units(cls,
-        secs: int,
-        units: tuple[Duration]
-    ) -> dict[Duration, int]:
-        '''
-        Convert seconds to multiple units of time.
-
-        The resulting value of the smallest unit in `units` is kept as
-        a :class:`float`.
-        Smaller units overflow into larger units when they meet or exceed
-        the threshold given by
-        :obj:`ElapsedTime.conversions_to_secs[larger_unit]`,
-        but only if a larger unit is present in `units`.
-
-        For example...
-
-        Running ``in_desired_units(12345, ('mins', 'hours'))``
-             yields ``{'hours': 3, 'mins': 25.75}``,
-
-        but ``in_desired_units(12345, ('mins', 'days'))``
-             yields ``{'days': 0, 'mins': 205.75}``,
-
-        and ``in_desired_units(12345, ('hours',))``
-             yields ``{'hours': 3.4291666666666667}``.
-
-        :param secs: Seconds to be converted
-        :type secs: :class:`int`
-
-        :param units: Units to convert
-        :type units: :class:`tuple[Duration]`
-
-        :returns: A mapping of unit names to amount of time in those units
-        :rtype: :class:`dict[Duration, int]`
-        '''
-        if not all(u in cls.conversions_to_secs for u in units):
-            # At least one unit wasn't recognized. Raise an error:
-            valid = cls.conversions_to_secs._safe()
-            exptd = join_options(valid)
-            unrec = join_options(set(units) - set(valid))
-            exc = make_error_message(
-                LookupError,
-                blame=repr(units),
-                expected=f"a sequence of unit names from {exptd}",
-                details=[
-                    f"The following unit names are not recognized:",
-                    f"{unrec}",
-                ]
-            )
-            raise exc
-
-        # Get the units in order of largest first:
-        ordered = tuple(u for u in cls.conversions_to_secs if u in units)
-
-        table = {}
-        if len(ordered) == 1:
-            unit = ordered[0]
-            # Avoid robbing the only unit of its precision. Just divide:
-            table[unit] = secs / cls.conversions_to_secs[unit]
-            return table
-
-        for unit in ordered[:-1]:
-            table[unit], secs = divmod(secs, cls.conversions_to_secs[unit])
-        # Give the least significant unit a precise value:
-        last_u = ordered[-1]
-        table[last_u] = secs / cls.conversions_to_secs[last_u]
-        return table
-
-    class _Special_Obfuscating_Dict(dict):
-        def _safe(self) -> Self:
-            meme_hidden = self.copy()
-            meme_hidden.pop('femtofortnights')  # Shhh, it's a secret.
-            return meme_hidden
-
-        def __repr__(self) -> str:
-            return repr(self._safe())
-
-    conversions_to_secs = _Special_Obfuscating_Dict(conversions_to_secs)
-
-
-def format_uptime(
-    secs: int,
-    sep: str,
-    namespace: dict[Duration, int],
-    groups: tuple[tuple[FormatterFieldSig]],
-    *args,
-    **kwargs
-) -> str:
-    '''
-    Format a dict of numbers according to a format string by parsing
-    fields delineated by a separator.
-
-    :param secs: Total elapsed time in seconds (unused)
-    :type secs: :class:`int`
-
-    :param sep: A string that separates groups of text based on division
-        of time
-    :type sep: :class:`str`
-
-    :param namespace: A mapping of time unit names to :class:`int`
-    :type namespace: dict[:class:`Unit`, :class:`int`]
-
-    :param groups: A format string broken up by
-        :func:`_setups.setup_uptime` into tuples of
-        :class:`FormatterFieldSig` based on the locations of `separator`
-    :type groups: tuple[tuple[:class:`FormatterFieldSig`]]
-    '''
-    newgroups = []
-    for i, group in enumerate(groups):
-        if not group:
-            # Just an extraneous separator.
-            newgroups.append(())
-            continue
-
-        newgroup = []
-
-        for maybe_field in group:
-            # Skip groups that should appear blank:
-            if (val := namespace.get(maybe_field[1])) is not None and val < 1:
-                break
-
-            buf = ""
-
-            match maybe_field:
-                case [lit, None, None, None]:
-                    # A trailing literal.
-                    buf += lit
-
-                case [lit, field, spec, conv]:
-                    # A veritable format string field!
-                    # Add the text right before the field:
-                    if lit is not None:
-                        buf += lit
-
-                    # Format the value if necessary:
-                    if spec:
-                        buf += format(val, spec)
-                    else:
-                        try:
-                            # Round down by default:
-                            buf += str(int(val))
-                        except TypeError:
-                            buf += str(val)
-
-                case _:
-                    raise ValueError(
-                        f"\n"
-                        f"Invalid structure in tuple\n"
-                        f"  {i} {maybe_field}:\n"
-                        f"  {spam!r}"
-                    )
-
-            if buf:
-                newgroup.append(buf)
-        if newgroup:
-            newgroups.append(newgroup)
-
-    # Join everything.
-    return sep.join(''.join(g) for g in newgroups)
 
