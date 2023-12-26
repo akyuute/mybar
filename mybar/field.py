@@ -57,12 +57,12 @@ class Field:
     :meth:`Field.from_default`.
 
     :param name: A unique identifier for the new Field,
-        defaults to `func.`:attr:`__name__`
+        defaults to `func`.:attr:`__name__`
     :type name: :class:`str`
 
     :param func: The Python function to run at every `interval` if no
         `constant_output` is set
-    :type func: :class:`Callable[[*Args, **Kwargs], str]`
+    :type func: :class:`FieldFunc`
 
     :param icon: The Field icon, positioned in front of Field contents
         or in place of ``{icon}`` in `template`, if provided,
@@ -81,7 +81,7 @@ class Field:
             icon is ``'TEMP'``,
             | ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
 
-    :type template: :class:`_types.FormatStr`
+    :type template: :class:`FormatStr`
 
     :param interval: How often in seconds per update Field contents are
         updated, defaults to ``1.0``
@@ -127,7 +127,7 @@ class Field:
     :param setup: A special callback that updates `kwargs` with static
         data that `func` would otherwise have to evaluate every time it
         runs
-    :type setup: :class:`Callable[P, Kwargs]`, optional
+    :type setup: :class:`FieldFuncSetup`, optional
 
     :param command: A shell command to run
     :type command: :class:`str`
@@ -403,7 +403,7 @@ class Field:
 
         :param source: The :class:`dict` in which to look up default fields,
             defaults to :attr:`Field._default_fields`
-        :type source: dict[:class:`_types.FieldName`, :class:`namespaces.FieldSpec`]
+        :type source: dict[:class:`FieldName`, :class:`namespaces.FieldSpec`]
 
         :returns: A new :class:`Field`
         :rtype: :class:`Field`
@@ -435,7 +435,7 @@ class Field:
         Get a :class:`Field` from a curly-brace field in a format string.
 
         :param template: The format string to convert
-        :type template: :class`_types.FormatStr`
+        :type template: :class`FormatStr`
         '''
         sig = FormatterFieldSig.from_str(fmt)
         field = cls.from_default(sig.name)
@@ -928,5 +928,5 @@ class Field:
 
 type FieldPrecursor = FieldName | Field | FormatterFieldSig
 from . import _types
-_types.FieldPrecursor = FieldPrecursor
+FieldPrecursor = FieldPrecursor
 

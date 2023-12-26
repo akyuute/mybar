@@ -29,7 +29,7 @@ from . import field_funcs
 from . import utils
 from .errors import *
 from .field import Field, FieldPrecursor
-from .formatting import FormatStr, FmtStrStructure, FormatterFieldSig
+from .formatting import FmtStrStructure, FormatterFieldSig
 from .namespaces import BarConfigSpec, BarSpec, FieldSpec, _CmdOptionSpec
 from ._types import (
     Args,
@@ -41,6 +41,7 @@ from ._types import (
     FieldName,
     FieldOrder,
     FileContents,
+    FormatStr,
     Icon,
     JSONText,
     Kwargs,
@@ -295,7 +296,7 @@ class BarConfig(dict):
         :returns: The converted file and its raw text contents
         :rtype: tuple[
             :class:`namespaces.BarSpec`,
-            :class:`_types.FileContents`
+            :class:`FileContents`
             ]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
@@ -350,7 +351,7 @@ class BarConfig(dict):
 
         :returns: The converted file and its raw text
         :rtype: tuple[:class:`namespaces.BarConfigSpec`,
-            :class:`_types.JSONText`]
+            :class:`JSONText`]
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         with open(absolute, 'r') as f:
@@ -452,11 +453,11 @@ class Bar:
 
     :param fields: An iterable of default field names or :class:`Field`
         instances, defaults to ``None``
-    :type fields: :class:`Iterable[_types.FieldPrecursor]`
+    :type fields: Iterable[:class:`FieldPrecursor`]
 
     :param template: A curly-brace format string with field names,
         defaults to ``None``
-    :type template: :class:`_types.FormatStr`
+    :type template: :class:`FormatStr`
 
     :param separator: The field separator string when `fields` is given,
         or a sequence of 2 of these, defaults to ``'|'``
@@ -466,9 +467,9 @@ class Bar:
         support for Unicode is more likely.
         This enables the same :class:`Bar` instance to use the most
         optimal separator automatically.
-    :type separator: :class:`_types.Separator` |
-        Sequence[:class:`_types.ASCII_Separator`,
-        :class:`_types.Unicode_Separator`], optional
+    :type separator: :class:`Separator` |
+        Sequence[:class:`ASCII_Separator`,
+        :class:`Unicode_Separator`], optional
 
     :param refresh: How often in seconds the bar automatically redraws
         itself, defaults to ``1.0``
@@ -722,8 +723,8 @@ class Bar:
         :type overrides: :class:`namespaces.BarSpec`
 
         :param ignore_with: A pattern to ignore, defaults to ``'//'``
-        :type ignore_with: :class:`_types.Pattern` |
-            tuple[:class:`_types.Pattern`] | ``None``, optional
+        :type ignore_with: :class:`Pattern` |
+            tuple[:class:`Pattern`] | ``None``, optional
 
         :returns: A new :class:`Bar`
         :rtype: :class:`Bar`
@@ -924,7 +925,7 @@ class Bar:
     @property
     def in_a_tty(self) -> bool:
         '''
-        True if the bar was run from a terminal, otherwise False.
+        ``True`` if the bar was run from a terminal, otherwise ``False``.
         '''
         if self._stream is None:
             return False
@@ -932,6 +933,9 @@ class Bar:
 
     @property
     def running(self) -> bool:
+        '''
+        ``True`` if the bar is currently running, otherwise ``False``.
+        '''
         return self._running()
 
     @property
@@ -955,7 +959,7 @@ class Bar:
         it will override the new field order.
 
         :param field: The field to append
-        :type field: :class:`_types.FieldPrecursor`
+        :type field: :class:`FieldPrecursor`
 
         :returns: The modified bar
         :rtype: :class:`Bar`
@@ -975,8 +979,8 @@ class Bar:
         it will override the new field order.
         the fields are displayed.
 
-        :param field: The fields to append
-        :type field: :class:`_types.FieldPrecursor`
+        :param fields: The fields to append
+        :type fields: Iterable[:class:`FieldPrecursor`]
 
         :returns: The modified bar
         :rtype: :class:`Bar`
@@ -1035,7 +1039,7 @@ class Bar:
         Return a dict mapping field names to Fields, along with a
         duplicate-preserving list of field names that were found.
 
-        :param fields: An iterable of :class:`_types.FieldPrecursor` to convert
+        :param fields: An iterable of :class:`FieldPrecursor` to convert
         :type fields: :class:`Iterable[FieldPrecursor]`
 
         :returns: The field order and a dict mapping field names to
@@ -1043,7 +1047,7 @@ class Bar:
         :rtype: :class:`tuple[FieldOrder, Mapping[FieldName, Field]]`
 
         :raises: :exc:`errors.InvalidFieldError` when an element
-            of `fields` is not a :class:`_types.FieldPrecursor`
+            of `fields` is not a :class:`FieldPrecursor`
         '''
         normalized = {}
         names = []
@@ -1098,7 +1102,7 @@ class Bar:
         :param bg: (Not fully implemented)
             Run the bar in the background without printing,
             defaults to ``False``
-            This is used for :func:`Bar.line_generator` and for testing.
+            This is used for :meth:`Bar.line_generator` and for testing.
         :type bg: :class:`bool`
 
         :returns: ``None``

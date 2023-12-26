@@ -404,7 +404,7 @@ class OptionsAsker:
     A tool for presenting options and gathering user input.
 
     :param opts: A mapping of options
-    :type opts: :class:`_types.OptSpec`
+    :type opts: :class:`OptSpec`
 
     :param default: The default option name
     :type default: :class:`str`
