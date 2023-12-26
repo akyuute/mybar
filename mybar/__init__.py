@@ -37,10 +37,9 @@ from .bar import Bar, BarConfig
 from .field import Field
 
 from os import PathLike
-from typing import NoReturn
 
 
-def run(*, once: bool = False, file: PathLike = None) -> NoReturn | None:
+def run(*, once: bool = False, file: PathLike = None) -> None:
     '''
     Generate a new :class:`Bar` from a config file and run it in STDOUT.
     Ask to write the file if it doesn't exist.
@@ -74,8 +73,6 @@ def run(*, once: bool = False, file: PathLike = None) -> NoReturn | None:
         print()
         return
 
-del PathLike, NoReturn
-
 
 def write_initial_config() -> None:
     '''
@@ -83,4 +80,6 @@ def write_initial_config() -> None:
     '''
     BarConfig.write_with_approval(CONFIG_FILE)
 
+
+del PathLike
 
