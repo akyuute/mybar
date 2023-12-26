@@ -13,8 +13,8 @@ __all__ = (
     # 'Context',
     'Duration',
     'Field',
-    'FieldFuncSetup[**P]',
-    'FieldFunc[**P]',
+    'FieldFuncSetup',
+    'FieldFunc',
     'FieldName',
     'FieldName',
     'FieldOrder',
@@ -46,17 +46,15 @@ __all__ = (
 )
 
 
-from collections.abc import Callable, Sequence
-from enum import Enum, IntEnum
+from collections.abc import Callable, Mapping
+from enum import Enum
 from os import PathLike
 from re import Pattern as re_Pattern
 from typing import (
     Any,
-    Callable,
     Literal,
     NamedTuple,
     Required,
-    TypedDict,
 )
 
 

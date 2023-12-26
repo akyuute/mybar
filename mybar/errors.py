@@ -19,17 +19,15 @@ __all__ = (
 
 
 from os import PathLike
-
+from typing import Any, IO
 from .formatting import (
-    Contents,
     FormatStringError,
     BrokenFormatStringError,
     InvalidFormatStringFieldNameError,
     InvalidFormatStringFormatSpecError,
     MissingFieldnameError
 )
-
-from typing import Any, IO
+from ._types import Contents
 
 
 class DefaultFieldNotFoundError(LookupError):
