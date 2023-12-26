@@ -21,7 +21,7 @@ from asyncio import subprocess as aiosp
 from datetime import datetime
 from string import Formatter
 
-from .errors import *
+from .errors import InvalidArgError
 from .formatting import ElapsedTime, ConditionalFormatStr, format_uptime
 from .utils import join_options
 from ._types import (
@@ -134,7 +134,7 @@ async def get_battery_info(
             - ``state``: Whether or not the battery is charging
 
         Defaults to ``"{pct:02.0f}{state}"``
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
     '''
     battery = psutil.sensors_battery()
     if not battery:
@@ -158,7 +158,7 @@ def get_cpu_temp(
             - ``scale``: ``'C'`` or ``'F'``, depending on `in_fahrenheit`
 
         Defaults to ``"{temp:02.0f}{scale}"``
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
 
     :param in_fahrenheit: Display the temperature in Fahrenheit instead
         of Celcius, defaults to ``False``
@@ -186,7 +186,7 @@ def get_cpu_usage(
 
     :param fmt: A curly-brace format string with one positional field,
         defaults to ``"{:02.0f}%"``
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
 
     :param interval: Time to block before returning a result.
         Only set this in a threaded :class:`Field`.
@@ -233,14 +233,17 @@ async def get_disk_usage(
                 (``used / total``, a :class:`float`)
 
         Defaults to ``"{free:.1f}{unit}"``
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
 
     :param path: The path to a directory or file on a disk partition,
         defaults to ``'/'``
     :type path: :class:`os.PathLike`
 
-    :param unit: The unit prefix symbol
-    :type unit: :class:`_types.MetricSymbol`
+    :param unit: The unit prefix symbol, defaults to ``'G'``
+    :type unit: :class:`MetricSymbol`
+
+    :raises: :exc:`errors.InvalidArgError`
+        if `unit` is not a valid :class:`MetricSymbol`
     '''
     if unit not in POWERS_OF_1024:
         raise InvalidArgError(
@@ -276,7 +279,7 @@ def get_host(
             - ``machine``: Machine architecture
 
         Defaults to ``"{nodename}"``
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
     '''
     keys = HostOption.__args__
     host = fmt.format_map(dict(zip(keys, os.uname())))
@@ -294,27 +297,36 @@ def get_mem_usage(
     *args, **kwargs
 ) -> Contents:
     '''
-    Disk usage of a partition at a given path.
+    System memory usage.
 
-    :param fmt: A curly-brace format string with\
-        five optional named fields:
+    :param fmt: A curly-brace format string with the following optional\
+        named fields:
             - ``unit``: The same value as `unit`
-            - ``total``: Total disk partition size
-            - ``used``: Used disk space
-            - ``free``: ``total``-``used`` disk space
-            - ``percent``: ``used``/``total`` disk space as a
-                :class:`float`
+            - ``available``: Available memory
+            - ``total``: Total physical memory excluding swap
+            - ``used``: Memory in use
+            - ``percent``: Percent memory usage calculated as\
+                ``(total - available) / total * 100``
 
         Defaults to ``"{free:.1f}{unit}"``
-    :type fmt: :class:`_types.FormatStr`
+        See the `psutil documentation\
+            <https://psutil.readthedocs.io/en/latest/#psutil\
+            .virtual_memory>`_ for all possible optional named fields.
+    :type fmt: :class:`FormatStr`
 
-    :param path: The path to a directory or file on a disk partition,
-        defaults to ``'/'``
-    :type path: :class:`os.PathLike`
+    :param unit: The unit prefix symbol, defaults to ``'G'``
+    :type unit: :class:`MetricSymbol`
 
-    :param unit: The unit prefix symbol
-    :type unit: :class:`_types.MetricSymbol`
+    :raises: :exc:`errors.InvalidArgError`
+        if `unit` is not a valid :class:`MetricSymbol`
     '''
+    if unit not in POWERS_OF_1024:
+        raise InvalidArgError(
+            f"Invalid unit: {unit!r}\n"
+            f"'unit' must be one of "
+            f"{join_options(POWERS_OF_1024)}."
+        )
+
     memory = psutil.virtual_memory()
     factor = POWERS_OF_1024[unit]
     converted = {
@@ -345,13 +357,13 @@ async def get_net_stats(
             - ``device``: The connection device
 
         Defaults to ``"{name}"``
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
 
     :param nm: Use `NetworkManager`, defaults to ``True``
     :type nm: :class:`bool`
 
     :param nm_filt: Filter from active `NetworkManager` connections
-    :type nm_filt: :class:`_types.NmConnFilterSpec`, optional
+    :type nm_filt: :class:`NmConnFilterSpec`, optional
 
     :param default: The string to replace `fmt` fields when there is no active connection.
     :type default: :class:`str`
@@ -455,7 +467,7 @@ async def get_uptime(
         fields: ``secs``, ``mins``, ``hours``, ``days``, ``weeks``,
         ``months``, and ``years``
 
-    :type fmt: :class:`_types.FormatStr`
+    :type fmt: :class:`FormatStr`
 
     :param dynamic: Given `sep`, automatically hide groups of units when
         they are ``0``, defaults to ``True``
