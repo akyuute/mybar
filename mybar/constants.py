@@ -5,13 +5,13 @@ __all__ = (
     'CLEAR_LINE',
     'HIDE_CURSOR',
     'UNHIDE_CURSOR',
-    'FONTAWESOME_ICONS',
-    'USING_FONTAWESOME'
 )
 
 
-from ._types import ConsoleControlCode
+import sys
 import os.path
+
+from ._types import ConsoleControlCode
 
 
 CONFIG_FILE: str = (
@@ -36,17 +36,4 @@ HIDE_CURSOR: ConsoleControlCode = '?25l'
 
 UNHIDE_CURSOR: ConsoleControlCode = '?25h'
 '''VT100 escape code to unhide the cursor.'''
-
-
-FONTAWESOME_ICONS = {
-    'uptime': '',
-    'cpu_usage': '',
-    'cpu_temp': '',
-    'mem_usage': '',
-    'disk_usage': '',
-    'battery': '',
-    'net_stats': '',
-}
-
-USING_FONTAWESOME = False
 
