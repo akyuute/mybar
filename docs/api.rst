@@ -81,7 +81,7 @@ Classes for parsing, structuring and manipulating text.
 .. automodule:: mybar.formatting
    :show-inheritance:
    :members:
-   :exclude-members: __init__, conversions_to_secs
+   :exclude-members: __init__, dict
 
 
 Utilities
