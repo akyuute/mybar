@@ -84,7 +84,10 @@ FieldOrder = NewType('FieldOrder', tuple[FieldName])
 '''
 
 FormatterFieldSig = TypeVar('FormatterFieldSig')
-FieldPrecursor = FieldName | Field | FormatterFieldSig
+FieldPrecursor = NewType(
+    'FieldPrecursor',
+    FieldName | Field | FormatterFieldSig
+)
 '''
 '''
 
