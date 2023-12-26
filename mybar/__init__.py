@@ -32,11 +32,12 @@ __all__ = (
     'write_initial_config'
 )
 
+
+from os import PathLike
+
 from .constants import CONFIG_FILE, DEBUG
 from .bar import Bar, BarConfig
 from .field import Field
-
-from os import PathLike
 
 
 def run(*, once: bool = False, file: PathLike = None) -> None:
