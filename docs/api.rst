@@ -1,4 +1,4 @@
-.. currentmodule:: mybar
+.. module:: mybar
 
 API Reference
 ===============
@@ -108,8 +108,7 @@ Custom Types
 -------------
 A horde of descriptive type aliases and custom data structures.
 
-.. automodule:: mybar._types
-   :show-inheritance:
+.. automodule:: docs._custom_types
    :members:
    :undoc-members:
 
