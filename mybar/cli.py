@@ -12,7 +12,7 @@ from os import PathLike
 from . import __version__
 from .constants import CONFIG_FILE
 from .errors import CLIUsageError
-from .namespaces import BarConfigSpec, _CmdOptionSpec, FieldSpec
+from .namespaces import BarConfigSpec, _CmdOptionSpec, FieldConfigSpec
 from .utils import str_to_bool
 from ._types import (
     AssignmentOption,
@@ -21,7 +21,7 @@ from ._types import (
     OptSpec,
 )
 
-from typing import Any, Callable, Iterable, Never
+from typing import Any, Callable, Iterable, Never, TypeAliasType
 
 
 PROG = __package__
@@ -136,7 +136,7 @@ class ArgParser(ArgumentParser):
     @staticmethod
     def process_field_options(
         options: Iterable[AssignmentOption]
-    ) -> dict[FieldName, FieldSpec]:
+    ) -> dict[FieldName, FieldConfigSpec]:
         '''
         Parse variable assignment args given for Field definitions.
         Each option in `options` should look like 'key=val'.
@@ -152,7 +152,7 @@ class ArgParser(ArgumentParser):
         :type options: Iterable[:class:`AssignmentOption`]
 
         :returns: a dict mapping Field names to dicts of options
-        :rtype: dict[:class:`FieldName`, :class:`FieldSpec`]
+        :rtype: dict[:class:`FieldName`, :class:`FieldConfigSpec`]
         '''
         field_definitions = {}
         for opt in options:
@@ -168,17 +168,18 @@ class ArgParser(ArgumentParser):
                         # Not our problem.
                         continue
 
-                    if val == "''":  # Looks like "key=''"
-                        val = ''
-                    elif not val:  # Looks like 'key='
-                        val = None
-
                     # Looks like 'field.key=val'
                     # An option for a Field.
                     # Handle attribute access through dots:
                     field_name, field_opt = field_and_opt.split('.', 1)
                     if field_name not in field_definitions:
                         field_definitions[field_name] = {}
+
+                    if val in ('""', "''"):
+                        # Looks like "key=''" | 'key=""'
+                        val = ''
+                    elif not val:  # Looks like 'key='
+                        val = None
 
                     maybe_kwargs = field_opt.split('.', 1)
                     match maybe_kwargs:
@@ -199,23 +200,27 @@ class ArgParser(ArgumentParser):
                             pass
                         case _:
                             # Nonsense
-                            msg = (
-                                f"{opt !r} is invalid option syntax."
-                            )
+                            msg = f"{opt !r} is invalid option syntax."
                             raise CLIUsageError(msg)
 
                     field_definitions[field_name].update({field_opt: val})
 
-        # Convert values:
-        type_map = {
-            k: str_to_bool if v is bool
-            else v for k, v
-            in FieldSpec.__annotations__.items()
-        }
+        # Convert values from strings:
+        conversion_map = {}
+        for param, typ in FieldConfigSpec.__annotations__.items():
+            if typ is bool:
+                conversion = str_to_bool
+            elif type(typ) is TypeAliasType:
+                conversion = typ.__value__
+            else:
+                conversion = typ
+            conversion_map[param] = conversion
+
         for field, params in field_definitions.items():
             for k, v in params.items():
-                if k in type_map:
-                    field_definitions[field][k] = type_map[k](v)
+                if k in conversion_map:
+                    field_definitions[field][k] = conversion_map[k](v)
+
         return field_definitions
 
     def add_arguments(self) -> None:
