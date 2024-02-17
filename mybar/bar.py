@@ -144,6 +144,9 @@ class BarConfig(dict):
         from_file = cls._unify_field_defs(from_file)
         options = utils.nested_update(from_file, overrides)
 
+        # Remove invalid API-only parameters:
+        options = cls._remove_unserializable(options)
+
         # Do not mix overrides and defaults for these;
         # get one or the other:
         for opt in ('field_order', 'field_icons'):
@@ -391,16 +394,15 @@ class BarConfig(dict):
         with open(os.path.expanduser(absolute), 'w') as f:
             json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
 
-    @classmethod
+    @staticmethod
     def _remove_unserializable(
-        cls,
         spec: BarConfigSpec,
         *,
         defaults: BarSpec = None
     ) -> BarConfigSpec:
         '''
         Remove Python-specific API elements like functions which cannot
-        be serialized for writing to files.
+        be serialized for writing to config files.
 
         :param spec: The :class:`namespaces.BarConfigSpec` to convert
         :type spec: :class:`namespaces.BarConfigSpec`
@@ -411,26 +413,21 @@ class BarConfig(dict):
         '''
         if defaults is None:
             defaults = Bar._default_params.copy()
+        newspec = spec.copy()
+        newspec.pop('config_file', None)
 
-        newobj = spec.copy()
-        newobj.pop('config_file', None)
-        newobj = defaults | spec
+        fields = newspec.pop('field_definitions', {})
+        # Throw away unneeded Field implementation details:
+        newfields = {}
+        for name, params in fields.items():
+            newfields[name] = {
+                param: val for param, val in params.items()
+                if param not in FieldSpec.unserializable
+            }
+        if newfields:
+            newspec['field_definitions'] = newfields
 
-        fields = newobj.pop('field_definitions', {})
-
-        # Clean the dict of irrelevant Field implementation details:
-        for name, field in fields.items():
-            new = fields[name] = field.copy()
-            for param in ('name', 'func', 'setup'):
-                try:
-                    del new[param]
-                except KeyError:
-                    pass
-
-        if fields:
-            newobj['field_definitions'] = fields
-
-        return newobj
+        return newspec
 
     @classmethod
     def _as_json(cls, spec: BarSpec = {}, indent: int = 4) -> JSONText:

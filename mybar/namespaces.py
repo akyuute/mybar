@@ -62,6 +62,8 @@ class FieldSpec(FieldConfigSpec, total=False):
     setup: Callable[P, P.kwargs]
     bar: Bar
 
+    unserializable = ('func', 'setup', 'bar')
+
 
 class BarSpec(TypedDict, total=False):
     '''
