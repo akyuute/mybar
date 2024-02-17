@@ -261,11 +261,9 @@ def process_nested_dict(
     return nodes, vals
 
 
-_EXPR_PLACEHOLDER = '_EXPR_PLACEHOLDER'
 def nested_update(
     orig: Mapping | Any,
     upd: Mapping,
-    # assign: Any = {}
 ) -> dict:
     '''
     Merge two dicts and properly give them their innermost values.
@@ -275,18 +273,12 @@ def nested_update(
 
     :param upd: A dict that updates `orig`
     :type upd: :class:`dict`
-
-    :param assign: A value that will be stored in the innermost dict,
-        defaults to ``{}`` for continued attribute parsing.
-    :type assign: :class:`Any`
     '''
     if not isinstance(orig, Mapping):
         # Replace the old value with the new:
         return upd
 
     for k, v in upd.items():
-        # if v is _EXPR_PLACEHOLDER:
-            # v = assign
         if isinstance(v, Mapping):
             v = nested_update(orig.get(k, {}), v)
         orig[k] = v
