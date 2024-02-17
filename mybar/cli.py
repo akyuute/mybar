@@ -180,6 +180,10 @@ class ArgParser(ArgumentParser):
                         val = ''
                     elif not val:  # Looks like 'key='
                         val = None
+                    else:
+                        for quote in '\'\"':
+                            if val.startswith(quote) and val.endswith(quote):
+                                val = val.strip(quote)
 
                     maybe_kwargs = field_opt.split('.', 1)
                     match maybe_kwargs:
