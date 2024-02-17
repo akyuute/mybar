@@ -32,13 +32,12 @@ Bar = TypeVar('Bar')
 P = ParamSpec('P')
 
 
-class FieldSpec(TypedDict, total=False):
+class FieldConfigSpec(TypedDict, total=False):
     '''
     A dict specifying the structure of :class:`mybar.Field` constructor
-    parameters.
+    parameters as represented in config files and in the command line.
     '''
     name: FieldName
-    func: Callable[P, str]
     icon: Icon | Sequence[ASCII_Icon, Unicode_Icon]
     template: FormatStr
     interval: float
@@ -48,13 +47,20 @@ class FieldSpec(TypedDict, total=False):
     always_show_icon: bool
     run_once: bool
     constant_output: str
-    bar: Bar
     args: Args
     kwargs: Kwargs
-    setup: Callable[P, P.kwargs]
     command: str
     script: PathLike
     allow_multiline: bool
+
+class FieldSpec(FieldConfigSpec, total=False):
+    '''
+    A dict specifying the structure of :class:`mybar.Field` constructor
+    parameters.
+    '''
+    func: Callable[P, str]
+    setup: Callable[P, P.kwargs]
+    bar: Bar
 
 
 class BarSpec(TypedDict, total=False):

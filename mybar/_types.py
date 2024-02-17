@@ -132,7 +132,7 @@ type HostOption = Literal[
 
 type Icon = str
 type JSONText = str
-type Kwargs = dict
+type Kwargs = dict[str]
 type Line = str
 type MetricSymbol = Literal[*POWERS_OF_1024.keys()]
 
