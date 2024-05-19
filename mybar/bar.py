@@ -182,6 +182,67 @@ class BarConfig(dict):
         return config
 
     @classmethod
+    def from_stdin(
+        cls,
+        write_new_file_dft: bool = True
+    ) -> BarConfig:
+        '''Return a new :class:`BarConfig` using args from STDIN.
+        Prompt the user before writing a new config file if one does
+        not exist.
+
+        :param write_new_file_dft: Write new files by default,
+            defaults to ``True``
+        :type write_new_file_dft: :class:`bool`
+
+        :returns: A new :class:`BarConfig`
+        :rtype: :class:`BarConfig`
+        '''
+        parser = cli.ArgParser()
+        try:
+            bar_options, command_options = parser.parse_args()
+        except CLIUsageError as e:
+            parser.error(e.msg)  # Shows usage
+
+        # Handle options that alter the behavior of the command itself:
+        if command_options:
+            if 'dump_config' in command_options:
+                indent = command_options.pop('dump_config', None)
+                config = cls(bar_options)
+                parser.quit(cls._as_json(config, indent=indent))
+        #TODO: _as_scuff() method!
+
+        file = command_options.pop('config_file', CONFIG_FILE)
+        absolute = os.path.abspath(os.path.expanduser(file))
+        # Handle missing config files:
+        if not os.path.exists(absolute):
+            wants_write = cls.write_with_approval(
+                absolute,
+                overrides=bar_options
+            )
+            if not wants_write:
+                # Forget all this config file business.
+                # Our new user is in a hurry, so
+                # just give them what they need:
+                return cls(bar_options)
+
+        try:
+            config = cls.from_file(absolute, overrides=bar_options)
+        except FileNotFoundError as e:
+            write_ok = cls.write_with_approval(absolute, overrides=bar_options)
+            if not write_ok:
+                parser.quit("Exiting...")
+            config = cls.from_file(file, overrides=bar_options)
+
+        except OSError as e:
+            e.add_note("Exiting...")
+            raise e from None
+
+        except KeyboardInterrupt:
+            parser.quit()
+
+        return config
+
+    @classmethod
     def write_with_approval(
         cls,
         file: PathLike = None,
@@ -268,15 +329,13 @@ class BarConfig(dict):
             override, defaults to :attr:`Bar._default_params`
         :type defaults: :class:`namespaces.BarSpec`
         '''
-        if defaults is None:
-            defaults = Bar._default_params.copy()
-        un_pythoned = cls._remove_unserializable(defaults | spec)
+        unpythoned = cls._remove_unserializable(spec, defaults=defaults)
         absolute = os.path.abspath(os.path.expanduser(file))
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
 
-        text = scuff.py_to_scuff(un_pythoned)
-        with open(absolute, 'w') as f:
+        text = scuff.py_to_scuff(unpythoned)
+        with open(os.path.expanduser(absolute), 'w') as f:
             f.write(text)
 
     @staticmethod
@@ -324,24 +383,32 @@ class BarConfig(dict):
             defaults to :attr:`Bar._default_params`
         :type defaults: :class:`namespaces.BarSpec`
         '''
-        if defaults is None:
-            defaults = Bar._default_params.copy()
-        un_pythoned = cls._remove_unserializable(defaults | spec)
+        un_pythoned = cls._remove_unserializable(spec, defaults=defaults)
         absolute = os.path.abspath(os.path.expanduser(file))
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
-        with open(absolute, 'w') as f:
+        with open(os.path.expanduser(absolute), 'w') as f:
             json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
 
     @staticmethod
-    def _remove_unserializable(spec: BarConfigSpec) -> BarConfigSpec:
+    def _remove_unserializable(
+        spec: BarConfigSpec,
+        *,
+        defaults: BarSpec = None
+    ) -> BarConfigSpec:
         '''
         Remove Python-specific API elements like functions which cannot
         be serialized for writing to config files.
 
         :param spec: The :class:`namespaces.BarConfigSpec` to convert
         :type spec: :class:`namespaces.BarConfigSpec`
+
+        :param defaults: Any default params that `spec` should override,
+            defaults to :attr:`Bar._default_params`
+        :type defaults: :class:`namespaces.BarSpec`
         '''
+        if defaults is None:
+            defaults = Bar._default_params.copy()
         newspec = spec.copy()
         newspec.pop('config_file', None)
 
@@ -358,7 +425,6 @@ class BarConfig(dict):
 
         return newspec
 
-    #TODO: _as_scuff() method!
     @classmethod
     def _as_json(cls, spec: BarSpec = {}, indent: int = 4) -> JSONText:
         '''
@@ -818,6 +884,17 @@ class Bar:
         bar = cls.from_config(config, overrides=overrides)
         bar._file = config.file
         return bar
+
+    @classmethod
+    def from_cli(cls) -> Self:
+        '''
+        Return a new :class:`Bar` using command line arguments.
+
+        :returns: a new :class:`Bar` using command line arguments
+        :rtype: :class:`Bar`
+        '''
+        config = BarConfig.from_stdin()
+        return cls.from_config(config)
 
     @property
     def clearline_char(self) -> str:
