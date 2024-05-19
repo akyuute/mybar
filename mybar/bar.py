@@ -146,11 +146,6 @@ class BarConfig(dict):
         # Remove invalid API-only parameters:
         options = cls._remove_unserializable(options)
 
-        # Do not mix overrides and defaults for these;
-        # get one or the other:
-        for opt in ('field_order', 'field_icons'):
-            options[opt] = overrides.get(opt, from_file.get(opt))
-
         config = cls(options, defaults)
         config.file = absolute
         config.file_contents = text
