@@ -143,6 +143,16 @@ _`Field options`
     - `kwargs`
         `(mapping)` Keyword args passed to `func`
 
+    - `command`
+        `(string)` A shell command to run
+
+    - `script`
+        `(string)` The path to a shell script to run
+
+    - `allow_multiline`
+        `(bool)` Don't join the output of a command or script
+        if it spans multiple lines, defaults to ``False``
+
 
 - Custom Fields
     New positionable Fields with custom values are specified with the `custom` option.

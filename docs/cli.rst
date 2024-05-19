@@ -7,13 +7,15 @@ Synopsis
 
 .. code:: none
 
-    python -m mybar [--help] [--template 'TEMPLATE' | --fields FIELDNAME1 [FIELDNAME2 ...]]
-                    [--separator 'FIELD_SEPARATOR'] [--join-empty]
-                    [--options FIELD1.OPTION='VAL' [FIELD2.OPTION='VAL' ...]]
-                    [--refresh REFRESH] [--count TIMES] [--break-lines]
-                    [--icons FIELDNAME1='ICON1' [FIELDNAME2='ICON2' ...]]
-                    [--unicode] [--no-unicode] [--config FILE] [--dump] [--debug]
-                    [--version]
+   python -m mybar [--help] [--template 'TEMPLATE' | --fields FIELDNAME1 [FIELDNAME2 ...]]
+                   [--separator 'FIELD_SEPARATOR'] [--join-empty]
+                   [--options FIELD1.OPTION='VAL' [FIELD2.OPTION='VAL' ...]]
+                   [--refresh REFRESH] [--count TIMES] [--break-lines]
+                   [--icons FIELDNAME1='ICON1' [FIELDNAME2='ICON2' ...]]
+                   [--from-icons FIELDNAME1='ICON1' [FIELDNAME2='ICON2' ...]]
+                   [--unicode] [--no-unicode] [--config FILE] [--dump] [--debug]
+                   [--version]
+
 
 Options
 -------
@@ -50,6 +52,11 @@ Options
 .. option:: --icons FIELDNAME1='ICON1' [FIELDNAME2='ICON2' ...], -i FIELDNAME1='ICON1' [FIELDNAME2='ICON2' ...]
 
    A mapping of field names to icons.
+
+.. option:: --from-icons FIELDNAME1='ICON1' [FIELDNAME2='ICON2' ...]
+
+    A mapping of Field names to icons.
+    Use for the Field order as well.
 
 .. option:: --unicode, -u
 
