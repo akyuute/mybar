@@ -141,7 +141,6 @@ class BarConfig(dict):
         except OSError as e:
             raise e.with_traceback(None)
 
-        from_file = cls._unify_field_defs(from_file)
         options = utils.nested_update(from_file, overrides)
 
         # Remove invalid API-only parameters:
@@ -215,6 +214,7 @@ class BarConfig(dict):
                 indent = command_options.pop('dump_config', None)
                 config = cls(bar_options)
                 parser.quit(cls._as_json(config, indent=indent))
+        #TODO: _as_scuff() method!
 
         file = command_options.pop('config_file', CONFIG_FILE)
         absolute = os.path.abspath(os.path.expanduser(file))
@@ -286,8 +286,8 @@ class BarConfig(dict):
 
         return False
 
-    @staticmethod
-    def _read_file(file: PathLike) -> tuple[BarSpec, FileContents]:
+    @classmethod
+    def _read_file(cls, file: PathLike) -> tuple[BarSpec, FileContents]:
         '''
         Read a given config file.
         Parse and convert its contents to a dict.
@@ -304,7 +304,8 @@ class BarConfig(dict):
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         p = scuff.FileParser(file=absolute)
-        data = p.to_py()
+        from_file = p.to_py()
+        data = cls._unify_field_defs(from_file)
         text = p._string
         return data, text
 
