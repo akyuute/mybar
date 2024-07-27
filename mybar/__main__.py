@@ -28,16 +28,8 @@ def main() -> None:
                     # Skip writing:
                     pass
 
-            write_ok = BarConfig.write_with_approval(
-                absolute, overrides=bar_options
-            )
-            if write_ok:
-                config = BarConfig.from_file(file, overrides=bar_options)
-            else:
-                # Forget all this config file business.
-                # Our new user is in a hurry, so
-                # just give them what they need:
-                config = BarConfig(bar_options)
+            config = BarConfig(bar_options)
+            config.write_with_approval(absolute)
 
         # Permissions error:
         except OSError as e:
@@ -51,7 +43,7 @@ def main() -> None:
         if command_options:
             if 'dump_config' in command_options:
                 indent = command_options.pop('dump_config', None)
-                parser.quit(BarConfig._as_json(config, indent=indent))
+                parser.quit(BarConfig.as_json(config, indent=indent))
 
         bar = Bar.from_config(config)
         bar.run()

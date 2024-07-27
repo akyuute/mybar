@@ -577,4 +577,5 @@ class FileManager:
         directory = os.path.dirname(absolute)
         if not os.path.exists(directory):
             os.mkdir(directory)
+            print(f"Made new directory {directory!r}")
 

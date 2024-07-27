@@ -14,6 +14,7 @@ import time
 from copy import deepcopy
 
 import scuff
+from scuff.tools import ScuffText
 
 from .constants import (
     CLEAR_LINE,
@@ -91,9 +92,11 @@ class BarConfig(dict):
 
         # This is why we subclass dict:
         self.update(self.defaults | self.options)
+        self._remove_unserializable()
+        self._unify_field_defs()
         self.file = None
         self.file_contents = None
-        debug = self.options.pop('debug', None) or DEBUG
+        # debug = options.get('debug', None) or DEBUG
 
     def __repr__(self) -> str:
         cls = type(self).__name__
@@ -143,23 +146,23 @@ class BarConfig(dict):
 
         options = utils.nested_update(from_file, overrides)
 
-        # Remove invalid API-only parameters:
-        options = cls._remove_unserializable(options)
-
         config = cls(options, defaults)
         config.file = absolute
         config.file_contents = text
         return config
 
     @classmethod
-    def _unify_field_defs(cls, params: BarConfigSpec) -> BarConfigSpec:
+    def validate(cls, ) -> bool | NoReturn:
+        '''
+        Check if the config file has errors.
+        '''
+
+    def _unify_field_defs(self) -> Self:
         '''
         Gather loose Field definitions and join them with any others
-        found in a `field_definitions` item of `params`, if it exists.
-        Return a config with a unified `field_definitions`.
-
-        :param params: The config to process
-        :type params: :class:`namespaces.BarConfigSpec`
+        found in a `field_definitions`, if it exists.
+        Return the updated :class:`BarConfig` with its new consolidated
+        `field_definitions`.
 
         :returns: The processed config
         :rtype: :class:`namespaces.BarConfigSpec`
@@ -168,25 +171,24 @@ class BarConfig(dict):
             BarConfigSpec.__optional_keys__
             | BarConfigSpec.__required_keys__
         )
-        config = params.copy()
-        defs = config.pop('field_definitions', {})
-        for maybe_def in params:
-            if maybe_def not in all_except_defs:
-                defs[maybe_def] = config.pop(maybe_def)
+        defs = self.pop('field_definitions', {})
+        config = self.copy()
+        for param in self:
+            if param not in all_except_defs:
+                field_def = self.pop(param)
+                if not isinstance(field_def, Mapping):
+                    msg = f"Invalid config file option: {field_def!r}"
+                    raise ValueError(msg)
+                defs[param] = field_def
 
         # Remove command line options:
         for option in _CmdOptionSpec.__optional_keys__:
             defs.pop(option, None)
 
-        config['field_definitions'] = defs
-        return config
+        self['field_definitions'] = defs
+        return self
 
-    @classmethod
-    def write_with_approval(
-        cls,
-        file: PathLike = None,
-        overrides: BarSpec = {},
-    ) -> bool:
+    def write_with_approval(self, file: PathLike = None) -> bool:
         '''
         Write a config file to `file`.
         Prompt the user for approval before writing.
@@ -204,17 +206,7 @@ class BarConfig(dict):
             dft_choice=True
         )
         if approved:
-            try:
-                cls._write_file(file, overrides)
-            except FileNotFoundError as e:
-                try:
-                    path = os.path.dirname(e.filename)
-                    os.mkdir(path)
-                    print(f"Made new directory {path!r}")
-                    cls._write_file(file, overrides)
-                except OSError as e:
-                    raise e from None
-
+            self._write_file(file)
             print(f"Wrote new config file to {file!r}")
             return True
 
@@ -243,44 +235,24 @@ class BarConfig(dict):
         text = p._string
         return data, text
 
-    @classmethod
-    def _write_file(
-        cls,
-        file: PathLike,
-        spec: BarSpec = {},
-        indent: int = 4,
-        *,
-        defaults: BarSpec = None
-    ) -> None:
+    def _write_file(self, file: PathLike, indent: int = 4) -> None:
         '''
         Write :class:`BarConfig` params to a config file.
 
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param spec: The :class:`namespaces.BarSpec` to write
-        :type spec: :class:`namespaces.BarSpec`, optional
-
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
-
-        :param defaults: Any default parameters that `spec` should
-            override, defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`namespaces.BarSpec`
         '''
-        if defaults is None:
-            defaults = Bar._default_params.copy()
-        un_pythoned = cls._remove_unserializable(defaults | spec)
         absolute = os.path.abspath(os.path.expanduser(file))
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
-
-        text = scuff.py_to_scuff(un_pythoned)
         with open(absolute, 'w') as f:
-            f.write(text)
+            f.write(self.as_scuff() + '\n')
 
-    @staticmethod
-    def _read_json(file: PathLike) -> tuple[BarConfigSpec, JSONText]:
+    @classmethod
+    def _read_json(cls, file: PathLike) -> tuple[BarConfigSpec, JSONText]:
         '''
         Read a given JSON config file.
         Convert its contents to a dict and return it along with the
@@ -295,57 +267,35 @@ class BarConfig(dict):
         '''
         absolute = os.path.abspath(os.path.expanduser(file))
         with open(absolute, 'r') as f:
-            data = json.load(f)
+            from_file = json.load(f)
             text = f.read()
+        data = cls._unify_field_defs(from_file)
         return data, text
 
-    @classmethod
-    def _write_json(
-        cls,
-        file: PathLike,
-        spec: BarSpec = {},
-        indent: int = 4,
-        *,
-        defaults: BarSpec = None
-    ) -> None:
+    def _write_json(self, file: PathLike, indent: int = 4) -> None:
         '''
-        Write :class:`BarConfig` params to a JSON file.
+        Write the :class:`BarConfig` params to a JSON file.
 
         :param file: The file to write to
         :type file: :class:`PathLike`
 
-        :param spec: The :class:`namespaces.BarSpec` to write
-        :type spec: :class:`namespaces.BarSpec`, optional
-
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
-
-        :param defaults: Any default params that `spec` should override,
-            defaults to :attr:`Bar._default_params`
-        :type defaults: :class:`namespaces.BarSpec`
         '''
-        if defaults is None:
-            defaults = Bar._default_params.copy()
-        un_pythoned = cls._remove_unserializable(defaults | spec)
         absolute = os.path.abspath(os.path.expanduser(file))
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
         with open(absolute, 'w') as f:
             json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
 
-    @staticmethod
-    def _remove_unserializable(spec: BarConfigSpec) -> BarConfigSpec:
+    def _remove_unserializable(self) -> Self:
         '''
         Remove Python-specific API elements like functions which cannot
         be serialized for writing to config files.
-
-        :param spec: The :class:`namespaces.BarConfigSpec` to convert
-        :type spec: :class:`namespaces.BarConfigSpec`
         '''
-        newspec = spec.copy()
-        newspec.pop('config_file', None)
+        self.pop('config_file', None)
 
-        fields = newspec.pop('field_definitions', {})
+        fields = self.pop('field_definitions', {})
         # Throw away unneeded Field implementation details:
         newfields = {}
         for name, params in fields.items():
@@ -354,24 +304,25 @@ class BarConfig(dict):
                 if param not in FieldSpec.unserializable
             }
         if newfields:
-            newspec['field_definitions'] = newfields
+            self['field_definitions'] = newfields
 
-        return newspec
+        return self
 
-    #TODO: _as_scuff() method!
-    @classmethod
-    def _as_json(cls, spec: BarSpec = {}, indent: int = 4) -> JSONText:
+    def as_scuff(self) -> ScuffText:
+        '''
+        Return a :class:`BarConfig` as a string with Scuff formatting.
+        '''
+        scuffer = scuff.PyParser(unquoted=tuple(Field._default_fields))
+        return scuffer.to_scuff(self)
+
+    def as_json(self, indent: int = 4) -> JSONText:
         '''
         Return a :class:`BarConfig` as a string with JSON formatting.
-
-        :param spec: The :class:`namespaces.BarSpec` to convert
-        :type spec: :class:`namespaces.BarSpec`, optional
 
         :param indent: How many spaces to indent by, defaults to ``4``
         :type indent: :class:`int`
         '''
-        cleaned = cls._remove_unserializable(spec)
-        return json.dumps(cleaned, indent=indent)
+        return json.dumps(self, indent=indent)
 
 
 class Bar:
