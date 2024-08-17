@@ -173,17 +173,21 @@ class BarConfig(dict):
         )
         defs = self.pop('field_definitions', {})
         config = self.copy()
-        for param in self:
+        for param in tuple(self):
             if param not in all_except_defs:
                 field_def = self.pop(param)
                 if not isinstance(field_def, Mapping):
-                    msg = f"Invalid config file option: {field_def!r}"
-                    raise ValueError(msg)
+                    raise ValueError(
+                        f"Invalid config file option: {field_def!r}"
+                    )
+                # The name of the Field defintion overrides this option:
+                field_def.pop('name', None)
                 defs[param] = field_def
 
         # Remove command line options:
         for option in _CmdOptionSpec.__optional_keys__:
             defs.pop(option, None)
+
 
         self['field_definitions'] = defs
         return self
