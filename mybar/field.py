@@ -64,10 +64,11 @@ class Field:
         `constant_output` is set
     :type func: :class:`FieldFunc`
 
-    :param icon: The Field icon, positioned in front of Field contents
-        or in place of ``{icon}`` in `template`, if provided,
-        defaults to ``''``
-    :type icon: :class:`str`
+    :param icon: The Field icon (or a sequence of one for ASCII terminals
+        and one for terminals that support Unicode fonts) positioned in
+        front of Field contents or in place of ``{icon}`` in `template`,
+        if provided, defaults to ``''``
+    :type icon: :class:`Icon` | `Sequence[ASCII_Icon, Unicode_Icon]`
 
     :param template: A curly-brace format string. This parameter is
         **required** if `icon` is ``None``.
