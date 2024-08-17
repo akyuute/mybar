@@ -279,34 +279,32 @@ class Field:
         script: PathLike = None,
         allow_multiline: bool = False,
     ) -> None:
+        if all(_ is None for _ in (func, script, command, constant_output)):
+            #NOTE: This will change when dynamic icons and templates are
+            # implemented.
+            raise IncompatibleArgsError(
+                "Either a function `func` that returns a string, a"
+                " shell script `script`, a shell command `command` or"
+                " a `constant_output` string is required."
+            )
 
         if script is not None:
             script = os.path.abspath(script)
             command = self._fetch_script(script)
+            if name is None:
+                name = os.path.basename(script)
         if command is not None:
             func = self._run_command
-            if script is not None:
-                name = os.path.basename(script)
-            else:
+            if name is None:
                 name = command.split(None, 1)[0]
-
-        if constant_output is None:
-            #NOTE: This will change when dynamic icons and templates are
-            # implemented.
-            if func is None:
-                raise IncompatibleArgsError(
-                    f"Either a function `func` that returns a string or "
-                    f"a `constant_output` string is required."
-                )
-            if not callable(func):
-                raise TypeError(
-                    f"Type of `func` must be callable, not {type(func)}"
-                )
-
-        if name is None and callable(func):
+        elif not callable(func) and constant_output is None:
+            raise TypeError(
+                f"Type of `func` must be callable, not {type(func)}"
+            )
+        elif name is None:
             name = func.__name__
-        self.name = name
 
+        self.name = name
         self._func = func
         self.args = () if args is None else args
         self.kwargs = {} if kwargs is None else kwargs
@@ -320,6 +318,8 @@ class Field:
 
         if isinstance(icon, str):
             icon = (icon, icon)
+        elif not icon:
+            icon = ('', '')
         elif not isinstance(icon, Sequence):
             raise TypeError("`icon` must be a sequence")
         self._icons = icon
@@ -331,7 +331,6 @@ class Field:
         self.template = template
 
         self.is_async = asyncio.iscoroutinefunction(func)
-
         if self.is_async or threaded or timely:
             self._callback = func
         else:
