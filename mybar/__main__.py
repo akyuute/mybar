@@ -23,13 +23,10 @@ def main() -> None:
 
         # Handle missing config files:
         except FileNotFoundError as e:
-            if command_options:
-                if 'dump_config' in command_options:
-                    # Skip writing:
-                    pass
-
             config = BarConfig(bar_options)
-            config.write_with_approval(absolute)
+            if 'dump_config' not in command_options:
+                # Skip write if we're just printing the config.
+                config.write_with_approval(absolute)
 
         # Permissions error:
         except OSError as e:
@@ -40,10 +37,9 @@ def main() -> None:
             parser.quit()
 
         # Handle options that alter the behavior of the command itself:
-        if command_options:
-            if 'dump_config' in command_options:
-                indent = command_options.pop('dump_config', None)
-                parser.quit(BarConfig.as_json(config, indent=indent))
+        if 'dump_config' in command_options:
+            indent = command_options.pop('dump_config', None)
+            parser.quit(BarConfig.as_json(config, indent=indent))
 
         bar = Bar.from_config(config)
         bar.run()
