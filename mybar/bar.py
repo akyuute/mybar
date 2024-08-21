@@ -138,16 +138,17 @@ class BarConfig(dict):
 
         if file is None:
             file = overrides.pop('config_file', CONFIG_FILE)
-        absolute = os.path.abspath(os.path.expanduser(file))
+        is_json = (os.path.splitext(file)[1] == '.json')
+        reader = (cls._read_file, cls._read_json)[is_json]
         try:
-            from_file, text = cls._read_file(absolute)
+            from_file, text = reader(file)
         except OSError as e:
             raise e.with_traceback(None)
 
         options = utils.nested_update(from_file, overrides)
 
         config = cls(options, defaults)
-        config.file = absolute
+        config.file = file
         config.file_contents = text
         return config
 
@@ -209,8 +210,10 @@ class BarConfig(dict):
             file,
             dft_choice=True
         )
+        is_json = (os.path.splitext(file)[1] == '.json')
+        writer = (self._write_file, self._write_json)[is_json]
         if approved:
-            self._write_file(file)
+            writer(file)
             print(f"Wrote new config file to {file!r}")
             return True
 
@@ -290,7 +293,7 @@ class BarConfig(dict):
         if absolute == CONFIG_FILE and not os.path.exists(absolute):
             cli.FileManager._maybe_make_config_dir()
         with open(absolute, 'w') as f:
-            json.dump(un_pythoned, f, indent=indent, ) #separators=(',\n', ': '))
+            f.write(json.dumps(self, indent=indent) + '\n')
 
     def _remove_unserializable(self) -> Self:
         '''
