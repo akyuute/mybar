@@ -17,11 +17,10 @@ from ._types import (
     FormatterFname,
     FormatterFormatSpec,
     FormatterConversion,
-    Duration
 )
 
-from collections.abc import Callable, Container, Hashable, Iterable, Iterator
-from typing import Any, NamedTuple, NoReturn, Self, TypeAlias
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from typing import Any, NamedTuple, NoReturn, Self
 
 
 class FormatStringError(ValueError):
@@ -104,18 +103,19 @@ class FormatterFieldSig(NamedTuple):
         field = parsed[0]
 
         # Does the field have a fieldname?
-        if field[1] == '':
+        lit, name, spec, conv = field
+        if name == '':
             # No; it's positional.
-            start = len(field[0])
+            start = len(lit) + 1
             err = (
-                f"The format string field at character {start} in {fmt!r} is "
-                f"missing a fieldname.\n"
-                 "Positional fields ('{}' for example) are not allowed "
-                 "for this operation."
+                f"The format string field at character {start}"
+                f" in {fmt!r} is missing a fieldname.\n"
+                 "Positional fields (empty '{}') are not allowed"
+                 " for this operation."
             )
             raise MissingFieldnameError(err)
 
-        sig = cls(*field)
+        sig = cls(lit, name, spec, conv)
         return sig
 
     def as_string(
@@ -158,9 +158,11 @@ class FormatterFieldSig(NamedTuple):
 
 class FmtStrStructure(tuple[FormatterFieldSig]):
     '''
-    Represents the structure of a whole format string broken up by
-    :meth:`string.Formatter.parse` into a tuple of
-    :class:`FormatterFieldSig`, one for each replacement field.
+    Represents the structure of a whole format string broken up by the
+    standard library's `string.Formatter.parse()
+    <https://docs.python.org/3/library/string.html#string.Formatter>`_
+    into a tuple of :class:`FormatterFieldSig`,
+    one for each replacement field.
     '''
     def __repr__(self) -> str:
         return type(self).__name__ + tuple.__repr__(self)
@@ -189,7 +191,7 @@ class FmtStrStructure(tuple[FormatterFieldSig]):
 
     def validate_fields(
         self,
-        valid_names: Container[FormatterFname] | None = None,
+        valid_names: Iterable[FormatterFname] | None = None,
         check_positionals: bool = False,
         check_specs: bool = False,
     ) -> bool | NoReturn:
@@ -202,7 +204,7 @@ class FmtStrStructure(tuple[FormatterFieldSig]):
             Raise :exc:`InvalidFormatStringFieldNameError` for any fields
             with names not in `valid_names`.
             When `valid_names` is ``None``, field names are not checked.
-        :type valid_names: Container[:class:`FormatterFname`]
+        :type valid_names: Iterable[:class:`FormatterFname`]
 
         :param check_positionals: Ensure each field has a name,
             defaults to ``False``.
@@ -236,7 +238,7 @@ class FmtStrStructure(tuple[FormatterFieldSig]):
                 # Issue an actionable error message:
                 epilogue = (
                     "Bar format string fields must all have fieldnames."
-                    "\nPositional fields ('{}' for example) are invalid."
+                    "\nPositional fields (empty '{}') are invalid."
                 )
                 raise MissingFieldnameError.with_highlighting(self, epilogue)
 
@@ -377,7 +379,7 @@ class ConditionalFormatStr:
 
         :returns: A nested tuple of the string's fieldnames
             and its :class:`FmtStrStructure`
-        :rtype: :class:`tuple[tuple[FormatterFname], FmtStrStructure]`
+        :rtype: :class:`tuple[tuple[:class:`FormatterFname], :class:`FmtStrStructure`]
         '''
         if sep is None:
             sep = self.sep
@@ -427,7 +429,7 @@ class ConditionalFormatStr:
         return fnames, groups
 
     def format(self,
-        namespace: dict[FormatterFname, Any],
+        namespace: Mapping[FormatterFname, Any],
         predicate: Callable[[Any], bool] = bool,
         sep: str = None,
         substitute: str = None,
@@ -440,7 +442,7 @@ class ConditionalFormatStr:
         If specified, `substitute` will replace invalid fields instead.
 
         :param namespace: A mapping with values to which fieldnames refer
-        :type namespace: :class:`dict[FormatterFname]`
+        :type namespace: :class:`Mapping`[:class:`FormatterFname`]
 
         :param predicate: A callable to determine whether a field should be
             printed, defaults to :func:`bool`
@@ -587,7 +589,7 @@ class ElapsedTime:
     @classmethod
     def in_desired_units(cls,
         secs: int,
-        units: tuple[Duration]
+        units: Iterable[Duration]
     ) -> dict[Duration, int]:
         '''
         Convert seconds to multiple units of time.
@@ -614,7 +616,7 @@ class ElapsedTime:
         :type secs: :class:`int`
 
         :param units: Units to convert
-        :type units: :class:`tuple[Duration]`
+        :type units: :class:`Iterable`[:class:`Duration`]
 
         :returns: A mapping of unit names to amount of time in those units
         :rtype: :class:`dict[Duration, int]`
@@ -656,8 +658,8 @@ class ElapsedTime:
 def format_uptime(
     secs: int,
     sep: str,
-    namespace: dict[Duration, int],
-    groups: tuple[tuple[FormatterFieldSig]],
+    namespace: Mapping[Duration, int],
+    groups: Iterable[Iterable[FormatterFieldSig]],
     *args,
     **kwargs
 ) -> str:
@@ -673,12 +675,12 @@ def format_uptime(
     :type sep: :class:`str`
 
     :param namespace: A mapping of time unit names to :class:`int`
-    :type namespace: dict[:class:`Unit`, :class:`int`]
+    :type namespace: :class:`Mapping`[:class:`Unit`, :class:`int`]
 
     :param groups: A format string broken up by
         :func:`_setups.setup_uptime` into tuples of
         :class:`FormatterFieldSig` based on the locations of `separator`
-    :type groups: tuple[tuple[:class:`FormatterFieldSig`]]
+    :type groups: :class:`Iterable`[:class:`Iterable`[:class:`FormatterFieldSig`]]
     '''
     newgroups = []
     for i, group in enumerate(groups):
