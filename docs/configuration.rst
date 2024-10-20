@@ -2,7 +2,7 @@ Config Files
 =============
 
 **mybar** uses the `Scuff <https://github.com/akyuute/scuff>`_
-language to process data from and write to config files.
+language to process data from and write to config files, or JSON.
 
 The default config file location is ``~/.config/mybar/mybar.conf``
 
@@ -17,7 +17,7 @@ _`Bar options`
     The following options are used to control how the bar runs:
 
     - `refresh`
-        `(float)` The bar's refresh rate in seconds per cycle.
+        `(float)` How often in seconds the bar automatically prints itself.
 
     - `separator`
         `(string)` A string or list of strings (one for ASCII terminals, one
@@ -82,10 +82,10 @@ _`Bar options`
 
             datetime {
                 interval 3
-                fmt "{} o'clock"
+                template "{} o'clock"
             }
 
-            cpu_usage {threaded=False}
+            cpu_usage {threaded no}
 
             
 .. note::
@@ -112,7 +112,7 @@ _`Field options`
             | ``template='[{icon}]: {}'`` shows as ``'[TEMP]: 69F'``
 
     - `interval`
-        `(float)` How often in seconds per update Field contents are updated, defaults to ``1.0``
+        `(float)` How often in seconds Field contents are updated, defaults to ``1.0``
 
     - `clock_align`
         `(bool)` Update contents at the start of each second, defaults to ``False``
@@ -179,7 +179,7 @@ Here is an example config file:
         cpu_usage
         cpu_temp
         mem_usage
-        # disk_usage
+        disk_usage
         battery
         net_stats
         datetime
@@ -195,14 +195,14 @@ Here is an example config file:
         net_stats ["", "\uf1eb "]
     }
 
-    datetime {interval 10}
+    datetime {interval 0.1}
 
     # Give the time function a different format:
     datetime.kwargs.fmt '%H:%M:%S.%f'
 
     my_custom_field {
         custom yes
-        constant_output "Hi!"
-        template " {} "
+        script "check-email.sh"
+        interval 60
     }
 

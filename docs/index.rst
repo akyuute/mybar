@@ -236,18 +236,24 @@ This section introduces the core concepts that aid in customizing **mybar**.
       by other status bar frameworks.
 - *Field function*
       The function a `Field` runs to determine what it should contain.
-- *Refresh cycle*
-      The time it takes the `Bar` to run all its Fields and update its contents once.
 - *Refresh rate*
-      How often the `Bar` updates what it says, in seconds per refresh.
+      How often the `Bar` updates what it says, in seconds.
 - *Interval*
-      How often a `Field` runs its Field function, in seconds per cycle.
+      How often in seconds `Field` contents are updated.
+      This can differ from the `refresh rate`,
+      but generally should not be smaller than it.
+- *Template*
+      A template string that specifies how a `Bar` should be formatted.
+      `Field` names put in curly brackets (``{}``) are replaced by their
+      dynamically updated contents. Individual `Fields` can also have
+      their own `templates`.
 - *Separator*
-      A string that separates one `Field` from another
-- *Format string*
-      A special string that controls how `Fields` and their contents are displayed.
+      A string that separates each `Field` from the other in the `Bar`
+      when not using a `template`.
 - *Icon*
       A string appearing with each `Field`, usually unique to each.
+      A `Field` using its own `template` can place it anywhere inside
+      itself with the ``{icon}`` specifier.
 
 
 .. `Field funcs` are Python functions that return the contents of a `Field`.
