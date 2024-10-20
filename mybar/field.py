@@ -84,8 +84,8 @@ class Field:
 
     :type template: :class:`FormatStr`
 
-    :param interval: How often in seconds per update Field contents are
-        updated, defaults to ``1.0``
+    :param interval: How often in seconds Field contents are updated,
+        defaults to ``1.0``
     :type interval: :class:`float`
 
     :param clock_align: Update contents at the start of each second,
@@ -434,8 +434,8 @@ class Field:
         '''
         Get a :class:`Field` from a curly-brace field in a format string.
 
-        :param template: The format string to convert
-        :type template: :class`FormatStr`
+        :param fmt: The format string to convert
+        :type fmt: :class`FormatStr`
         '''
         sig = FormatterFieldSig.from_str(fmt)
         field = cls.from_default(sig.name)

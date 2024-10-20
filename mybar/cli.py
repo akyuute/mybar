@@ -295,7 +295,7 @@ class ArgParser(ArgumentParser):
             '--refresh', '-r',
             dest='refresh',
             help=(
-                "The bar's refresh rate in seconds per cycle."
+                "How often in seconds the bar automatically prints itself."
             ),
             type=float,
         )

@@ -356,7 +356,7 @@ class Bar:
         Sequence[:class:`ASCII_Separator`,
         :class:`Unicode_Separator`], optional
 
-    :param refresh: How often in seconds the bar automatically redraws
+    :param refresh: How often in seconds the bar automatically prints
         itself, defaults to ``1.0``
     :type refresh: :class:`float`
 
@@ -406,7 +406,7 @@ class Bar:
         neither `template` nor `fields` are given
     :raises: :exc:`errors.IncompatibleArgsError` when
         `template` is ``None``
-        but no `separator` given
+        but no `separator` is given
     :raises: :exc:`TypeError` when `fields` is not iterable, or when
         `template` is not a string
     '''
@@ -457,8 +457,8 @@ class Bar:
 
             if template is None:
                 raise IncompatibleArgsError(
-                    f"Either a list of Fields `fields` "
-                    f"or a format string `template` is required."
+                    "Either a list of Fields `fields` "
+                    "or a format string `template` is required."
                 )
 
             elif not isinstance(template, str):
