@@ -17,8 +17,6 @@ from os import PathLike
 
 from . import field_funcs
 from . import _setups
-from . import utils
-from .constants import DEBUG
 from .errors import *
 from .formatting import FormatterFieldSig
 from .namespaces import FieldSpec
@@ -37,14 +35,10 @@ from ._types import (
     Unicode_Icon,
 )
 
-from collections.abc import Callable, Sequence
+from collections.abc import Mapping, Sequence
 from typing import (
-    NamedTuple,
     Never,
-    Required,
     Self,
-    TypeAlias,
-    TypeVar
 )
 
 
@@ -57,7 +51,7 @@ class Field:
     :meth:`Field.from_default`.
 
     :param name: A unique identifier for the new Field,
-        defaults to `func`.:attr:`__name__`
+        defaults to `func`.__name__
     :type name: :class:`str`
 
     :param func: The Python function to run at every `interval` if no
@@ -68,7 +62,7 @@ class Field:
         and one for terminals that support Unicode fonts) positioned in
         front of Field contents or in place of ``{icon}`` in `template`,
         if provided, defaults to ``''``
-    :type icon: :class:`Icon` | `Sequence[ASCII_Icon, Unicode_Icon]`
+    :type icon: :class:`Icon` | :class:`Sequence`[ASCII_Icon, Unicode_Icon]`
 
     :param template: A curly-brace format string. This parameter is
         **required** if `icon` is ``None``.
@@ -390,7 +384,7 @@ class Field:
         name: str,
         *,
         overrides: FieldSpec = {},
-        source: dict[FieldName, FieldSpec] = None,
+        source: Mapping[FieldName, FieldSpec] = None,
         fmt_sig: FormatStr = None
     ) -> Self:
         '''Quickly get a default Field and customize its parameters.
@@ -403,7 +397,7 @@ class Field:
 
         :param source: The :class:`dict` in which to look up default fields,
             defaults to :attr:`Field._default_fields`
-        :type source: dict[:class:`FieldName`, :class:`namespaces.FieldSpec`]
+        :type source: :class:`Mapping[FieldName, namespaces.FieldSpec]`
 
         :returns: A new :class:`Field`
         :rtype: :class:`Field`
@@ -924,9 +918,4 @@ class Field:
             name=self.name  # #NOTE Eventually, id(self)
         )
         return thread
-
-
-type FieldPrecursor = FieldName | Field | FormatterFieldSig
-from . import _types
-FieldPrecursor = FieldPrecursor
 

@@ -26,10 +26,9 @@ from .constants import (
 )
 
 from . import cli
-from . import field_funcs
 from . import utils
 from .errors import *
-from .field import Field, FieldPrecursor
+from .field import Field
 from .formatting import FmtStrStructure, FormatterFieldSig
 from .namespaces import BarConfigSpec, BarSpec, FieldSpec, _CmdOptionSpec
 from ._types import (
@@ -41,6 +40,7 @@ from ._types import (
     ConsoleControlCode,
     FieldName,
     FieldOrder,
+    FieldPrecursor,
     FileContents,
     FormatStr,
     Icon,
@@ -57,8 +57,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from os import PathLike
 from typing import (
     IO,
-    NoReturn,
-    Required,
+    Never,
     Self,
 )
 
@@ -153,7 +152,7 @@ class BarConfig(dict):
         return config
 
     @classmethod
-    def validate(cls, ) -> bool | NoReturn:
+    def validate(cls, ) -> bool | Never:
         '''
         Check if the config file has errors.
         '''
@@ -173,7 +172,6 @@ class BarConfig(dict):
             | BarConfigSpec.__required_keys__
         )
         defs = self.pop('field_definitions', {})
-        config = self.copy()
         for param in tuple(self):
             if param not in all_except_defs:
                 field_def = self.pop(param)
@@ -533,7 +531,7 @@ class Bar:
         self._config = None
 
     def __contains__(self, field: FieldPrecursor) -> bool:
-        if isinstance(other, str):
+        if isinstance(field, str):
             weak_test = (field in self._field_order)
             return weak_test
         elif isinstance(field, Field):
@@ -721,9 +719,9 @@ class Bar:
                             blame=f"{name!r}",
                             expected=expctd_name,
                             epilogue=(
-                                f"(In config files, remember to set"
-                                f" `custom=true`"
-                                f" for custom field definitions.)"
+                                "(In config files, remember to set"
+                                " `custom=true`"
+                                " for custom field definitions.)"
                             ),
                         )
                         raise exc from None
@@ -778,7 +776,7 @@ class Bar:
         return bar
 
     @property
-    def clearline_char(self) -> str:
+    def clearline_char(self) -> ConsoleControlCode:
         '''
         A special character printed to TTY streams between refreshes.
         Its purpose is to clear characters left behind by longer lines.
@@ -789,7 +787,6 @@ class Bar:
             return CLEAR_LINE + self._endline
         else:
             return ''
-        return clearline
 
     @property
     def fields(self) -> tuple[Field]:
@@ -870,7 +867,7 @@ class Bar:
     def _check_stream(
         stream: IO,
         raise_on_fail: bool = True
-    ) -> NoReturn | None:
+    ) -> Never | None:
         '''
         Check if an IO stream has proper methods for use by :class:`Bar`.
         If any methods are missing,
@@ -933,13 +930,13 @@ class Bar:
                     new_field._bar = self
                 case str(name):
                     new_field = Field.from_default(
-                        name=field,
+                        name=name,
                         overrides={'bar': self},
                     )
                 case FormatterFieldSig(name=None):
                         # Skip sigs that lack fields:
                         continue
-                case FormatterFieldSig():
+                case FormatterFieldSig(name):
                     new_field = Field.from_default(
                         name=field.name,
                         overrides={'bar': self}
@@ -1222,7 +1219,7 @@ class Bar:
         using_format_str = (self.template is not None)
         beginning = self.clearline_char
 
-        start_time = time.time()
+        # start_time = time.time()
         while self._running():
 
             try:
